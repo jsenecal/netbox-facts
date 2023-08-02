@@ -9,11 +9,11 @@ from extras.plugins import PluginConfig
 
 
 class FactsConfig(PluginConfig):
-    name = 'netbox_facts_plugin'
+    name = 'netbox_facts'
     verbose_name = 'NetBox Facts Plugin'
-    description = 'Gather operational facts ab'
+    description = 'Gather operational facts from supported NetBox Devices'
     version = 'version'
-    base_url = 'netbox_facts_plugin'
+    base_url = 'facts'
 
 
 config = FactsConfig
