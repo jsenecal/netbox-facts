@@ -12,8 +12,18 @@ theme:
   language: en
   #logo: assets/logo.png
   palette:
-    scheme: preference
-    primary: indigo
+    scheme:  # Palette toggle for light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    primary: blue
     accent: indigo
   features:
     - navigation.indexes
@@ -51,14 +61,14 @@ plugins:
         - netbox-facts
 extra:
   social:
-    - icon: fontawesome/brands/twitter
-      # replace with your own tweet link below
-      link: https://github.com/netbox-community/cookiecutter-netbox-plugin
-      name: Tweet
-    - icon: fontawesome/brands/facebook
-      # replace with your own facebook link below
-      link: https://github.com/netbox-community/cookiecutter-netbox-plugin
-      name: Facebook
+    # - icon: fontawesome/brands/twitter
+    #   # replace with your own tweet link below
+    #   link: https://github.com/netbox-community/cookiecutter-netbox-plugin
+    #   name: Tweet
+    # - icon: fontawesome/brands/facebook
+    #   # replace with your own facebook link below
+    #   link: https://github.com/netbox-community/cookiecutter-netbox-plugin
+    #   name: Facebook
     - icon: fontawesome/brands/github
       link: https://github.com/jsenecal/netbox-facts
       name: Github
