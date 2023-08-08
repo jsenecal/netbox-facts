@@ -6,7 +6,6 @@ __version__ = "0.0.1"
 
 
 from extras.plugins import PluginConfig
-from django.conf import settings as django_settings
 
 
 class FactsConfig(PluginConfig):
@@ -19,12 +18,13 @@ class FactsConfig(PluginConfig):
     base_url = "facts"
     author = "Jonathan Senecal"
     author_email = "contact@jonathansenecal.com"
-    default_settings = {}
+    default_settings = {
+        "top_level_menu": True,
+    }
 
     def ready(self):
         super(FactsConfig, self).ready()
         from netbox_facts import signals  # pylint: disable=import-outside-toplevel,unused-import
 
 
-config = FactsConfig
-settings = django_settings.PLUGINS_CONFIG.get("netbox_facts", {})
+config = FactsConfig  # pylint: disable=invalid-name
