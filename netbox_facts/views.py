@@ -1,4 +1,5 @@
 """Views for the netbox_facts plugin."""
+from django.db.models import Count
 from django.utils.translation import gettext as _
 from utilities.views import ViewTab, register_model_view
 
@@ -12,7 +13,9 @@ class MACAddressView(generic.ObjectView):
 
 
 class MACAddressListView(generic.ObjectListView):
-    queryset = models.MACAddress.objects.all()
+    queryset = models.MACAddress.objects.all().annotate(
+        occurences=Count("seen_by_interfaces"),
+    )
     table = tables.MACAddressTable
 
 

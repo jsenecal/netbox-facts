@@ -1,6 +1,8 @@
 import django_tables2 as tables
+from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import NetBoxTable
+
 from .models import MACAddress, MACVendor
 
 
@@ -20,10 +22,11 @@ class MACAddressTable(DatedNetboxTable):
 
     mac_address = tables.Column(linkify=True)
     vendor = tables.Column(linkify=True)
+    occurences = tables.Column(accessor="occurences", verbose_name=_("Occurences"))
 
     class Meta(NetBoxTable.Meta):
         model = MACAddress
-        fields = ("pk", "id", "mac_address", "vendor", "description", "actions")
+        fields = ("pk", "id", "mac_address", "vendor", "description", "occurences", "actions")
         default_columns = (
             "mac_address",
             "vendor",
