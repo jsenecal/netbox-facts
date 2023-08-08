@@ -21,6 +21,10 @@ class FactsConfig(PluginConfig):
     author_email = "contact@jonathansenecal.com"
     default_settings = {}
 
+    def ready(self):
+        super(FactsConfig, self).ready()
+        from . import signals
+
 
 config = FactsConfig
 settings = django_settings.PLUGINS_CONFIG.get("netbox_facts", {})
