@@ -23,7 +23,7 @@ class FactsConfig(PluginConfig):
 
     def ready(self):
         super(FactsConfig, self).ready()
-        from . import signals
+        from netbox_facts import signals  # pylint: disable=import-outside-toplevel,unused-import
 
 
 config = FactsConfig
