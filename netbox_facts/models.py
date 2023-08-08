@@ -1,9 +1,9 @@
 """ Models for NetBox Facts Plugin. """
 import re
 
-from netaddr import NotRegisteredError
+from netaddr import EUI, NotRegisteredError
 
-from dcim.fields import MACAddressField
+from dcim.fields import MACAddressField, mac_unix_expanded_uppercase
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
@@ -94,8 +94,8 @@ class MACVendorManager(models.Manager.from_queryset(RestrictedQuerySet)):
 
     def get_by_mac_address(self, mac):
         """Return the MACVendor object matching the MAC Address first 6 bytes."""
-        clean_mac = re.sub(r"[^A-F0-9]+", "", str(mac).upper())
-        return self.get(mac_prefix__icontains=clean_mac[:6])
+        clean_mac = EUI(int(mac) & ~0x0000FFFFFF, version=48, dialect=mac_unix_expanded_uppercase)
+        return self.get(mac_prefix=clean_mac)
 
 
 class MACVendor(NetBoxModel):
