@@ -2,6 +2,8 @@ from django.core.exceptions import ValidationError
 from dcim.fields import mac_unix_expanded_uppercase, MACAddressField
 from netaddr import AddrFormatError, EUI
 
+__all__ = ["MACPrefixField"]
+
 
 class MACPrefixField(MACAddressField):
     """PostgreSQL MAC Address Prefix field. Identical to MACAddressField except it does not store the last 3 bytes."""

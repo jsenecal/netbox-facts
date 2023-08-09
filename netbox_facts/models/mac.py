@@ -13,6 +13,8 @@ from netbox.models import NetBoxModel
 
 from .fields import MACPrefixField
 
+__all__ = ["MACAddress", "MACVendor"]
+
 
 class MACAddress(NetBoxModel):
     """Model representing a MAC Address seen by one or multiple devices."""
@@ -31,7 +33,7 @@ class MACAddress(NetBoxModel):
         blank=True,
     )
 
-    seen_by_interfaces = models.ManyToManyField("dcim.interface", related_name="known_mac_addresses")
+    known_by = models.ManyToManyField("dcim.interface", related_name="known_mac_addresses")
 
     comments = models.TextField(
         _("Comments"),

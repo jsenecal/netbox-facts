@@ -5,6 +5,8 @@ from netbox.tables import NetBoxTable
 
 from .models import MACAddress, MACVendor
 
+__all__ = ["MACAddressTable", "MACVendorTable"]
+
 
 class DatedNetboxTable(NetBoxTable):
     """Table representation of the DatedModel model."""

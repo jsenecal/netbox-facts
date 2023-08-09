@@ -26,6 +26,8 @@ urlpatterns = (
     ),
     path("mac-vendors/", views.MACVendorListView.as_view(), name="macvendor_list"),
     path("mac-vendor/add/", views.MACVendorEditView.as_view(), name="macvendor_add"),
+    path("mac-vendor/edit/", views.MACVendorBulkEditView.as_view(), name="macvendor_bulk_edit"),
+    path("mac-vendor/delete/", views.MACVendorBulkDeleteView.as_view(), name="macvendor_bulk_delete"),
     path("mac-vendor/<int:pk>/", views.MACVendorView.as_view(), name="macvendor_detail"),
     path("mac-vendor/<int:pk>/edit/", views.MACVendorEditView.as_view(), name="macvendor_edit"),
     path("mac-vendor/<int:pk>/delete/", views.MACVendorDeleteView.as_view(), name="macvendor_delete"),

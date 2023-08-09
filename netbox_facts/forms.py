@@ -1,6 +1,8 @@
 from netbox.forms import NetBoxModelForm, NetBoxModelFilterSetForm
 from .models import MACAddress, MACVendor
 
+__all__ = ["MACAddressForm", "MACVendorForm"]
+
 
 class MACAddressForm(NetBoxModelForm):
     class Meta:

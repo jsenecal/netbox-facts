@@ -12,7 +12,7 @@ class MACAddressViewSet(NetBoxModelViewSet):
     """
 
     queryset = models.MACAddress.objects.prefetch_related("tags").annotate(
-        interfaces_count=Count("seen_by_interfaces"),
+        interfaces_count=Count("known_by"),
     )
     serializer_class = MACAddressSerializer
     filterset_class = filtersets.MACAddressFilterSet

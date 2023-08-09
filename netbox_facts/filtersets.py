@@ -4,6 +4,8 @@ from dcim.fields import MACAddressField
 from .fields import MACPrefixField
 import django_filters
 
+__all__ = ["MACAddressFilterSet", "MACVendorFilterSet"]
+
 
 class MACAddressFilterSet(NetBoxModelFilterSet):
     """Filter set for the MACAddress model."""
