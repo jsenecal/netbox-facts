@@ -18,7 +18,7 @@ def read(rel_path):
         return fp.read()
 
 
-def get_version(rel_path) -> str|None:
+def get_version(rel_path) -> str | None:
     """Get the version from the specified file."""
     for line in read(rel_path).splitlines():
         if line.startswith("__version__"):
@@ -28,10 +28,7 @@ def get_version(rel_path) -> str|None:
     raise RuntimeError("Unable to find version string.")
 
 
-requirements = [
-    "napalm~=4.1.0",
-    "requests~=2.28.1"
-]
+requirements = ["napalm~=4.1.0", "requests~=2.31.0"]
 
 setup(
     author="Jonathan Senecal",
