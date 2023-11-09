@@ -3,7 +3,7 @@ from django.db.models import Count
 from netbox.api.viewsets import NetBoxModelViewSet
 
 from .. import filtersets, models
-from .serializers import MACAddressSerializer, MACVendorSerializer
+from .serializers import MACAddressSerializer, MACVendorSerializer, CollectorDefinitionSerializer
 
 
 class MACAddressViewSet(NetBoxModelViewSet):
@@ -28,3 +28,13 @@ class MACVendorViewSet(NetBoxModelViewSet):
     )
     serializer_class = MACVendorSerializer
     filterset_class = filtersets.MACVendorFilterSet
+
+
+class CollectorDefinitionViewSet(NetBoxModelViewSet):
+    """
+    Defines the view set for the django CollectorDefinition model & associates it to a view.
+    """
+
+    queryset = models.CollectorDefinition.objects.prefetch_related("tags")
+    serializer_class = CollectorDefinitionSerializer
+    # filterset_class = filtersets.MACVendorFilterSet

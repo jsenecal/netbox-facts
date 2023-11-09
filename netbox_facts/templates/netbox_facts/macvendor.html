@@ -13,8 +13,12 @@
       <div class="card-body">
         <table class="table table-hover attr-table">
           <tr>
-            <th scope="row">Name</th>
-            <td>{{ object.name }}</td>
+            <th scope="row">Vendor Name</th>
+            <td>{{ object.vendor_name }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Manufacturer</th>
+            <td>{{ object.manufacturer|linkify }}</td>
           </tr>
           <tr>
             <th scope="row">MAC Prefix</th>

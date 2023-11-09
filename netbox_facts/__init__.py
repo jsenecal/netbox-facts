@@ -1,6 +1,6 @@
 """Top-level package for NetBox Facts Plugin."""
 
-__author__ = """Jonathan Senecal"""
+__author__ = "Jonathan Senecal"
 __email__ = "contact@jonathansenecal.com"
 __version__ = "0.0.1"
 
@@ -28,3 +28,4 @@ class FactsConfig(PluginConfig):
 
 
 config = FactsConfig  # pylint: disable=invalid-name
+print("🧩 netbox_facts plugin loaded.")

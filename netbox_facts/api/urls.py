@@ -18,4 +18,9 @@ router.register(
     views.MACVendorViewSet,
 )
 
+router.register(
+    "collectordefinitions",
+    views.CollectorDefinitionViewSet,
+)
+
 urlpatterns = router.urls

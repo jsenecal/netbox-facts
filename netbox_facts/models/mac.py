@@ -1,6 +1,4 @@
 """ Models for NetBox Facts Plugin. """
-import re
-
 from netaddr import EUI, NotRegisteredError
 
 from dcim.fields import MACAddressField, mac_unix_expanded_uppercase
@@ -11,7 +9,7 @@ from utilities.querysets import RestrictedQuerySet
 
 from netbox.models import NetBoxModel
 
-from .fields import MACPrefixField
+from ..fields import MACPrefixField
 
 __all__ = ["MACAddress", "MACVendor"]
 
@@ -28,19 +26,29 @@ class MACAddress(NetBoxModel):
         "netbox_facts.MACVendor",
         on_delete=models.PROTECT,
         related_name="instances",
-        help_text=_("MAC Address Vendor automatically overriden from MAC Address when known."),
+        help_text=_("This field is automatically overriden from MAC Address when known."),
         null=True,
         blank=True,
     )
 
-    known_by = models.ManyToManyField("dcim.interface", related_name="known_mac_addresses")
+    known_by = models.ManyToManyField(
+        "dcim.Interface", related_name="known_mac_addresses", through="MACAddressInterfaceRelation"
+    )
+
+    interface = models.OneToOneField(
+        "dcim.Interface",
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
 
     comments = models.TextField(
         _("Comments"),
         blank=True,
     )
 
-    class Meta:
+    class Meta:  # pylint: disable=too-few-public-methods
         """Meta class for MACAddress."""
 
         indexes = [
@@ -76,7 +84,7 @@ class MACAddress(NetBoxModel):
 
     def save(self, *args, **kwargs):
         try:
-            self.vendor = MACVendor.objects.get_by_mac_address(self.mac_address)
+            self.vendor = MACVendor.objects.get_by_mac_address(self.mac_address)  # type: ignore
         except MACVendor.DoesNotExist:  # pylint: disable=no-member
             pass
         super().save(*args, **kwargs)
@@ -87,6 +95,18 @@ class MACAddress(NetBoxModel):
     def get_absolute_url(self):
         """Return the absolute URL of the MAC Address object."""
         return reverse("plugins:netbox_facts:macaddress_detail", args=[self.pk])
+
+
+class MACAddressInterfaceRelation(models.Model):
+    """Model representing an Interface Assignment."""
+
+    mac_address = models.ForeignKey("MACAddress", on_delete=models.CASCADE)
+    interface = models.ForeignKey("dcim.Interface", on_delete=models.CASCADE)
+    created = models.DateTimeField(verbose_name=_("created"), auto_now_add=True, blank=True, null=True)
+    last_updated = models.DateTimeField(verbose_name=_("last updated"), auto_now=True, blank=True, null=True)
+
+    class Meta:
+        unique_together = ("mac_address", "interface")
 
 
 class MACVendorManager(models.Manager.from_queryset(RestrictedQuerySet)):
@@ -101,9 +121,12 @@ class MACVendorManager(models.Manager.from_queryset(RestrictedQuerySet)):
 
 
 class MACVendor(NetBoxModel):
-    """Model representing MAC Address Vendor Information."""
+    """Model representing MAC Address Vendor Prefix Information."""
 
-    name = models.CharField(_("Name"), max_length=100)
+    manufacturer = models.ForeignKey(
+        "dcim.Manufacturer", on_delete=models.PROTECT, related_name="mac_prefixes", blank=True, null=True
+    )
+    vendor_name = models.CharField(_("Vendor Name"), max_length=200)
     mac_prefix = MACPrefixField(_("MAC Prefix"), max_length=8, unique=True)
     comments = models.TextField(
         _("Comments"),
@@ -113,21 +136,16 @@ class MACVendor(NetBoxModel):
     objects = MACVendorManager()
 
     class Meta:
-        """Meta class for MACVendor."""
+        """Meta class for MACVendorPrefix."""
 
-        verbose_name = _("MAC Vendor")
-        verbose_name_plural = _("MAC Vendors")
-        ordering = ("name",)
-        indexes = [
-            models.Index(
-                fields=[
-                    "mac_prefix",
-                ]
-            ),
-        ]
+        verbose_name = _("MAC Vendor Prefix")
+        verbose_name_plural = _("MAC Vendor Prefixes")
+        ordering = ("manufacturer", "vendor_name")
 
     def __str__(self):
-        return str(self.name)
+        if self.manufacturer:
+            return f"{self.manufacturer} ({str(self.mac_prefix)[:8]})"
+        return f"{self.vendor_name} ({str(self.mac_prefix)[:8]})"
 
     def get_absolute_url(self):
         """Return the absolute URL of the MAC Vendor object."""

@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from netbox.api.serializers import NetBoxModelSerializer
 
-from ..models import MACAddress, MACVendor
+from ..models import MACAddress, MACVendor, CollectorDefinition
 from .nested_serializers import NestedMACVendorSerializer
 
 
@@ -64,7 +64,8 @@ class MACVendorSerializer(NetBoxModelSerializer):
             "id",
             "url",
             "display",
-            "name",
+            "manufacturer",
+            "vendor_name",
             "mac_prefix",
             "comments",
             "tags",
@@ -72,4 +73,50 @@ class MACVendorSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
             "instances_count",
+        )
+
+
+class CollectorDefinitionSerializer(NetBoxModelSerializer):
+    """
+    Defines the serializer for the django CollectorDefinition model.
+    """
+
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:netbox_facts-api:collectordefinition-detail",
+    )
+    # instances_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        """
+        Associates the django model CollectorDefinition & fields to the serializer.
+        """
+
+        model = CollectorDefinition
+        fields = (
+            "id",
+            "url",
+            "display",
+            "name",
+            "priority",
+            "status",
+            "description",
+            "collector_type",
+            "comments",
+            "devices",
+            "device_status",
+            "regions",
+            "site_groups",
+            "sites",
+            "locations",
+            "device_types",
+            "roles",
+            "platforms",
+            "tenant_groups",
+            "tenants",
+            "napalm_driver",
+            "napalm_args",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
         )

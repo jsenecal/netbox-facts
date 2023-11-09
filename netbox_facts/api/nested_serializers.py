@@ -19,4 +19,4 @@ class NestedMACVendorSerializer(WritableNestedSerializer):
         """
 
         model = MACVendor
-        fields = ("id", "url", "display", "name")
+        fields = ("id", "url", "display", "vendor_name", "manufacturer")

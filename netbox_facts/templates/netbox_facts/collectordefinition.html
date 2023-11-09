@@ -1,0 +1,98 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load static %}
+{% load i18n %}
+{% load humanize %}
+{% load plugins %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-5">
+        <div class="card">
+            <h5 class="card-header">{% trans "Definition" %}</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">{% trans "Name" %}</th>
+                        <td>{{ object.name }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Priority" %}</th>
+                        <td>{{ object.get_priority_display }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Description" %}</th>
+                        <td>{{ object.description|placeholder }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Type" %}</th>
+                        <td>{{ object.get_collector_type_display }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Enabled" %}</th>
+                        <td>{% checkmark object.is_enabled %}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <h5 class="card-header">{% trans "Assignment" %}</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    {% for title, values, is_qs in assigned_objects %}
+                    <tr>
+                        <th scope="row">{{ title }}</th>
+                        <td>
+                            <ul class="list-unstyled mb-0">
+                                {% for object in values %}
+                                <li>
+                                    {% if is_qs %}
+                                    {{ object|linkify }}</li>
+                                {% else %}
+                                <span
+                                    class="badge bg-primary border border-primary-subtle text-primary-emphasis rounded-pill">
+                                    {{ object }}
+                                </span>
+                                {% endif %}
+                                </li>
+                                {% empty %}
+                                <li class="text-muted">{% trans "None" %}</li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+        {% include 'inc/panels/custom_fields.html' %}
+        {% plugin_left_page object %}
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Schedule" %}</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">Scheduled at</th>
+                        <td>{{ object.schedule_at }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Interval</th>
+                        <td>Every {{ object.interval }} minutes</td>
+                    </tr>
+                </table>
+
+            </div>
+        </div>
+        {% include 'inc/panels/tags.html' %}
+        {% include 'inc/panels/comments.html' %}
+        {% plugin_right_page object %}
+    </div>
+</div>
+<div class="row">
+    <div class="col-md-12">
+        {% plugin_full_width_page object %}
+    </div>
+</div>
+{% endblock content %}
