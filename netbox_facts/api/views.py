@@ -3,7 +3,11 @@ from django.db.models import Count
 from netbox.api.viewsets import NetBoxModelViewSet
 
 from .. import filtersets, models
-from .serializers import MACAddressSerializer, MACVendorSerializer, CollectorDefinitionSerializer
+from .serializers import (
+    MACAddressSerializer,
+    MACVendorSerializer,
+    CollectionPlanSerializer,
+)
 
 
 class MACAddressViewSet(NetBoxModelViewSet):
@@ -12,7 +16,7 @@ class MACAddressViewSet(NetBoxModelViewSet):
     """
 
     queryset = models.MACAddress.objects.prefetch_related("tags").annotate(
-        interfaces_count=Count("known_by"),
+        interfaces_count=Count("interfaces"),
     )
     serializer_class = MACAddressSerializer
     filterset_class = filtersets.MACAddressFilterSet
@@ -30,11 +34,11 @@ class MACVendorViewSet(NetBoxModelViewSet):
     filterset_class = filtersets.MACVendorFilterSet
 
 
-class CollectorDefinitionViewSet(NetBoxModelViewSet):
+class CollectorViewSet(NetBoxModelViewSet):
     """
-    Defines the view set for the django CollectorDefinition model & associates it to a view.
+    Defines the view set for the django Collector model & associates it to a view.
     """
 
-    queryset = models.CollectorDefinition.objects.prefetch_related("tags")
-    serializer_class = CollectorDefinitionSerializer
+    queryset = models.CollectionPlan.objects.prefetch_related("tags")
+    serializer_class = CollectionPlanSerializer
     # filterset_class = filtersets.MACVendorFilterSet

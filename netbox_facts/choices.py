@@ -9,6 +9,7 @@ class CollectionTypeChoices(ChoiceSet):
     TYPE_NDP = "ndp"
     TYPE_INVENTORY = "inventory"
     TYPE_INTERFACES = "interfaces"
+    TYPE_LLDP = "lldp"
     TYPE_L2 = "ethernet_switching"
     TYPE_L2CIRCTUITS = "l2_circuits"
     TYPE_EVPN = "evpn"
@@ -19,6 +20,7 @@ class CollectionTypeChoices(ChoiceSet):
         (TYPE_NDP, _("IPv6 Neighbor Discovery"), "gray"),
         (TYPE_INVENTORY, _("Inventory"), "blue"),
         (TYPE_INTERFACES, _("Interfaces"), "purple"),
+        (TYPE_LLDP, _("LLDP"), "cyan"),
         (TYPE_L2, _("Ethernet Switching Tables"), "black"),
         (TYPE_L2CIRCTUITS, _("L2 Circuits"), "orange"),
         (TYPE_EVPN, "EVPN", "red"),
@@ -27,23 +29,25 @@ class CollectionTypeChoices(ChoiceSet):
 
 
 class CollectorStatusChoices(ChoiceSet):
-    key = "CollectorDefinition.status"
+    NEW = "new"
+    QUEUED = "queued"
+    WORKING = "working"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    STALLED = "stalled"
 
-    STATUS_ENABLED = "enabled"
-    STATUS_PAUSED = "paused"
-    STATUS_FAILED = "failed"
-    STATUS_DISABLED = "disabled"
-
-    CHOICES = [
-        (STATUS_ENABLED, _("Enabled"), "green"),
-        (STATUS_PAUSED, _("Paused"), "cyan"),
-        (STATUS_FAILED, _("Failed"), "red"),
-        (STATUS_DISABLED, _("Disabled"), "yellow"),
-    ]
+    CHOICES = (
+        (NEW, _("New"), "blue"),
+        (QUEUED, _("Queued"), "orange"),
+        (WORKING, _("Working"), "cyan"),
+        (COMPLETED, _("Completed"), "green"),
+        (FAILED, _("Failed"), "red"),
+        (STALLED, _("Stalled"), "gray"),
+    )
 
 
 class CollectorPriorityChoices(ChoiceSet):
-    key = "CollectorDefinition.priority"
+    key = "Collector.priority"
 
     PRIORITY_HIGH = "high"
     PRIORITY_DEFAULT = "default"

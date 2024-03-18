@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from netbox.api.serializers import NetBoxModelSerializer
 
-from ..models import MACAddress, MACVendor, CollectorDefinition
+from ..models import MACAddress, MACVendor, CollectionPlan
 from .nested_serializers import NestedMACVendorSerializer
 
 
@@ -76,22 +76,22 @@ class MACVendorSerializer(NetBoxModelSerializer):
         )
 
 
-class CollectorDefinitionSerializer(NetBoxModelSerializer):
+class CollectionPlanSerializer(NetBoxModelSerializer):
     """
-    Defines the serializer for the django CollectorDefinition model.
+    Defines the serializer for the django Collector model.
     """
 
     url = serializers.HyperlinkedIdentityField(
-        view_name="plugins-api:netbox_facts-api:collectordefinition-detail",
+        view_name="plugins-api:netbox_facts-api:collectionplan-detail",
     )
     # instances_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         """
-        Associates the django model CollectorDefinition & fields to the serializer.
+        Associates the django model Collector & fields to the serializer.
         """
 
-        model = CollectorDefinition
+        model = CollectionPlan
         fields = (
             "id",
             "url",
@@ -99,6 +99,7 @@ class CollectorDefinitionSerializer(NetBoxModelSerializer):
             "name",
             "priority",
             "status",
+            "enabled",
             "description",
             "collector_type",
             "comments",

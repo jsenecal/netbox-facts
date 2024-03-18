@@ -22,13 +22,13 @@ macvendor_buttons = [
         permissions=["netbox_facts.add_macvendor"],
     )
 ]
-collector_definition_buttons = [
+collectionplan_buttons = [
     PluginMenuButton(
-        link="plugins:netbox_facts:collectordefinition_add",
+        link="plugins:netbox_facts:collectionplan_add",
         title="Add",
         icon_class="mdi mdi-plus-thick",
         color=ButtonColorChoices.GREEN,
-        permissions=["netbox_facts.add_collectordefinition"],
+        permissions=["netbox_facts.add_collectionplan"],
     )
 ]
 
@@ -50,10 +50,10 @@ networking_menu = (
 
 facts_collection_menu = (
     PluginMenuItem(
-        link="plugins:netbox_facts:collectordefinition_list",
-        link_text=_("Definitions"),
-        permissions=["netbox_facts.view_collectordefinition"],
-        buttons=collector_definition_buttons,
+        link="plugins:netbox_facts:collectionplan_list",
+        link_text=_("Collection Plans"),
+        permissions=["netbox_facts.view_collector"],
+        buttons=collectionplan_buttons,
     ),
 )
 
@@ -61,7 +61,10 @@ if get_plugin_config("netbox_facts", "top_level_menu"):
     # add a top level entry
     menu = PluginMenu(
         label=_("Operational Facts"),
-        groups=(("Networking", networking_menu), ("Facts Collection", facts_collection_menu)),
+        groups=(
+            ("Networking", networking_menu),
+            ("Facts Collection", facts_collection_menu),
+        ),
         icon_class="mdi mdi-checkbox-multiple-marked-outline",
     )
 else:

@@ -14,15 +14,15 @@ from django.utils.translation import gettext_lazy as _
 from utilities.forms.widgets.datetime import DateTimePicker
 from utilities.forms.widgets.misc import NumberWithOptions
 from utilities.utils import local_now
-from .models import MACAddress, MACVendor, CollectorDefinition
+from .models import MACAddress, MACVendor, CollectionPlan
 
-__all__ = ["MACAddressForm", "MACVendorForm", "CollectorDefinitionForm"]
+__all__ = ["MACAddressForm", "MACVendorForm", "CollectorForm"]
 
 
 class MACAddressForm(NetBoxModelForm):
     class Meta:
         model = MACAddress
-        fields = ("mac_address", "vendor", "description", "comments", "tags")
+        fields = ("mac_address", "description", "comments", "tags")
 
 
 class MACVendorForm(NetBoxModelForm):
@@ -31,25 +31,43 @@ class MACVendorForm(NetBoxModelForm):
         fields = ("vendor_name", "manufacturer", "mac_prefix", "comments", "tags")
 
 
-class CollectorDefinitionForm(NetBoxModelForm):
-    regions = DynamicModelMultipleChoiceField(label=_("Regions"), queryset=Region.objects.all(), required=False)
+class CollectorForm(NetBoxModelForm):
+    """Form for creating and modifying a collectionplan."""
+
+    regions = DynamicModelMultipleChoiceField(
+        label=_("Regions"), queryset=Region.objects.all(), required=False
+    )
     site_groups = DynamicModelMultipleChoiceField(
         label=_("Site groups"), queryset=SiteGroup.objects.all(), required=False
     )
-    sites = DynamicModelMultipleChoiceField(label=_("Sites"), queryset=Site.objects.all(), required=False)
-    locations = DynamicModelMultipleChoiceField(label=_("Locations"), queryset=Location.objects.all(), required=False)
-    device = DynamicModelMultipleChoiceField(label=_("Devices"), queryset=Device.objects.all(), required=False)
+    sites = DynamicModelMultipleChoiceField(
+        label=_("Sites"), queryset=Site.objects.all(), required=False
+    )
+    locations = DynamicModelMultipleChoiceField(
+        label=_("Locations"), queryset=Location.objects.all(), required=False
+    )
+    device = DynamicModelMultipleChoiceField(
+        label=_("Devices"), queryset=Device.objects.all(), required=False
+    )
     device_status = MultipleChoiceField(choices=DeviceStatusChoices, required=False)
     device_types = DynamicModelMultipleChoiceField(
         label=_("Device types"), queryset=DeviceType.objects.all(), required=False
     )
-    roles = DynamicModelMultipleChoiceField(label=_("Roles"), queryset=DeviceRole.objects.all(), required=False)
-    platforms = DynamicModelMultipleChoiceField(label=_("Platforms"), queryset=Platform.objects.all(), required=False)
+    roles = DynamicModelMultipleChoiceField(
+        label=_("Roles"), queryset=DeviceRole.objects.all(), required=False
+    )
+    platforms = DynamicModelMultipleChoiceField(
+        label=_("Platforms"), queryset=Platform.objects.all(), required=False
+    )
     tenant_groups = DynamicModelMultipleChoiceField(
         label=_("Tenant groups"), queryset=TenantGroup.objects.all(), required=False
     )
-    tenants = DynamicModelMultipleChoiceField(label=_("Tenants"), queryset=Tenant.objects.all(), required=False)
-    tags = DynamicModelMultipleChoiceField(label=_("Tags"), queryset=Tag.objects.all(), required=False)
+    tenants = DynamicModelMultipleChoiceField(
+        label=_("Tenants"), queryset=Tenant.objects.all(), required=False
+    )
+    tags = DynamicModelMultipleChoiceField(
+        label=_("Tags"), queryset=Tag.objects.all(), required=False
+    )
 
     schedule_at = forms.DateTimeField(
         required=False,
@@ -66,7 +84,10 @@ class CollectorDefinitionForm(NetBoxModelForm):
     )
 
     fieldsets = (
-        (_("Collector"), ("name", "priority", "collector_type", "description", "status")),
+        (
+            _("Collector"),
+            ("name", "priority", "collector_type", "description", "enabled"),
+        ),
         (
             _("Assignment"),
             (
@@ -89,13 +110,13 @@ class CollectorDefinitionForm(NetBoxModelForm):
     )
 
     class Meta:
-        model = CollectorDefinition
+        model = CollectionPlan
         fields = (
             "name",
             "priority",
             "collector_type",
             "description",
-            "status",
+            "enabled",
             "regions",
             "site_groups",
             "sites",
@@ -118,4 +139,6 @@ class CollectorDefinitionForm(NetBoxModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         now = local_now().strftime("%Y-%m-%d %H:%M:%S")
-        self.fields["schedule_at"].help_text += _(" (current server time: <strong>{now}</strong>)").format(now=now)
+        self.fields["schedule_at"].help_text += _(
+            " (current server time: <strong>{now}</strong>)"
+        ).format(now=now)
