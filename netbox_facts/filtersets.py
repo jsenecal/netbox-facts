@@ -1,10 +1,10 @@
 from netbox.filtersets import NetBoxModelFilterSet
-from .models import MACAddress, MACVendor, CollectorDefinition, CollectionJob
+from .models import MACAddress, MACVendor, CollectionPlan
 from dcim.fields import MACAddressField
 from .fields import MACPrefixField
 import django_filters
 
-__all__ = ["MACAddressFilterSet", "MACVendorFilterSet", "CollectorDefinitionFilterSet"]
+__all__ = ["MACAddressFilterSet", "MACVendorFilterSet", "CollectorFilterSet"]
 
 
 class MACAddressFilterSet(NetBoxModelFilterSet):
@@ -50,11 +50,11 @@ class MACVendorFilterSet(NetBoxModelFilterSet):
         }
 
 
-class CollectorDefinitionFilterSet(NetBoxModelFilterSet):
-    """Filter set for the CollectorDefinition model."""
+class CollectorFilterSet(NetBoxModelFilterSet):
+    """Filter set for the Collector model."""
 
     class Meta:
-        """Meta class for CollectorDefinitionFilterSet."""
+        """Meta class for CollectorFilterSet."""
 
-        model = CollectorDefinition
+        model = CollectionPlan
         fields = ["name"]

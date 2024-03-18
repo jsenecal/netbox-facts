@@ -20,11 +20,17 @@ class FactsConfig(PluginConfig):
     author_email = "contact@jonathansenecal.com"
     default_settings = {
         "top_level_menu": True,
+        "napalm_username": "***REDACTED***",
+        "napalm_password": "***REDACTED***",
+        "global_napalm_args": {},
+        "valid_interfaces_re": "(?P<phy>(?:[fgxe][et]-(?P<fpc>\d+)/(?P<asic>\d+)/(?P<port>\d+)(?P<channel>\:\d+)?)|irb|vlan|(?:st|ae|reth|lo|em|fxp|me)\d+)(?:\.(?P<unit>0|[1-9][0-9]{0,3}|1[1-5][0-9]{0,3}))?",
     }
 
     def ready(self):
         super(FactsConfig, self).ready()
-        from netbox_facts import signals  # pylint: disable=import-outside-toplevel,unused-import
+        from netbox_facts import (
+            signals,
+        )  # pylint: disable=import-outside-toplevel,unused-import
 
 
 config = FactsConfig  # pylint: disable=invalid-name

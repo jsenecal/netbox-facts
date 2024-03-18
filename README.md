@@ -9,7 +9,7 @@ Gather operational facts from supported NetBox Devices
 
 ## Features
 
-This plugin leverages [Nornir](https://nornir.readthedocs.io/en/latest/) and [NAPALM](https://napalm.readthedocs.io/en/latest/) to gather and document operational information about NetBox devices and various models.
+This plugin leverages [NAPALM](https://napalm.readthedocs.io/en/latest/) to gather and document operational information about NetBox devices and various models.
 
 ## Compatibility
 

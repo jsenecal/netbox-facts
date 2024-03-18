@@ -1,14 +1,15 @@
-"""Module for NetBox Facts models."""
-
-from django.db import models
-from .mac import MACAddress, MACVendor
-from .abstract import BigIDModel
-from .collection import CollectorDefinition, CollectionJob
+from .mac import (
+    MACAddress,
+    MACVendor,
+    MACAddressInterfaceRelation,
+    MACAddressIPAddressRelation,
+)
+from .collection_plan import CollectionPlan
 
 __all__ = [
     "MACAddress",
     "MACVendor",
-    "BigIDModel",
-    "CollectorDefinition",
-    "CollectionJob",
+    "CollectionPlan",
+    "MACAddressInterfaceRelation",
+    "MACAddressIPAddressRelation",
 ]

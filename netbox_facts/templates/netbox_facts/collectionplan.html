@@ -5,6 +5,25 @@
 {% load humanize %}
 {% load plugins %}
 
+{% block extra_controls %}
+{% if perms.netbox_facts.run_collector %}
+{% if object.ready %}
+<form action="{% url 'plugins:netbox_facts:collectionplan_run' pk=object.pk %}" method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-sm btn-primary">
+        <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
+    </button>
+</form>
+{% else %}
+<span class="inline-block" tabindex="0" data-bs-toggle="tooltip" data-bs-delay="100" data-bs-placement="bottom">
+    <button class="btn btn-sm btn-primary" disabled>
+        <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
+    </button>
+</span>
+{% endif %}
+{% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col col-md-5">
@@ -30,7 +49,11 @@
                     </tr>
                     <tr>
                         <th scope="row">{% trans "Enabled" %}</th>
-                        <td>{% checkmark object.is_enabled %}</td>
+                        <td>{% checkmark object.enabled %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Status" %}</th>
+                        <td>{{ object.get_status_display }}</td>
                     </tr>
                 </table>
             </div>
@@ -75,7 +98,7 @@
                 <table class="table table-hover attr-table">
                     <tr>
                         <th scope="row">Scheduled at</th>
-                        <td>{{ object.schedule_at }}</td>
+                        <td>{{ object.scheduled_at }}</td>
                     </tr>
                     <tr>
                         <th scope="row">Interval</th>

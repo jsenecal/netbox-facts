@@ -19,8 +19,8 @@ router.register(
 )
 
 router.register(
-    "collectordefinitions",
-    views.CollectorDefinitionViewSet,
+    "collectionplans",
+    views.CollectorViewSet,
 )
 
 urlpatterns = router.urls

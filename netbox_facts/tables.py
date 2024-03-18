@@ -5,9 +5,9 @@ from netbox.tables import NetBoxTable
 from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn
 from netbox.tables.tables import BaseTable
 
-from .models import MACAddress, MACVendor, CollectorDefinition, CollectionJob
+from .models import MACAddress, MACVendor, CollectionPlan
 
-__all__ = ["MACAddressTable", "MACVendorTable", "CollectorDefinitionTable"]
+__all__ = ["MACAddressTable", "MACVendorTable", "CollectorTable"]
 
 
 class DatedNetboxTable(NetBoxTable):
@@ -30,7 +30,16 @@ class MACAddressTable(DatedNetboxTable):
 
     class Meta(NetBoxTable.Meta):
         model = MACAddress
-        fields = ("pk", "id", "mac_address", "vendor", "description", "occurences", "actions")
+        fields = (
+            "pk",
+            "id",
+            "mac_address",
+            "vendor",
+            "description",
+            "occurences",
+            "actions",
+            "discovery_method"
+        )
         default_columns = (
             "mac_address",
             "vendor",
@@ -51,13 +60,13 @@ class MACVendorTable(DatedNetboxTable):
         default_columns = ("vendor_name", "mac_prefix")
 
 
-class CollectorDefinitionTable(NetBoxTable):
-    """Table representation of the CollectorDefinition model."""
+class CollectorTable(NetBoxTable):
+    """Table representation of the Collector model."""
 
-    name = tables.Column(linkify=True)
+    name = tables.Column(linkify=True)  # type: ignore
 
     class Meta(NetBoxTable.Meta):
-        model = CollectorDefinition
+        model = CollectionPlan
         fields = (
             "pk",
             "id",
@@ -74,37 +83,4 @@ class CollectorDefinitionTable(NetBoxTable):
             "status",
             "collector_type",
             "description",
-        )
-
-
-class CollectionJobTable(NetBoxTable):
-    """Table representation of the CollectionJob model."""
-
-    # job_id = tables.Column(linkify=True)
-    status = ChoiceFieldColumn(
-        verbose_name=_("Status"),
-    )
-    created = DateTimeColumn()
-    scheduled = DateTimeColumn()
-    started = DateTimeColumn()
-    completed = DateTimeColumn()
-    actions = ActionsColumn(actions=("delete",))
-
-    class Meta(NetBoxTable.Meta):
-        model = CollectionJob
-        fields = (
-            "pk",
-            "job_id",
-            "status",
-            "job_type",
-            "job_definition",
-            "created",
-            "scheduled",
-            "started",
-            "completed",
-        )
-        default_columns = (
-            "name",
-            "job_id",
-            "status",
         )
