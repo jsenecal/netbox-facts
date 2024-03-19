@@ -1,0 +1,51 @@
+ARG NETBOX_VARIANT=v3.7
+
+FROM netboxcommunity/netbox:${NETBOX_VARIANT}
+
+ARG NETBOX_INITIALIZERS_VARIANT=3.7.*
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Install APT packages
+# hadolint ignore=DL3008
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends curl git make openssh-client python3.11-dev sudo wget fish \
+    && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+# Install development & ide dependencies
+COPY requirements-dev.txt /tmp/pip-tmp/
+RUN /opt/netbox/venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir install -r /tmp/pip-tmp/requirements-dev.txt \
+    && rm -rf /tmp/*
+
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN chsh -s /usr/bin/fish $USERNAME; \
+    chown -R $USER_UID:$USER_GID /home/ubuntu; \
+    usermod -aG sudo $USERNAME \
+    && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
+    && mkdir /opt/netbox-facts
+
+RUN chown $USERNAME:$USERNAME /opt/netbox-facts /opt/netbox /etc/netbox /opt/unit -Rv
+
+USER ${USERNAME}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Add ohmyfish
+RUN curl https://raw.githubusercontent.com/oh-my-fish/oh-my-fish/master/bin/install | fish || true
+#SHELL ["/usr/bin/fish"]
+#RUN omf install bobthefish
+
+RUN /opt/netbox/venv/bin/pip install --no-warn-script-location netbox-initializers==$NETBOX_INITIALIZERS_VARIANT
+
+WORKDIR ${PLUGIN_PATH}
+
+# hadolint ignore=DL3002
+USER root
+
+COPY entrypoint-dev.sh /bin/entrypoint-dev.sh
+RUN chmod +x /bin/entrypoint-dev.sh
+
+CMD ["/bin/entrypoint-dev.sh"]
