@@ -4,8 +4,7 @@
 {
 	"name": "NetBox Plugin Development",
 	"dockerComposeFile": [
-		"docker-compose.yml",
-		"docker-compose.override.yml"
+		"docker-compose.yml"
 	],
 	"service": "netbox",
 	//"workspaceMount": "source=${localWorkspaceFolder},target=/opt/netbox-facts,type=bind,consistency=cached",
@@ -114,7 +113,7 @@
 	// "forwardPorts": [5000, 5432],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "pip install --editable /opt/netbox-facts",
+	// "postCreateCommand": "pip install --editable /opt/netbox-facts",
 
 	//"postAttachCommand": "source /opt/netbox/venv/bin/activate",
 
