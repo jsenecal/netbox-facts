@@ -13,8 +13,8 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 # Install development & ide dependencies
-COPY requirements-dev.txt /tmp/pip-tmp/
-RUN /opt/netbox/venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir install -r /tmp/pip-tmp/requirements-dev.txt \
+COPY requirements_dev.txt /tmp/pip-tmp/
+RUN /opt/netbox/venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir install -r /tmp/pip-tmp/requirements_dev.txt \
     && rm -rf /tmp/*
 
 ARG USERNAME=ubuntu
@@ -24,28 +24,29 @@ ARG USER_GID=$USER_UID
 RUN chsh -s /usr/bin/fish $USERNAME; \
     chown -R $USER_UID:$USER_GID /home/ubuntu; \
     usermod -aG sudo $USERNAME \
-    && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
-    && mkdir /opt/netbox-facts
+    && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-RUN chown $USERNAME:$USERNAME /opt/netbox-facts /opt/netbox /etc/netbox /opt/unit -Rv
+COPY . /opt/netbox-facts
+
+RUN chown $USERNAME:$USERNAME /opt/netbox-facts /opt/netbox /etc/netbox /opt/unit -R
 
 USER ${USERNAME}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Add ohmyfish
-RUN curl https://raw.githubusercontent.com/oh-my-fish/oh-my-fish/master/bin/install | fish || true
-#SHELL ["/usr/bin/fish"]
-#RUN omf install bobthefish
+RUN curl -L https://get.oh-my.fish > /tmp/install_omf && fish /tmp/install_omf --noninteractive && rm /tmp/install_omf
+RUN fish -c "omf install bobthefish"
 
 RUN /opt/netbox/venv/bin/pip install --no-warn-script-location netbox-initializers==$NETBOX_INITIALIZERS_VARIANT
 
 WORKDIR ${PLUGIN_PATH}
+RUN /opt/netbox/venv/bin/pip install --editable /opt/netbox-facts
 
 # hadolint ignore=DL3002
 USER root
 
-COPY entrypoint-dev.sh /bin/entrypoint-dev.sh
+COPY .devcontainer/entrypoint-dev.sh /bin/entrypoint-dev.sh
 RUN chmod +x /bin/entrypoint-dev.sh
 
-CMD ["/bin/entrypoint-dev.sh"]
+ENTRYPOINT ["/bin/entrypoint-dev.sh"]

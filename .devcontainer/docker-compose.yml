@@ -2,53 +2,50 @@
 version: '3.4'
 services:
   netbox: &netbox
-    image: netboxcommunity/netbox:${VARIANT-latest}
+    container_name: netbox-devcontainer
+    image: netboxcommunity/netbox:${NETBOX_VARIANT-latest}-devcontainer
     depends_on:
       - postgres
       - redis
-      #- redis-cache
-      #- netbox-worker
+    build:
+      dockerfile: .devcontainer/Dockerfile-plugin_dev
+      context: ..
     env_file: env/netbox.env
-    user: 'unit:root'
-    healthcheck:
-      start_period: 60s
-      timeout: 3s
-      interval: 15s
-      test: "curl -f http://localhost:8080/api/ || exit 1"
     volumes:
+      - ../:/opt/netbox-facts
+      - ~/.gitconfig:/home/ubuntu/.gitconfig:z,ro
+      - ~/.ssh:/home/ubuntu/.ssh
+      - ./home/.config/:/home/ubuntu/.config/
       - ./configuration:/etc/netbox/config:z,ro
-      #- ./reports:/etc/netbox/reports:z,ro
-      #- ./scripts:/etc/netbox/scripts:z,ro
-      #- netbox-media-files:/opt/netbox/netbox/media:z
-  #netbox-worker:
-  #  <<: *netbox
-  #  depends_on:
-  #    netbox:
-  #      condition: service_healthy
-  #  command:
-  #    - /opt/netbox/venv/bin/python
-  #    - /opt/netbox/netbox/manage.py
-  #    - rqworker
-  #  healthcheck:
-  #    start_period: 20s
-  #    timeout: 3s
-  #    interval: 15s
-  #    test: "ps -aux | grep -v grep | grep -q rqworker || exit 1"
-  #netbox-housekeeping:
-  #  <<: *netbox
-  #  depends_on:
-  #    netbox:
-  #      condition: service_healthy
-  #  command:
-  #  - /opt/netbox/housekeeping.sh
-  #  healthcheck:
-  #    start_period: 20s
-  #    timeout: 3s
-  #    interval: 15s
-  #    test: "ps -aux | grep -v grep | grep -q housekeeping || exit 1"
+    command:
+      - sleep
+      - infinity
+  netbox-worker:
+   <<: *netbox
+   container_name: netbox-worker
+   command:
+     - /opt/netbox/venv/bin/python
+     - /opt/netbox/netbox/manage.py
+     - rqworker
+   healthcheck:
+     start_period: 20s
+     timeout: 3s
+     interval: 15s
+     test: "ps -aux | grep -v grep | grep -q rqworker || exit 1"
+  netbox-housekeeping:
+   <<: *netbox
+   container_name: netbox-housekeeping
+   command:
+   - /opt/netbox/housekeeping.sh
+   healthcheck:
+     start_period: 20s
+     timeout: 3s
+     interval: 15s
+     test: "ps -aux | grep -v grep | grep -q housekeeping || exit 1"
 
   # postgres
   postgres:
+    container_name: netbox-postgres
     image: postgres:15-alpine
     env_file: env/postgres.env
     volumes:
@@ -56,30 +53,15 @@ services:
 
   # redis
   redis:
+    container_name: netbox-redis
     image: redis:7-alpine
     command:
       - sh
       - -c # this is to evaluate the $REDIS_PASSWORD from the env
       - redis-server --appendonly yes --requirepass $$REDIS_PASSWORD ## $$ because of docker-compose
     env_file: env/redis.env
-    #volumes:
-    #  - netbox-redis-data:/data
-  #redis-cache:
-  #  image: redis:7-alpine
-  #  command:
-  #    - sh
-  #    - -c # this is to evaluate the $REDIS_PASSWORD from the env
-  #    - redis-server --requirepass $$REDIS_PASSWORD ## $$ because of docker-compose
-  #  env_file: env/redis-cache.env
-  #  volumes:
-  #    - netbox-redis-cache-data:/data
 
 volumes:
-  #netbox-media-files:
-  #  driver: local
   netbox-postgres-data:
     driver: local
-  #netbox-redis-data:
-  #  driver: local
-  #netbox-redis-cache-data:
-  #  driver: local
+  
