@@ -28,7 +28,7 @@
 					"--profile=black"
 				],
 				"isort.path": "/opt/netbox/venv/bin/isort",
-				"python.analysis.typeCheckingMode": "strict",
+				"python.analysis.typeCheckingMode": "basic",
 				"python.analysis.extraPaths": [
 					"/opt/netbox/netbox"
 				],
@@ -40,27 +40,6 @@
 				"python.formatting.blackPath": "/opt/netbox/venv/bin/black",
 				"python.formatting.provider": "black",
 				"python.formatting.yapfPath": "/opt/netbox/venv/bin/yapf",
-				"python.linting.banditPath": "/opt/netbox/venv/bin/bandit",
-				"python.linting.enabled": true,
-				"python.linting.flake8Path": "/opt/netbox/venv/bin/flake8",
-				"python.linting.flake8Args": [
-					"--max-line-length=160",
-					"--ignore=E203"
-				],
-				"python.linting.mypyPath": "//opt/netbox/venv/bin/mypy",
-				"python.linting.pycodestylePath": "/opt/netbox/venv/bin/pycodestyle",
-				"python.linting.pydocstylePath": "/opt/netbox/venv/bin/pydocstyle",
-				"python.linting.pylintArgs": [
-					"--load-plugins",
-					"pylint_django",
-					"--errors-only",
-					"--load-plugins=pylint_django",
-					"--django-settings-module=/opt/netbox/netbox/netbox/netbox.settings",
-					"--enable=W0602,W0611,W0612,W0613,W0614"
-				],
-				"python.linting.pylintEnabled": true,
-				"python.linting.pylintPath": "/opt/netbox/venv/bin/pylint",
-				"python.linting.lintOnSave": true,
 				"python.pythonPath": "/opt/netbox/venv/bin/python3",
 				"python.terminal.activateEnvironment": true,
 				"python.venvPath": "/opt/netbox/",
