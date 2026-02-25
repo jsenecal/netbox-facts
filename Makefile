@@ -22,7 +22,11 @@ compose_cleanup:
 
 .PHONY: inotify_watch_worker ## Watch for changes and restart worker container
 inotify_watch_worker:
-	fish -c "while true; inotifywait -q -r -e modify $(PROJECT_PATH)/netbox_facts --exclude \".*\.pyc\" ; docker restart netbox-worker; sleep 2; end"
+	fish -c "while true; inotifywait -q -r -e modify $(PROJECT_PATH)/netbox_facts --exclude \".*\.pyc\" ; docker restart netbox_facts-worker; sleep 2; end"
+
+.PHONY: watch_worker_logs
+watch_worker_logs:
+	fish -c "while true; docker logs -f netbox_facts-worker | tail -n10; sleep 2; end"
 
 ##################
 #   PLUGIN DEV   #
@@ -37,8 +41,8 @@ nbshell:
 
 .PHONY: setup ## Setup NetBox plugin.
 setup:
-	-${VENV_PY_PATH} -m pip install --disable-pip-version-check --no-cache-dir -e ${REPO_PATH}
-#-python3 setup.py develop
+	uv pip install --python ${VENV_PY_PATH} -e ${REPO_PATH}
+	git config core.hooksPath .githooks
 
 .PHONY: example_initializers ## Run initializers
 example_initializers:
@@ -49,8 +53,8 @@ example_initializers:
 load_initializers:
 	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py load_initializer_data  --path ${REPO_PATH}/.devcontainer/initializers
 
-.PHONY: makemigrations ## Run makemigrations
-makemigrations:
+.PHONY: migrations ## Run makemigrations
+migrations:
 	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py makemigrations --name ${PLUGIN_NAME}
 
 .PHONY: migrate ## Run migrate

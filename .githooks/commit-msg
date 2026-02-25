@@ -1,0 +1,14 @@
+#!/bin/bash
+# Reject commits with Claude attributions
+
+commit_msg_file="$1"
+commit_msg=$(cat "$commit_msg_file")
+
+# Check for Claude attributions (case-insensitive)
+if echo "$commit_msg" | grep -iqE "(claude|anthropic|Generated with.*Claude|Co-Authored-By:.*Claude)"; then
+    echo "ERROR: Commit message contains Claude attribution."
+    echo "Please remove any references to Claude, Anthropic, or AI-generated content."
+    exit 1
+fi
+
+exit 0

@@ -1,0 +1,96 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netbox-facts"
+description = "Gather operational facts from supported NetBox Devices"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+authors = [
+    { name = "Jonathan Senecal", email = "contact@jonathansenecal.com" },
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+keywords = ["netbox", "netbox-plugin", "napalm", "network-automation"]
+dependencies = [
+    "napalm~=4.1.0",
+    "requests~=2.31.0",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/jsenecal/netbox-facts"
+Documentation = "https://jsenecal.github.io/netbox-facts"
+Repository = "https://github.com/jsenecal/netbox-facts"
+
+[project.optional-dependencies]
+dev = [
+    "autoflake",
+    "autopep8",
+    "bandit",
+    "black",
+    "bump2version",
+    "debugpy",
+    "flake8",
+    "ipython",
+    "isort",
+    "mypy",
+    "mypy-extensions",
+    "pre-commit",
+    "pycodestyle",
+    "pydocstyle",
+    "pylint",
+    "pylint-django",
+    "pytest",
+    "rich",
+    "ruff",
+    "sourcery-analytics",
+    "sphinx",
+    "twine",
+    "watchdog",
+    "wheel",
+    "wily",
+    "yapf",
+]
+
+[tool.hatch.version]
+path = "netbox_facts/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["netbox_facts"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E203", "E266", "W503"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+
+[tool.bumpversion]
+current_version = "0.0.1"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "netbox_facts/__init__.py"
+search = "__version__ = \"{current_version}\""
+replace = "__version__ = \"{new_version}\""

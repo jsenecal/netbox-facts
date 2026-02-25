@@ -1,10 +1,14 @@
-ARG NETBOX_VARIANT=v3.7
+ARG NETBOX_VARIANT=v4.0-beta2-2.8.0
 
 FROM netboxcommunity/netbox:${NETBOX_VARIANT}
 
-ARG NETBOX_INITIALIZERS_VARIANT=3.7.*
+VOLUME [ "/etc/netbox/scripts" ]
 
+ARG NETBOX_INITIALIZERS_VARIANT=3.7.*
 ARG DEBIAN_FRONTEND=noninteractive
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Install APT packages
 # hadolint ignore=DL3008
@@ -12,10 +16,14 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends curl git make openssh-client python3.11-dev sudo wget fish \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
-# Install development & ide dependencies
-COPY requirements_dev.txt /tmp/pip-tmp/
-RUN /opt/netbox/venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir install -r /tmp/pip-tmp/requirements_dev.txt \
+# Install the plugin and dev dependencies
+COPY . /opt/netbox-facts
+RUN uv pip install --python /opt/netbox/venv/bin/python3 -e "/opt/netbox-facts[dev]" \
     && rm -rf /tmp/*
+
+# Install hadolint
+RUN curl -L -o /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-x86_64 \
+    && chmod +x /usr/local/bin/hadolint
 
 ARG USERNAME=ubuntu
 ARG USER_UID=1000
@@ -23,10 +31,9 @@ ARG USER_GID=$USER_UID
 
 RUN chsh -s /usr/bin/fish $USERNAME; \
     chown -R $USER_UID:$USER_GID /home/ubuntu; \
+    chown -R $USER_UID:$USER_GID /etc/netbox/scripts; \
     usermod -aG sudo $USERNAME \
     && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-
-COPY . /opt/netbox-facts
 
 RUN chown $USERNAME:$USERNAME /opt/netbox-facts /opt/netbox /etc/netbox /opt/unit -R
 
@@ -35,13 +42,11 @@ USER ${USERNAME}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Add ohmyfish
-RUN curl -L https://get.oh-my.fish > /tmp/install_omf && fish /tmp/install_omf --noninteractive && rm /tmp/install_omf
-RUN fish -c "omf install bobthefish"
+RUN curl -L https://get.oh-my.fish > /tmp/install_omf && fish /tmp/install_omf --noninteractive && rm /tmp/install_omf && fish -c "omf install bobthefish"
 
-RUN /opt/netbox/venv/bin/pip install --no-warn-script-location netbox-initializers==$NETBOX_INITIALIZERS_VARIANT
+RUN uv pip install --python /opt/netbox/venv/bin/python3 netbox-initializers==$NETBOX_INITIALIZERS_VARIANT
 
 WORKDIR ${PLUGIN_PATH}
-RUN /opt/netbox/venv/bin/pip install --editable /opt/netbox-facts
 
 # hadolint ignore=DL3002
 USER root
