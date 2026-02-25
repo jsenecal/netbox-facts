@@ -3,7 +3,7 @@ from django.dispatch import receiver
 
 from dcim.models.devices import Manufacturer
 
-from .models import MACAddress, MACVendor
+from .models import MACAddress, MACVendor, CollectionPlan
 
 
 @receiver(post_save, sender=MACAddress)
@@ -60,3 +60,12 @@ def handle_mac_vendor_change(
         mac_address__startswith=str(instance.mac_prefix)[:6]
     )
     mac_addresses.update(vendor=instance)
+
+@receiver(post_save, sender=CollectionPlan)
+def handle_collection_job_change(
+    instance: CollectionPlan, **kwargs
+): # pylint: disable=unused-argumen
+    """
+    Schedule collection job when a collection plan is created or updated.
+    """
+    pass

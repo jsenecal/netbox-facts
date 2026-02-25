@@ -1,17 +1,19 @@
 """Collection models."""
+
 from __future__ import annotations
+
 import logging
-from typing import Any, Dict, Type
 import uuid
 from datetime import timedelta
+from typing import Any, Dict, Type
 
 import django_rq
-from netbox_facts.exceptions import OperationNotSupported
 from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Device
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -23,14 +25,15 @@ from django.utils.translation import gettext_lazy as _
 # from extras.api.serializers import ScriptOutputSerializer
 from extras.choices import LogLevelChoices
 from extras.context_managers import event_tracking
-from extras.plugins.utils import get_plugin_config
 from napalm import get_network_driver
 from napalm.base.base import NetworkDriver
-from netbox.models.features import JobsMixin
-
-from utilities.utils import copy_safe_request
-
 from netbox.models import NetBoxModel
+from netbox.models.features import EventRulesMixin, JobsMixin
+from netbox.plugins.utils import get_plugin_config
+from utilities.querysets import RestrictedQuerySet
+from utilities.request import copy_safe_request
+
+from netbox_facts.exceptions import OperationNotSupported
 
 from ..choices import (
     CollectionTypeChoices,
@@ -42,7 +45,7 @@ from ..helpers import NapalmCollector
 logger = logging.getLogger("netbox_facts")
 
 
-class CollectionPlan(NetBoxModel, JobsMixin):
+class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     """Model representing a Collection Plan"""
 
     name = models.CharField(verbose_name=_("name"), max_length=100, unique=True)
@@ -114,9 +117,10 @@ class CollectionPlan(NetBoxModel, JobsMixin):
         null=True,
     )
     interval = models.PositiveIntegerField(
-        help_text=_("Interval at which this collection task is re-run (in minutes)"),
-        default=60,
+        help_text=_("Interval at which this collection task is re-run (in minutes)<br>Leave blank to run only once."),
         verbose_name=_("Interval (minutes)"),
+        blank=True,
+        null=True,
     )
 
     last_run = models.DateTimeField(
@@ -128,9 +132,19 @@ class CollectionPlan(NetBoxModel, JobsMixin):
         blank=True,
     )
 
+    ## Netbox Models
+
+    events = GenericRelation(
+        "extras.EventRule",
+        content_type_field="action_object_type",
+        object_id_field="action_object_id",
+    )
+
     ip_addresses = models.ManyToManyField(
         to="ipam.IPAddress", related_name="discovered_by", blank=True, editable=False
     )
+
+    objects = RestrictedQuerySet.as_manager()
 
     clone_fields = (
         "status",
@@ -168,6 +182,11 @@ class CollectionPlan(NetBoxModel, JobsMixin):
         """String representation of the Collector object."""
 
         return str(self.name)
+    
+    def clean(self):
+        """Clean the object."""
+        if isinstance(self.napalm_args, str):
+            self.napalm_args = dict()
 
     @property
     def ready(self):
@@ -176,6 +195,11 @@ class CollectionPlan(NetBoxModel, JobsMixin):
             CollectorStatusChoices.QUEUED,
             CollectorStatusChoices.WORKING,
         )
+
+    @property
+    def result(self):
+        """Return the last created job"""
+        return self.jobs.all().order_by("-created").first()
 
     @property
     def scheduled_at_next(self):
@@ -196,7 +220,7 @@ class CollectionPlan(NetBoxModel, JobsMixin):
 
     def get_current_job(self):
         """Return the current job for the collectionplan."""
-        if self.pk:
+        if self.pk and self.last_run:
             object_type = ContentType.objects.get_for_model(  # type: ignore
                 self, for_concrete_model=False
             )
@@ -274,7 +298,7 @@ class CollectionPlan(NetBoxModel, JobsMixin):
 
     def enqueue_collection_job(self, request):
         """
-        Enqueue a background job to synchronize the DataSource by calling sync().
+        Enqueue a background job to perform the facts collection.
         """
         # Set the status to "syncing"
         self.status = CollectorStatusChoices.QUEUED
@@ -285,9 +309,11 @@ class CollectionPlan(NetBoxModel, JobsMixin):
             import_string("netbox_facts.jobs.collection_job"),
             name=f'Facts collection job for "{self.name}"',
             instance=self,
-            user=self.run_as
-            if request.user.is_superuser and self.run_as is not None
-            else request.user,
+            user=(
+                self.run_as
+                if request.user.is_superuser and self.run_as is not None
+                else request.user
+            ),
             request=copy_safe_request(request),
         )
         return self.current_job
@@ -355,7 +381,8 @@ class CollectionPlan(NetBoxModel, JobsMixin):
         self.status = CollectorStatusChoices.WORKING
         CollectionPlan.objects.filter(pk=self.pk).update(status=self.status)
 
-        if self.napalm_args.get("debug", False):
+        napalm_args = self.get_napalm_args()
+        if napalm_args and napalm_args.get("debug", False):
             import debugpy  # pylint: disable=import-outside-toplevel
 
             debugpy.listen(("0.0.0.0", 5678))

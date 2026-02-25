@@ -3,9 +3,10 @@ import traceback
 
 from core.choices import JobStatusChoices
 from core.models.jobs import Job
-from extras.api.serializers import ScriptOutputSerializer
 from netbox_facts.choices import CollectorStatusChoices
 from netbox_facts.models import CollectionPlan
+
+# from extras.api.serializers import JobS
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ def collection_job(job: Job, *args, **kwargs):
     try:
         job.start()
         plan.run(*args, **kwargs)
-        job.data = ScriptOutputSerializer(plan).data
+        # job.data = job.get_job_data()
         job.terminate()
     except Exception as e:  # pylint: disable=broad-except
         stacktrace = traceback.format_exc()
@@ -26,7 +27,7 @@ def collection_job(job: Job, *args, **kwargs):
         )
         logger.error("Exception raised during collector execution: %s", e)
 
-        job.data = ScriptOutputSerializer(plan).data
+        # job.data = ScriptOutputSerializer(plan).data
         job.terminate(status=JobStatusChoices.STATUS_ERRORED)
         CollectionPlan.objects.filter(pk=plan.pk).update(
             status=CollectorStatusChoices.FAILED

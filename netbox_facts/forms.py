@@ -5,15 +5,21 @@ from dcim.models.devices import Device, DeviceRole, DeviceType, Platform
 from dcim.models.sites import Region, Site, SiteGroup, Location
 from extras.choices import DurationChoices
 from extras.models.tags import Tag
-from netbox.forms import NetBoxModelForm, NetBoxModelFilterSetForm
+from netbox.forms import (
+    NetBoxModelForm,
+    NetBoxModelFilterSetForm,
+    NetBoxModelBulkEditForm,
+)
+from utilities.forms.rendering import FieldSet
 from netbox.forms.base import NetBoxModelImportForm
 from tenancy.models.tenants import Tenant, TenantGroup
 from utilities.forms.fields.dynamic import DynamicModelMultipleChoiceField
+from utilities.forms.fields import CommentField
 from django.utils.translation import gettext_lazy as _
 
 from utilities.forms.widgets.datetime import DateTimePicker
 from utilities.forms.widgets.misc import NumberWithOptions
-from utilities.utils import local_now
+from utilities.datetime import local_now
 from .models import MACAddress, MACVendor, CollectionPlan
 
 __all__ = ["MACAddressForm", "MACVendorForm", "CollectorForm"]
@@ -25,10 +31,36 @@ class MACAddressForm(NetBoxModelForm):
         fields = ("mac_address", "description", "comments", "tags")
 
 
+class MACAddressBulkEditForm(NetBoxModelBulkEditForm):
+    description = forms.CharField(
+        label=_("Description"), max_length=200, required=False
+    )
+    comments = CommentField()
+
+    model = MACAddress
+    fieldsets = (FieldSet("mac_address", "description"),)
+    nullable_fields = ("description", "comments", "tags")
+
+
 class MACVendorForm(NetBoxModelForm):
     class Meta:
         model = MACVendor
         fields = ("vendor_name", "manufacturer", "mac_prefix", "comments", "tags")
+
+
+class MACVendorBulkEditForm(NetBoxModelBulkEditForm):
+    description = forms.CharField(
+        label=_("Description"), max_length=200, required=False
+    )
+    comments = CommentField()
+
+    model = MACVendor
+    fieldsets = (
+        FieldSet(
+            "manufacturer",
+        ),
+    )
+    nullable_fields = ("manufacturer", "comments", "tags")
 
 
 class CollectorForm(NetBoxModelForm):
@@ -69,7 +101,7 @@ class CollectorForm(NetBoxModelForm):
         label=_("Tags"), queryset=Tag.objects.all(), required=False
     )
 
-    schedule_at = forms.DateTimeField(
+    scheduled_at = forms.DateTimeField(
         required=False,
         widget=DateTimePicker(),
         label=_("Schedule at"),
@@ -84,29 +116,35 @@ class CollectorForm(NetBoxModelForm):
     )
 
     fieldsets = (
-        (
-            _("Collector"),
-            ("name", "priority", "collector_type", "description", "enabled"),
+        FieldSet(
+            "name",
+            "priority",
+            "collector_type",
+            "description",
+            "enabled",
+            name=_("Collector"),
         ),
-        (
-            _("Assignment"),
-            (
-                "regions",
-                "site_groups",
-                "sites",
-                "locations",
-                "devices",
-                "device_status",
-                "device_types",
-                "roles",
-                "platforms",
-                "tenant_groups",
-                "tenants",
-                "tags",
-            ),
+        FieldSet(
+            "regions",
+            "site_groups",
+            "sites",
+            "locations",
+            "devices",
+            "device_status",
+            "device_types",
+            "roles",
+            "platforms",
+            "tenant_groups",
+            "tenants",
+            "tags",
+            name=_("Assignment"),
         ),
-        (_("Scheduling"), ("schedule_at", "interval")),
-        (_("Runtime settings"), ("napalm_driver", "napalm_args")),
+        FieldSet(
+            "scheduled_at",
+            "interval",
+            name=_("Scheduling"),
+        ),
+        FieldSet("napalm_driver", "napalm_args", name=_("Runtime settings")),
     )
 
     class Meta:
@@ -130,15 +168,28 @@ class CollectorForm(NetBoxModelForm):
             "tenants",
             "tags",
             "comments",
-            "schedule_at",
+            "scheduled_at",
             "interval",
             "napalm_driver",
             "napalm_args",
         )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):  # pylint: disable=no-member
         super().__init__(*args, **kwargs)
-        now = local_now().strftime("%Y-%m-%d %H:%M:%S")
-        self.fields["schedule_at"].help_text += _(
+        now = local_now().strftime("%Y-%m-%d %H:%M:%S %Z")
+        self.fields["scheduled_at"].help_text += _(
             " (current server time: <strong>{now}</strong>)"
         ).format(now=now)
+
+    def clean(self):
+        scheduled_time = self.cleaned_data.get("scheduled_at")
+        if scheduled_time and scheduled_time < local_now():
+            raise forms.ValidationError(
+                {"scheduled_at": _("Scheduled time must be in the future.")}
+            )
+
+        # When interval is used without schedule at, schedule for the current time
+        if self.cleaned_data.get("interval") and not scheduled_time:
+            self.cleaned_data["scheduled_at"] = local_now()
+
+        return self.cleaned_data

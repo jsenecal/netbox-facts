@@ -33,6 +33,7 @@ class CollectorStatusChoices(ChoiceSet):
     QUEUED = "queued"
     WORKING = "working"
     COMPLETED = "completed"
+    SCHEDULED = "scheduled"
     FAILED = "failed"
     STALLED = "stalled"
 
@@ -41,6 +42,7 @@ class CollectorStatusChoices(ChoiceSet):
         (QUEUED, _("Queued"), "orange"),
         (WORKING, _("Working"), "cyan"),
         (COMPLETED, _("Completed"), "green"),
+        (SCHEDULED, _("Scheduled"), "purple"),
         (FAILED, _("Failed"), "red"),
         (STALLED, _("Stalled"), "gray"),
     )

@@ -2,6 +2,7 @@
 {% load helpers %}
 {% load static %}
 {% load i18n %}
+{% load tz %}
 {% load humanize %}
 {% load plugins %}
 
@@ -10,13 +11,13 @@
 {% if object.ready %}
 <form action="{% url 'plugins:netbox_facts:collectionplan_run' pk=object.pk %}" method="post">
     {% csrf_token %}
-    <button type="submit" class="btn btn-sm btn-primary">
+    <button type="submit" class="btn btn-primary">
         <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
     </button>
 </form>
 {% else %}
 <span class="inline-block" tabindex="0" data-bs-toggle="tooltip" data-bs-delay="100" data-bs-placement="bottom">
-    <button class="btn btn-sm btn-primary" disabled>
+    <button class="btn btn-primary" disabled>
         <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
     </button>
 </span>
@@ -98,11 +99,11 @@
                 <table class="table table-hover attr-table">
                     <tr>
                         <th scope="row">Scheduled at</th>
-                        <td>{{ object.scheduled_at }}</td>
+                        <td>{% if object.scheduled_at %}{{ object.scheduled_at | localtime }} ({{ object.scheduled_at | localtime | date:'e' }}){% else %}Never{% endif %}</td>
                     </tr>
                     <tr>
                         <th scope="row">Interval</th>
-                        <td>Every {{ object.interval }} minutes</td>
+                        <td>{% if object.interval %}Every {{ object.interval }} minutes{% else %}None{% endif %}</td>
                     </tr>
                 </table>
 

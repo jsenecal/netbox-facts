@@ -1,26 +1,32 @@
 """Views for the netbox_facts plugin."""
-from django.http import Http404
-from django.views import View
+
+import logging
+
 from core.choices import JobStatusChoices
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from django.contrib import messages
+from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
+
+# from django.views import View
 from ipam.filtersets import IPAddressFilterSet
+from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
-from utilities.htmx import is_htmx
+from netbox.views import generic
+from netbox.views.generic.base import BaseObjectView
+from extras.views import ScriptResultView
+from utilities.htmx import htmx_partial
+
+
+# from utilities.forms import restrict_form_fields
 from utilities.views import (
-    ContentTypePermissionRequiredMixin,
     ViewTab,
     register_model_view,
 )
-from ipam.models import IPAddress
-from django.contrib.contenttypes.models import ContentType
-
-from netbox.views import generic
-from netbox.views.generic.base import BaseObjectView
 
 from . import filtersets, forms, models, tables
 
@@ -106,6 +112,7 @@ class MACAddressBulkEditView(generic.BulkEditView):
     queryset = models.MACAddress.objects.all()
     filterset = filtersets.MACAddressFilterSet
     table = tables.MACAddressTable
+    form = forms.MACAddressBulkEditForm
 
 
 class MACAddressBulkDeleteView(generic.BulkDeleteView):
@@ -166,7 +173,7 @@ class MACVendorInstancesView(generic.ObjectChildrenView):
                 .filter(vendor=parent)
                 .prefetch_related("tags")
                 .annotate(
-                    occurences=Count("known_by"),
+                    occurences=Count("interfaces"),
                 )
             )
 
@@ -177,6 +184,7 @@ class MACVendorBulkEditView(generic.BulkEditView):
     queryset = models.MACVendor.objects.all()
     filterset = filtersets.MACVendorFilterSet
     table = tables.MACVendorTable
+    form = forms.MACVendorBulkEditForm
 
 
 class MACVendorBulkDeleteView(generic.BulkDeleteView):
@@ -296,10 +304,14 @@ class CollectorRunView(BaseObjectView):
 
 
 @register_model_view(models.CollectionPlan, "results")
-class CollectorResultsView(BaseObjectView):
+class CollectorResultsView(ScriptResultView):
+
     tab = ViewTab(
         label=_("Results"),
         permission="netbox_facts.view_collector_results",
+        badge=lambda x: (
+            x.result.get_status_display() if x.result is not None else False
+        ),
         hide_if_empty=True,
         weight=5000,
     )
@@ -315,12 +327,13 @@ class CollectorResultsView(BaseObjectView):
         Args:
             request: The current request
         """
+        table = None
         instance = self.get_object(**kwargs)
 
         object_type = ContentType.objects.get_for_model(  # type: ignore
             instance, for_concrete_model=False
         )
-        job = (
+        job: Job | None = (
             Job.objects.filter(object_id=instance.pk, object_type=object_type)
             .order_by("-started")
             .first()
@@ -328,72 +341,34 @@ class CollectorResultsView(BaseObjectView):
         if job is None:
             raise Http404(f"No job found for {instance}")
 
+        if job.completed:
+            table = self.get_table(job, request, bulk_actions=False)
+
+        context = {
+            "collection_plan": job.object,
+            "job": job,
+            "table": table,
+        }
+
+        if job.data and "log" in job.data:
+            # Script
+            context["tests"] = job.data.get("tests", {})
+        elif job.data:
+            # Legacy Report
+            context["tests"] = {
+                name: data
+                for name, data in job.data.items()  # type: ignore
+                if name.startswith("test_")
+            }
+
         # If this is an HTMX request, return only the result HTML
-        if is_htmx(request):
-            response = render(
-                request,
-                "netbox_facts/htmx/collector_result.html",
-                {
-                    "object": instance,
-                    "job": job,
-                    "tab": self.tab,
-                },
-            )
+        if htmx_partial(request):
+            response = render(request, "extras/htmx/script_result.html", context)
             if job.completed or not job.started:
                 response.status_code = 286
             return response
 
-        return render(
-            request,
-            "netbox_facts/collector_result.html",
-            {
-                "object": instance,
-                "job": job,
-                "tab": self.tab,
-            },
-        )
-
-
-# class ScriptResultView(ContentTypePermissionRequiredMixin, View):
-#     def get_required_permission(self):
-#         return "extras.view_script"
-
-#     def get(self, request, job_pk):
-#         object_type = ContentType.objects.get_by_natural_key(
-#             app_label="netbox_facts", model="collectionplan"
-#         )
-#         job = get_object_or_404(Job.objects.all(), pk=job_pk, object_type=object_type)
-#         collection_plan = job.object
-
-#         # If this is an HTMX request, return only the result HTML
-#         if is_htmx(request):
-#             response = render(
-#                 request,
-#                 "extras/htmx/script_result.html",
-#                 {
-#                     "script": script,
-#                     "job": job,
-#                 },
-#             )
-#             if job.completed or not job.started:
-#                 response.status_code = 286
-#             return response
-
-#         return render(
-#             request,
-#             "extras/script_result.html",
-#             {
-#                 "script": script,
-#                 "job": job,
-#             },
-#         )
-
-
-# class CollectorBulkImportView(generic.BulkImportView):
-#     """Bulk import view for Collector instances."""
-
-#     queryset = models.Collector.objects.all()
-#     model_form = forms.CollectorImportForm
+        return render(request, "netbox_facts/collector_result.html", context)
 
 
 class CollectorBulkEditView(generic.BulkEditView):

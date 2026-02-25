@@ -5,7 +5,7 @@ __email__ = "contact@jonathansenecal.com"
 __version__ = "0.0.1"
 
 
-from extras.plugins import PluginConfig
+from netbox.plugins import PluginConfig
 
 
 class FactsConfig(PluginConfig):

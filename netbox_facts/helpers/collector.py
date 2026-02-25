@@ -10,7 +10,7 @@ from dcim.models.device_components import Interface
 from dcim.models.devices import Device
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
-from extras.plugins.utils import get_plugin_config
+from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
 from napalm.base import NetworkDriver
 from napalm.base.exceptions import ConnectionException
