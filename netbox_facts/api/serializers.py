@@ -40,6 +40,7 @@ class MACAddressSerializer(NetBoxModelSerializer):
             "custom_fields",
             "created",
             "last_updated",
+            "last_seen",
             "interfaces_count",
         )
 
@@ -84,7 +85,6 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
     url = serializers.HyperlinkedIdentityField(
         view_name="plugins-api:netbox_facts-api:collectionplan-detail",
     )
-    # instances_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         """

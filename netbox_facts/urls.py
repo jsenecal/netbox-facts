@@ -99,41 +99,9 @@ urlpatterns = (
         "collection-plan/<int:pk>/",
         include(get_model_urls("netbox_facts", "collectionplan")),
     ),
-    # path(
-    #     "collector/<int:pk>/run/",
-    #     views.CollectorRunView.as_view(),
-    #     name="collectionplan_run",
-    # ),
-    # path(
-    #     "collector/<int:pk>/edit/",
-    #     views.CollectorEditView.as_view(),
-    #     name="collectionplan_edit",
-    # ),
-    # path(
-    #     "collector/<int:pk>/delete/",
-    #     views.CollectorDeleteView.as_view(),
-    #     name="collectionplan_delete",
-    # ),
     path(
         "collection-plans/edit/",
         views.CollectorBulkEditView.as_view(),
         name="collectionplan_bulk_edit",
     ),
-    # path(
-    #     "collector/<int:pk>/instances/",
-    #     views.CollectorInstancesView.as_view(),
-    #     name="collectionplan_instances",
-    # ),
-    # path(
-    #     "collector/<int:pk>/changelog/",
-    #     ObjectChangeLogView.as_view(),
-    #     name="collectionplan_changelog",
-    #     kwargs={"model": models.Collector},
-    # ),
-    # path(
-    #     "collector/<int:pk>/journal/",
-    #     ObjectJournalView.as_view(),
-    #     name="collectionplan_journal",
-    #     kwargs={"model": models.Collector},
-    # ),
 )

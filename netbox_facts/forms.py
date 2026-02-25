@@ -1,7 +1,7 @@
 from django import forms
 from django.forms import MultipleChoiceField
 from dcim.choices import DeviceStatusChoices
-from dcim.models.devices import Device, DeviceRole, DeviceType, Platform
+from dcim.models.devices import Device, DeviceRole, DeviceType, Platform, Manufacturer
 from dcim.models.sites import Region, Site, SiteGroup, Location
 from extras.choices import DurationChoices
 from extras.models.tags import Tag
@@ -20,10 +20,29 @@ from django.utils.translation import gettext_lazy as _
 from utilities.forms.widgets.datetime import DateTimePicker
 from utilities.forms.widgets.misc import NumberWithOptions
 from utilities.datetime import local_now
+from .choices import (
+    CollectionTypeChoices,
+    CollectorPriorityChoices,
+    CollectorStatusChoices,
+)
 from .models import MACAddress, MACVendor, CollectionPlan
 
-__all__ = ["MACAddressForm", "MACVendorForm", "CollectorForm"]
+__all__ = [
+    "MACAddressForm",
+    "MACAddressBulkEditForm",
+    "MACAddressFilterForm",
+    "MACVendorForm",
+    "MACVendorBulkEditForm",
+    "MACVendorFilterForm",
+    "CollectorForm",
+    "CollectionPlanBulkEditForm",
+    "CollectionPlanFilterForm",
+]
 
+
+# --------------------------------------------------------------------------
+# MACAddress forms
+# --------------------------------------------------------------------------
 
 class MACAddressForm(NetBoxModelForm):
     class Meta:
@@ -38,9 +57,26 @@ class MACAddressBulkEditForm(NetBoxModelBulkEditForm):
     comments = CommentField()
 
     model = MACAddress
-    fieldsets = (FieldSet("mac_address", "description"),)
-    nullable_fields = ("description", "comments", "tags")
+    fieldsets = (FieldSet("description"),)
+    nullable_fields = ("description", "comments")
 
+
+class MACAddressFilterForm(NetBoxModelFilterSetForm):
+    model = MACAddress
+    fieldsets = (
+        FieldSet("q", "filter_id"),
+        FieldSet("mac_address", "vendor", "description", name=_("Attributes")),
+    )
+    mac_address = forms.CharField(required=False, label=_("MAC Address"))
+    vendor = DynamicModelMultipleChoiceField(
+        queryset=MACVendor.objects.all(), required=False, label=_("Vendor")
+    )
+    description = forms.CharField(required=False, label=_("Description"))
+
+
+# --------------------------------------------------------------------------
+# MACVendor forms
+# --------------------------------------------------------------------------
 
 class MACVendorForm(NetBoxModelForm):
     class Meta:
@@ -49,19 +85,33 @@ class MACVendorForm(NetBoxModelForm):
 
 
 class MACVendorBulkEditForm(NetBoxModelBulkEditForm):
-    description = forms.CharField(
-        label=_("Description"), max_length=200, required=False
+    manufacturer = DynamicModelMultipleChoiceField(
+        queryset=Manufacturer.objects.all(), required=False, label=_("Manufacturer")
     )
     comments = CommentField()
 
     model = MACVendor
     fieldsets = (
-        FieldSet(
-            "manufacturer",
-        ),
+        FieldSet("manufacturer",),
     )
-    nullable_fields = ("manufacturer", "comments", "tags")
+    nullable_fields = ("manufacturer", "comments")
 
+
+class MACVendorFilterForm(NetBoxModelFilterSetForm):
+    model = MACVendor
+    fieldsets = (
+        FieldSet("q", "filter_id"),
+        FieldSet("manufacturer", "mac_prefix", name=_("Attributes")),
+    )
+    manufacturer = DynamicModelMultipleChoiceField(
+        queryset=Manufacturer.objects.all(), required=False, label=_("Manufacturer")
+    )
+    mac_prefix = forms.CharField(required=False, label=_("MAC Prefix"))
+
+
+# --------------------------------------------------------------------------
+# CollectionPlan forms
+# --------------------------------------------------------------------------
 
 class CollectorForm(NetBoxModelForm):
     """Form for creating and modifying a collectionplan."""
@@ -193,3 +243,41 @@ class CollectorForm(NetBoxModelForm):
             self.cleaned_data["scheduled_at"] = local_now()
 
         return self.cleaned_data
+
+
+class CollectionPlanBulkEditForm(NetBoxModelBulkEditForm):
+    enabled = forms.NullBooleanField(required=False, label=_("Enabled"))
+    priority = forms.ChoiceField(
+        choices=CollectorPriorityChoices, required=False, label=_("Priority")
+    )
+    description = forms.CharField(
+        label=_("Description"), max_length=200, required=False
+    )
+    comments = CommentField()
+
+    model = CollectionPlan
+    fieldsets = (
+        FieldSet("enabled", "priority", "description"),
+    )
+    nullable_fields = ("description", "comments")
+
+
+class CollectionPlanFilterForm(NetBoxModelFilterSetForm):
+    model = CollectionPlan
+    fieldsets = (
+        FieldSet("q", "filter_id"),
+        FieldSet(
+            "priority", "status", "collector_type", "enabled",
+            name=_("Attributes"),
+        ),
+    )
+    priority = forms.MultipleChoiceField(
+        choices=CollectorPriorityChoices, required=False, label=_("Priority")
+    )
+    status = forms.MultipleChoiceField(
+        choices=CollectorStatusChoices, required=False, label=_("Status")
+    )
+    collector_type = forms.MultipleChoiceField(
+        choices=CollectionTypeChoices, required=False, label=_("Collector Type")
+    )
+    enabled = forms.NullBooleanField(required=False, label=_("Enabled"))

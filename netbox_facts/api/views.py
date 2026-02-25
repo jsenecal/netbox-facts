@@ -41,4 +41,4 @@ class CollectorViewSet(NetBoxModelViewSet):
 
     queryset = models.CollectionPlan.objects.prefetch_related("tags")
     serializer_class = CollectionPlanSerializer
-    # filterset_class = filtersets.MACVendorFilterSet
+    filterset_class = filtersets.CollectorFilterSet

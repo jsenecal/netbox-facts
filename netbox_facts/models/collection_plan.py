@@ -22,7 +22,6 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
-# from extras.api.serializers import ScriptOutputSerializer
 from extras.choices import LogLevelChoices
 from extras.context_managers import event_tracking
 from napalm import get_network_driver
@@ -259,7 +258,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         if self.devices.exists():
             devices = devices.filter(pk__in=self.devices.all())
         if self.device_status:
-            devices = devices.filter(status=self.device_status)
+            devices = devices.filter(status__in=self.device_status)
         if self.regions.exists():
             devices = devices.filter(region__in=self.regions.all())
         if self.site_groups.exists():

@@ -57,6 +57,13 @@ class MACAddress(NetBoxModel):
         blank=True,
     )
 
+    last_seen = models.DateTimeField(
+        _("Last Seen"),
+        null=True,
+        blank=True,
+        editable=False,
+    )
+
     discovery_method = models.CharField(
         _("Discovery Method"),
         max_length=50,

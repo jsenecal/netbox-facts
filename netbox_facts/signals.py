@@ -64,7 +64,7 @@ def handle_mac_vendor_change(
 @receiver(post_save, sender=CollectionPlan)
 def handle_collection_job_change(
     instance: CollectionPlan, **kwargs
-): # pylint: disable=unused-argumen
+): # pylint: disable=unused-argument
     """
     Schedule collection job when a collection plan is created or updated.
     """

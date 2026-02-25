@@ -11,8 +11,6 @@ from django.db.models import Count
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
-
-# from django.views import View
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
@@ -20,9 +18,6 @@ from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
 from extras.views import ScriptResultView
 from utilities.htmx import htmx_partial
-
-
-# from utilities.forms import restrict_form_fields
 from utilities.views import (
     ViewTab,
     register_model_view,
@@ -55,17 +50,9 @@ class MACIPAddressesView(generic.ObjectChildrenView):
     )
 
     def get_table(self, data, request, bulk_actions=True):
-        """
-        Return the django-tables2 Table instance to be used for rendering the objects list without the `vendor` field.
-
-        Args:
-            data: Queryset or iterable containing table data
-            request: The current request
-            bulk_actions: Render checkboxes for object selection
-        """
         table = self.table(data, user=request.user)
         if (
-            "pk" in table.base_columns  # pylint: disable=no-member  # type: ignore
+            "pk" in table.base_columns
             and bulk_actions
         ):
             table.columns.show("pk")
@@ -76,7 +63,7 @@ class MACIPAddressesView(generic.ObjectChildrenView):
     def get_children(self, request, parent):
         if self.child_model is not None:
             return (
-                self.child_model.objects.restrict(request.user, "view")  # type: ignore
+                self.child_model.objects.restrict(request.user, "view")
                 .filter(mac_addresses=parent)
                 .prefetch_related("tags")
             )
@@ -89,6 +76,8 @@ class MACAddressListView(generic.ObjectListView):
         occurences=Count("interfaces"),
     )
     table = tables.MACAddressTable
+    filterset = filtersets.MACAddressFilterSet
+    filterset_form = forms.MACAddressFilterForm
 
 
 @register_model_view(models.MACAddress, "edit")
@@ -147,18 +136,8 @@ class MACVendorInstancesView(generic.ObjectChildrenView):
     )
 
     def get_table(self, data, request, bulk_actions=True):
-        """
-        Return the django-tables2 Table instance to be used for rendering the objects list without the `vendor` field.
-
-        Args:
-            data: Queryset or iterable containing table data
-            request: The current request
-            bulk_actions: Render checkboxes for object selection
-        """
         table = self.table(data, user=request.user)
-        if (
-            "pk" in table.base_columns and bulk_actions
-        ):  # pylint: disable=no-member  # type: ignore
+        if "pk" in table.base_columns and bulk_actions:
             table.columns.show("pk")
 
         table.columns.hide("vendor")
@@ -169,7 +148,7 @@ class MACVendorInstancesView(generic.ObjectChildrenView):
     def get_children(self, request, parent):
         if self.child_model is not None:
             return (
-                self.child_model.objects.restrict(request.user, "view")  # type: ignore
+                self.child_model.objects.restrict(request.user, "view")
                 .filter(vendor=parent)
                 .prefetch_related("tags")
                 .annotate(
@@ -200,8 +179,8 @@ class MACVendorListView(generic.ObjectListView):
 
     queryset = models.MACVendor.objects.all()
     table = tables.MACVendorTable
-    # filterset = filtersets.MACVendorFilterSet
-    # filterset_form = forms.MACVendorFilterForm
+    filterset = filtersets.MACVendorFilterSet
+    filterset_form = forms.MACVendorFilterForm
 
 
 @register_model_view(models.MACVendor, "edit")
@@ -220,20 +199,22 @@ class MACVendorDeleteView(generic.ObjectDeleteView):
 
 
 ###
-# Collector
+# CollectionPlan
 ###
 
 
 class CollectionPlanListView(generic.ObjectListView):
-    """List view for Collector instances."""
+    """List view for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
     table = tables.CollectorTable
+    filterset = filtersets.CollectorFilterSet
+    filterset_form = forms.CollectionPlanFilterForm
 
 
 @register_model_view(models.CollectionPlan)
 class CollectionPlanView(generic.ObjectView):
-    """View for Collector instances."""
+    """View for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
 
@@ -270,7 +251,7 @@ class CollectionPlanView(generic.ObjectView):
 
 @register_model_view(models.CollectionPlan, "edit")
 class CollectorEditView(generic.ObjectEditView):
-    """Edit view for Collector instances."""
+    """Edit view for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
     form = forms.CollectorForm
@@ -278,7 +259,7 @@ class CollectorEditView(generic.ObjectEditView):
 
 @register_model_view(models.CollectionPlan, "delete")
 class CollectorDeleteView(generic.ObjectDeleteView):
-    """Delete view for Collector instances."""
+    """Delete view for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
 
@@ -322,15 +303,10 @@ class CollectorResultsView(ScriptResultView):
         return "netbox_facts.view_collector_results"
 
     def get(self, request, **kwargs):
-        """
-        GET request handler. `*args` and `**kwargs` are passed to identify the object being queried.
-        Args:
-            request: The current request
-        """
         table = None
         instance = self.get_object(**kwargs)
 
-        object_type = ContentType.objects.get_for_model(  # type: ignore
+        object_type = ContentType.objects.get_for_model(
             instance, for_concrete_model=False
         )
         job: Job | None = (
@@ -351,13 +327,11 @@ class CollectorResultsView(ScriptResultView):
         }
 
         if job.data and "log" in job.data:
-            # Script
             context["tests"] = job.data.get("tests", {})
         elif job.data:
-            # Legacy Report
             context["tests"] = {
                 name: data
-                for name, data in job.data.items()  # type: ignore
+                for name, data in job.data.items()
                 if name.startswith("test_")
             }
 
@@ -372,15 +346,16 @@ class CollectorResultsView(ScriptResultView):
 
 
 class CollectorBulkEditView(generic.BulkEditView):
-    """Bulk edit view for Collector instances."""
+    """Bulk edit view for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
     filterset = filtersets.CollectorFilterSet
     table = tables.CollectorTable
+    form = forms.CollectionPlanBulkEditForm
 
 
 class CollectorBulkDeleteView(generic.BulkDeleteView):
-    """Bulk delete view for Collector instances."""
+    """Bulk delete view for CollectionPlan instances."""
 
     queryset = models.CollectionPlan.objects.all()
     filterset = filtersets.CollectorFilterSet

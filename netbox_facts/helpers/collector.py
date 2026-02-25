@@ -155,7 +155,12 @@ class NapalmCollector:
                         routing_instance = data.get("netbox_vrf")
                         netbox_prefix_qs = data.get("netbox_prefixes")
                         break
-                assert ip_interface_object is not None
+                if ip_interface_object is None:
+                    self._log_warning(
+                        f"Could not determine prefix length for `{arp_entry['ip']}` "
+                        f"on interface `{interface_name}`. Skipping."
+                    )
+                    continue
 
                 if not netbox_prefix_qs.exists():
                     message = (
@@ -292,6 +297,13 @@ class NapalmCollector:
 
             try:
                 primary_ip = get_primary_ip(self._current_device)
+            except ValueError:
+                self._log_warning(
+                    "Device has no primary IP address configured. Skipping."
+                )
+                continue
+
+            try:
                 with self._napalm_driver(
                     primary_ip,
                     self._napalm_username,

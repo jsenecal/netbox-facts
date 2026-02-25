@@ -1,8 +1,15 @@
-from netbox.filtersets import NetBoxModelFilterSet
-from .models import MACAddress, MACVendor, CollectionPlan
-from dcim.fields import MACAddressField
-from .fields import MACPrefixField
 import django_filters
+
+from dcim.fields import MACAddressField
+from netbox.filtersets import NetBoxModelFilterSet
+
+from .choices import (
+    CollectionTypeChoices,
+    CollectorPriorityChoices,
+    CollectorStatusChoices,
+)
+from .fields import MACPrefixField
+from .models import MACAddress, MACVendor, CollectionPlan
 
 __all__ = ["MACAddressFilterSet", "MACVendorFilterSet", "CollectorFilterSet"]
 
@@ -33,13 +40,13 @@ class MACAddressFilterSet(NetBoxModelFilterSet):
 
 
 class MACVendorFilterSet(NetBoxModelFilterSet):
-    """Filter set for the MACAddress model."""
+    """Filter set for the MACVendor model."""
 
     class Meta:
-        """Meta class for MACAddressFilterSet."""
+        """Meta class for MACVendorFilterSet."""
 
         model = MACVendor
-        fields = ["mac_prefix", "manufacturer"]
+        fields = ["mac_prefix", "manufacturer", "vendor_name"]
         filter_overrides = {
             MACPrefixField: {
                 "filter_class": django_filters.CharFilter,
@@ -49,12 +56,29 @@ class MACVendorFilterSet(NetBoxModelFilterSet):
             },
         }
 
+    def search(self, queryset, name, value):
+        return queryset.filter(vendor_name__icontains=value)
+
 
 class CollectorFilterSet(NetBoxModelFilterSet):
-    """Filter set for the Collector model."""
+    """Filter set for the CollectionPlan model."""
+
+    priority = django_filters.MultipleChoiceFilter(
+        choices=CollectorPriorityChoices,
+    )
+    status = django_filters.MultipleChoiceFilter(
+        choices=CollectorStatusChoices,
+    )
+    collector_type = django_filters.MultipleChoiceFilter(
+        choices=CollectionTypeChoices,
+    )
+    enabled = django_filters.BooleanFilter()
 
     class Meta:
         """Meta class for CollectorFilterSet."""
 
         model = CollectionPlan
-        fields = ["name"]
+        fields = ["name", "priority", "status", "collector_type", "enabled"]
+
+    def search(self, queryset, name, value):
+        return queryset.filter(name__icontains=value)
