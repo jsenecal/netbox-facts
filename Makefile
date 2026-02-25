@@ -2,7 +2,6 @@ PLUGIN_NAME=netbox_facts
 REPO_PATH=/opt/netbox-facts
 VENV_PY_PATH=/opt/netbox/venv/bin/python3
 NETBOX_MANAGE_PATH=/opt/netbox/netbox
-NETBOX_INITIALIZER_PATH=${REPO_PATH}/.devcontainer/initializers
 VERFILE=./version.py
 PROJECT_PATH:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 
@@ -44,15 +43,6 @@ setup:
 	uv pip install --python ${VENV_PY_PATH} -e ${REPO_PATH}
 	git config core.hooksPath .githooks
 
-.PHONY: example_initializers ## Run initializers
-example_initializers:
-	mkdir -p ${REPO_PATH}/.devcontainer/initializers
-	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py copy_initializers_examples --path ${REPO_PATH}/.devcontainer/initializers
-
-.PHONY: load_initializers ## Run initializers
-load_initializers:
-	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py load_initializer_data  --path ${REPO_PATH}/.devcontainer/initializers
-
 .PHONY: migrations ## Run makemigrations
 migrations:
 	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py makemigrations --name ${PLUGIN_NAME}
@@ -69,20 +59,12 @@ PHONY: runserver
 runserver:
 	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py runserver 0.0.0.0:8000
 
-.PHONY: initializers
-initializers:
-	-rm -rf ${NETBOX_INITIALIZER_PATH}
-	-mkdir ${NETBOX_INITIALIZER_PATH}
-	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py copy_initializers_examples --path ${NETBOX_INITIALIZER_PATH}
-	-for file in ${NETBOX_INITIALIZER_PATH}/*.yml; do sed -i "s/^# //g" "$$file"; done
-	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py load_initializer_data --path ${NETBOX_INITIALIZER_PATH}
-
 .PHONY: launch ## Start NetBox
 launch:
 	- cd /opt/netbox/netbox/ && /opt/netbox/docker-entrypoint.sh && /opt/netbox/launch-netbox.sh
 
 .PHONY: all ## Run all PLUGIN DEV targets
-all: setup makemigrations migrate collectstatic initializers launch
+all: setup makemigrations migrate collectstatic launch
 
 .PHONY: rebuild ## Run PLUGIN DEV targets to rebuild
 rebuild: setup makemigrations migrate collectstatic launch

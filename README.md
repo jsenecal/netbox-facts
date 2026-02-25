@@ -57,10 +57,9 @@ To develop this plugin further one can use the included .devcontainer configurat
 1. In the WSL terminal, enter `code` to run Visual studio code.
 2. Install the devcontainer extension "ms-vscode-remote.remote-containers"
 3. Press Ctrl+Shift+P and use the "Dev Container: Clone Repository in Container Volume" function to clone this repository. This will take a while depending on your computer
-4. If you'd like the netbox instance to be prepopulated with example data from [netbox-initializers](https://github.com/tobiasge/netbox-initializers) run `make initializers`
-5. Start the netbox instance using `make all`
+4. Start the netbox instance using `make all`
 
-Your netbox instance will be served under 0.0.0.0:8001, so it should now be available under localhost:8001.
+Your netbox instance will be served under 0.0.0.0:8008, so it should now be available under localhost:8008.
 
 
 ## Credits

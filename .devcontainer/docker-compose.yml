@@ -1,8 +1,7 @@
 ---
-version: "3.4"
 services:
   netbox: &netbox
-    container_name: netbox_facts-devcontainer
+    container_name: netbox-facts-devcontainer
     image: netboxcommunity/netbox:${NETBOX_VARIANT-latest}-devcontainer
     depends_on:
       - postgres
@@ -12,40 +11,36 @@ services:
       context: ..
     env_file: env/netbox.env
     volumes:
-      - ../:/opt/netbox-facts
+      - ../:/opt/netbox-facts:cached
       - ~/.gitconfig:/home/ubuntu/.gitconfig:z,ro
       - ~/.ssh:/home/ubuntu/.ssh
       - ./home/.config/:/home/ubuntu/.config/
+      - ./home/.claude:/home/ubuntu/.claude
+      - ./home/.claude.json:/home/ubuntu/.claude.json
       - ./configuration:/etc/netbox/config:z,ro
+      - netbox-scripts:/etc/netbox/scripts
+    ports:
+      - "8008:8008"
     command:
       - sleep
       - infinity
   netbox-worker:
     <<: *netbox
-    container_name: netbox_facts-worker
+    container_name: netbox-facts-worker
     command:
       - /opt/netbox/venv/bin/python
       - /opt/netbox/netbox/manage.py
       - rqworker
+    ports: []
     healthcheck:
       start_period: 20s
       timeout: 3s
       interval: 15s
       test: "ps -aux | grep -v grep | grep -q rqworker || exit 1"
-  netbox-housekeeping:
-    <<: *netbox
-    container_name: netbox_facts-housekeeping
-    command:
-      - /opt/netbox/housekeeping.sh
-    healthcheck:
-      start_period: 20s
-      timeout: 3s
-      interval: 15s
-      test: "ps -aux | grep -v grep | grep -q housekeeping || exit 1"
 
   # postgres
   postgres:
-    container_name: netbox_facts-postgres
+    container_name: netbox-facts-postgres
     image: postgres:15-alpine
     env_file: env/postgres.env
     volumes:
@@ -53,7 +48,7 @@ services:
 
   # redis
   redis:
-    container_name: netbox_facts-redis
+    container_name: netbox-facts-redis
     image: redis:7-alpine
     command:
       - sh
@@ -63,4 +58,6 @@ services:
 
 volumes:
   netbox-postgres-data:
+    driver: local
+  netbox-scripts:
     driver: local
