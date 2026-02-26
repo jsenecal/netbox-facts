@@ -445,3 +445,160 @@ class EthernetSwitchingCollectorTest(CollectorTestMixin, TestCase):
         collector.ethernet_switching(driver)
 
         self.assertEqual(MACAddress.objects.count(), 0)
+
+
+class LLDPCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the lldp() collector method."""
+
+    def test_creates_cable_same_site(self):
+        """A cable should be created between two devices in the same site."""
+        from dcim.models.cables import Cable as CableModel
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_LLDP,
+            name="Plan-lldp-cable",
+        )
+        device_a = self._create_device("lldp-dev-a")
+        device_b = self._create_device("lldp-dev-b")
+        iface_a = Interface.objects.create(device=device_a, name="Ethernet1", type="1000base-t")
+        iface_b = Interface.objects.create(device=device_b, name="Ethernet1", type="1000base-t")
+
+        collector = self._make_collector(plan)
+        collector._current_device = device_a
+
+        driver = MagicMock()
+        driver.get_lldp_neighbors_detail.return_value = {
+            "Ethernet1": [
+                {
+                    "parent_interface": "Ethernet1",
+                    "remote_chassis_id": "AA:BB:CC:DD:EE:FF",
+                    "remote_system_name": "lldp-dev-b",
+                    "remote_port": "Ethernet1",
+                    "remote_port_description": "",
+                }
+            ]
+        }
+
+        collector.lldp(driver)
+
+        # Verify a cable was created
+        self.assertEqual(CableModel.objects.count(), 1)
+        cable = CableModel.objects.first()
+        a_terms, b_terms = cable.get_terminations()
+        a_ifaces = list(a_terms.keys())
+        b_ifaces = list(b_terms.keys())
+        self.assertIn(iface_a, a_ifaces)
+        self.assertIn(iface_b, b_ifaces)
+
+    def test_no_cable_cross_site(self):
+        """No cable should be created when devices are in different sites."""
+        from dcim.models.cables import Cable as CableModel
+
+        site_b = Site.objects.create(name="Other LLDP Site", slug="other-lldp-site")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_LLDP,
+            name="Plan-lldp-xsite",
+        )
+        device_a = self._create_device("lldp-xsite-a")
+        device_b = self._create_device("lldp-xsite-b", site=site_b)
+        Interface.objects.create(device=device_a, name="Ethernet1", type="1000base-t")
+        Interface.objects.create(device=device_b, name="Ethernet1", type="1000base-t")
+
+        collector = self._make_collector(plan)
+        collector._current_device = device_a
+
+        driver = MagicMock()
+        driver.get_lldp_neighbors_detail.return_value = {
+            "Ethernet1": [
+                {
+                    "parent_interface": "Ethernet1",
+                    "remote_chassis_id": "AA:BB:CC:DD:EE:FF",
+                    "remote_system_name": "lldp-xsite-b",
+                    "remote_port": "Ethernet1",
+                    "remote_port_description": "",
+                }
+            ]
+        }
+
+        collector.lldp(driver)
+
+        self.assertEqual(CableModel.objects.count(), 0)
+
+    def test_no_cable_unknown_remote_device(self):
+        """No cable should be created when remote device is not in NetBox."""
+        from dcim.models.cables import Cable as CableModel
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_LLDP,
+            name="Plan-lldp-unknown",
+        )
+        device_a = self._create_device("lldp-unknown-a")
+        Interface.objects.create(device=device_a, name="Ethernet1", type="1000base-t")
+
+        collector = self._make_collector(plan)
+        collector._current_device = device_a
+
+        driver = MagicMock()
+        driver.get_lldp_neighbors_detail.return_value = {
+            "Ethernet1": [
+                {
+                    "parent_interface": "Ethernet1",
+                    "remote_chassis_id": "AA:BB:CC:DD:EE:FF",
+                    "remote_system_name": "nonexistent-device",
+                    "remote_port": "Ethernet1",
+                    "remote_port_description": "",
+                }
+            ]
+        }
+
+        collector.lldp(driver)
+
+        self.assertEqual(CableModel.objects.count(), 0)
+
+    def test_no_cable_already_cabled(self):
+        """No duplicate cable should be created when interface already has one."""
+        from dcim.choices import LinkStatusChoices
+        from dcim.models.cables import Cable as CableModel
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_LLDP,
+            name="Plan-lldp-dupcable",
+        )
+        device_a = self._create_device("lldp-dup-a")
+        device_b = self._create_device("lldp-dup-b")
+        device_c = self._create_device("lldp-dup-c")
+        iface_a = Interface.objects.create(device=device_a, name="Ethernet1", type="1000base-t")
+        iface_b = Interface.objects.create(device=device_b, name="Ethernet1", type="1000base-t")
+        iface_c = Interface.objects.create(device=device_c, name="Ethernet1", type="1000base-t")
+
+        # Pre-create a cable between device_a and device_c
+        existing_cable = CableModel(
+            a_terminations=[iface_a],
+            b_terminations=[iface_c],
+            status=LinkStatusChoices.STATUS_CONNECTED,
+        )
+        existing_cable.full_clean()
+        existing_cable.save()
+
+        collector = self._make_collector(plan)
+        collector._current_device = device_a
+
+        driver = MagicMock()
+        driver.get_lldp_neighbors_detail.return_value = {
+            "Ethernet1": [
+                {
+                    "parent_interface": "Ethernet1",
+                    "remote_chassis_id": "AA:BB:CC:DD:EE:FF",
+                    "remote_system_name": "lldp-dup-b",
+                    "remote_port": "Ethernet1",
+                    "remote_port_description": "",
+                }
+            ]
+        }
+
+        # Need to refresh iface_a from DB to pick up cable_id
+        iface_a.refresh_from_db()
+        collector.lldp(driver)
+
+        # Should still be just the one original cable
+        self.assertEqual(CableModel.objects.count(), 1)

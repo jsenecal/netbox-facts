@@ -322,9 +322,97 @@ class NapalmCollector:
 
         self._log_success("Interface collection completed")
 
-    def lldp(self):
-        """Collect LLDP data from devices."""
-        raise NotImplementedError()
+    def lldp(self, driver: NetworkDriver):
+        """Collect LLDP data from a device using get_lldp_neighbors_detail()."""
+        from dcim.choices import LinkStatusChoices
+        from dcim.models.cables import Cable
+
+        lldp_data = driver.get_lldp_neighbors_detail()
+        device = self._current_device
+
+        for local_iface_name, neighbors in lldp_data.items():
+            # Get local interface from NetBox
+            try:
+                local_iface = device.vc_interfaces().get(name=local_iface_name)
+            except Interface.DoesNotExist:
+                self._log_warning(
+                    f"Could not find local interface `{local_iface_name}` in NetBox. Skipping."
+                )
+                continue
+
+            for neighbor in neighbors:
+                remote_system_name = neighbor.get("remote_system_name", "")
+                remote_port = neighbor.get("remote_port", "")
+
+                if not remote_system_name or not remote_port:
+                    continue
+
+                # Look up the remote device in NetBox
+                try:
+                    remote_device = Device.objects.get(name=remote_system_name)
+                except Device.DoesNotExist:
+                    self._log_info(
+                        f"Remote device `{remote_system_name}` not found in NetBox. Skipping cable creation."
+                    )
+                    continue
+
+                # Only create cables between devices in the same site
+                if remote_device.site_id != device.site_id:
+                    self._log_info(
+                        f"Remote device `{remote_system_name}` is in a different site. Skipping cable creation."
+                    )
+                    continue
+
+                # Look up the remote interface
+                try:
+                    remote_iface = remote_device.vc_interfaces().get(name=remote_port)
+                except Interface.DoesNotExist:
+                    self._log_warning(
+                        f"Could not find remote interface `{remote_port}` on `{remote_system_name}`. Skipping."
+                    )
+                    continue
+
+                # Check that neither interface already has a cable
+                if local_iface.cable_id is not None:
+                    self._log_info(
+                        f"Local interface `{local_iface_name}` already has a cable. Skipping."
+                    )
+                    continue
+                if remote_iface.cable_id is not None:
+                    self._log_info(
+                        f"Remote interface `{remote_port}` on `{remote_system_name}` already has a cable. Skipping."
+                    )
+                    continue
+
+                # Create the cable
+                try:
+                    cable = Cable(
+                        a_terminations=[local_iface],
+                        b_terminations=[remote_iface],
+                        status=LinkStatusChoices.STATUS_CONNECTED,
+                    )
+                    cable.full_clean()
+                    cable.save()
+
+                    JournalEntry.objects.create(
+                        created=self._now,
+                        assigned_object=device,
+                        kind=JournalEntryKindChoices.KIND_INFO,
+                        comments=(
+                            f"LLDP: Created cable between `{local_iface_name}` and "
+                            f"`{remote_system_name}:{remote_port}`."
+                        ),
+                    )
+                    self._log_success(
+                        f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
+                    )
+                except Exception as exc:
+                    self._log_warning(
+                        f"Could not create cable between `{local_iface_name}` and "
+                        f"`{remote_system_name}:{remote_port}`: {exc}"
+                    )
+
+        self._log_success("LLDP collection completed")
 
     def ethernet_switching(self, driver: NetworkDriver):
         """Collect ethernet switching data from a device using get_mac_address_table()."""
