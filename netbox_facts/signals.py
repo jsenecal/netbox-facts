@@ -1,3 +1,4 @@
+from core.choices import JobStatusChoices
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -74,9 +75,25 @@ def handle_mac_vendor_change(
 
 @receiver(post_save, sender=CollectionPlan)
 def handle_collection_job_change(
-    instance: CollectionPlan, **kwargs
-): # pylint: disable=unused-argument
+    instance: CollectionPlan, created=False, **kwargs
+):  # pylint: disable=unused-argument
     """
-    Schedule collection job when a collection plan is created or updated.
+    Schedule or cancel collection jobs when a CollectionPlan is saved.
+    Mirrors the DataSource sync scheduling pattern from core/signals.py.
     """
-    pass
+    from netbox_facts.jobs import CollectionJobRunner
+
+    if instance.enabled and instance.interval:
+        CollectionJobRunner.enqueue_once(
+            instance=instance,
+            interval=instance.interval,
+            user=instance.run_as,
+            queue_name=instance.priority,
+        )
+    elif not created:
+        # Delete any previously scheduled recurring jobs for this CollectionPlan
+        for job in CollectionJobRunner.get_jobs(instance).defer("data").filter(
+            interval__isnull=False,
+            status=JobStatusChoices.STATUS_SCHEDULED,
+        ):
+            job.delete()
