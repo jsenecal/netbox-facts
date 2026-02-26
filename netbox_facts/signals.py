@@ -1,7 +1,9 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from dcim.fields import mac_unix_expanded_uppercase
 from dcim.models.devices import Manufacturer
+from netaddr import EUI
 
 from .models import MACAddress, MACVendor, CollectionPlan
 
@@ -56,8 +58,17 @@ def handle_mac_vendor_change(
     """
     Update vendor foreign key when a MACVendor is created or updated.
     """
+    # Normalize prefix to colon-separated lowercase format matching PostgreSQL
+    # macaddr::text output (e.g. "dd:ee:ff"). The instance attribute may have
+    # any dialect depending on how it was created, so we normalize explicitly.
+    prefix = EUI(
+        int(instance.mac_prefix) & ~0x0000FFFFFF,
+        version=48,
+        dialect=mac_unix_expanded_uppercase,
+    )
+    prefix_str = str(prefix).lower()[:8]  # "dd:ee:ff"
     mac_addresses = MACAddress.objects.filter(
-        mac_address__startswith=str(instance.mac_prefix)[:6]
+        mac_address__startswith=prefix_str
     )
     mac_addresses.update(vendor=instance)
 

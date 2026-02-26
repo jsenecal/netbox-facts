@@ -23,7 +23,7 @@ from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
 from extras.choices import LogLevelChoices
-from extras.context_managers import event_tracking
+from netbox.context_managers import event_tracking
 from napalm import get_network_driver
 from napalm.base.base import NetworkDriver
 from netbox.models import NetBoxModel

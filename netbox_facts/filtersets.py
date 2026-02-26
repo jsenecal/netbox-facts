@@ -17,6 +17,8 @@ __all__ = ["MACAddressFilterSet", "MACVendorFilterSet", "CollectorFilterSet"]
 class MACAddressFilterSet(NetBoxModelFilterSet):
     """Filter set for the MACAddress model."""
 
+    description = django_filters.CharFilter(lookup_expr="icontains")
+
     class Meta:
         """Meta class for MACAddressFilterSet."""
 
@@ -63,6 +65,7 @@ class MACVendorFilterSet(NetBoxModelFilterSet):
 class CollectorFilterSet(NetBoxModelFilterSet):
     """Filter set for the CollectionPlan model."""
 
+    name = django_filters.CharFilter(lookup_expr="icontains")
     priority = django_filters.MultipleChoiceFilter(
         choices=CollectorPriorityChoices,
     )

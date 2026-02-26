@@ -14,6 +14,7 @@ class CollectionTypeChoices(ChoiceSet):
     TYPE_L2CIRCTUITS = "l2_circuits"
     TYPE_EVPN = "evpn"
     TYPE_BGP = "bgp"
+    TYPE_OSPF = "ospf"
 
     CHOICES = [
         (TYPE_ARP, "ARP", "gray"),
@@ -25,6 +26,7 @@ class CollectionTypeChoices(ChoiceSet):
         (TYPE_L2CIRCTUITS, _("L2 Circuits"), "orange"),
         (TYPE_EVPN, "EVPN", "red"),
         (TYPE_BGP, "BGP", "green"),
+        (TYPE_OSPF, "OSPF", "teal"),
     ]
 
 

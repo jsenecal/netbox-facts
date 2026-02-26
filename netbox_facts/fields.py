@@ -19,6 +19,6 @@ class MACPrefixField(MACAddressField):
             value = value.replace(" ", "")
         try:
             eui = EUI(value, version=48, dialect=mac_unix_expanded_uppercase)
-            return EUI(int(eui) & ~0x0000FFFFFF, version=48)
+            return EUI(int(eui) & ~0x0000FFFFFF, version=48, dialect=mac_unix_expanded_uppercase)
         except AddrFormatError as exc:
             raise ValidationError(f"Invalid MAC address Prefix format: {value}") from exc

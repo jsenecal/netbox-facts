@@ -21,12 +21,16 @@ class MACAddressAPITest(
     APIViewTestCases.DeleteObjectViewTestCase,
 ):
     model = MACAddress
+    view_namespace = "plugins-api:netbox_facts"
     brief_fields = [
         "display",
         "id",
         "mac_address",
         "url",
     ]
+    # vendor is editable=False (auto-set from MAC prefix); mac_address is EUI
+    # type which model_to_dict doesn't convert to string for comparison
+    validation_excluded_fields = ("mac_address", "vendor")
 
     @classmethod
     def setUpTestData(cls):
@@ -42,9 +46,9 @@ class MACAddressAPITest(
         MACAddress.objects.create(mac_address="AA:BB:CC:00:00:03", vendor=vendor)
 
         cls.create_data = [
-            {"mac_address": "AA:BB:CC:00:00:04", "vendor": vendor.pk},
-            {"mac_address": "AA:BB:CC:00:00:05", "vendor": vendor.pk},
-            {"mac_address": "AA:BB:CC:00:00:06", "vendor": vendor.pk},
+            {"mac_address": "AA:BB:CC:00:00:04"},
+            {"mac_address": "AA:BB:CC:00:00:05"},
+            {"mac_address": "AA:BB:CC:00:00:06"},
         ]
 
 
@@ -56,6 +60,7 @@ class MACVendorAPITest(
     APIViewTestCases.DeleteObjectViewTestCase,
 ):
     model = MACVendor
+    view_namespace = "plugins-api:netbox_facts"
     brief_fields = [
         "display",
         "id",
@@ -94,6 +99,7 @@ class CollectionPlanAPITest(
     APIViewTestCases.DeleteObjectViewTestCase,
 ):
     model = CollectionPlan
+    view_namespace = "plugins-api:netbox_facts"
     brief_fields = [
         "display",
         "id",

@@ -3,7 +3,6 @@ from django.utils.translation import gettext_lazy as _
 
 from netbox.tables import NetBoxTable
 from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn
-from netbox.tables.tables import BaseTable
 
 from .models import MACAddress, MACVendor, CollectionPlan
 
@@ -13,8 +12,8 @@ __all__ = ["MACAddressTable", "MACVendorTable", "CollectorTable"]
 class DatedNetboxTable(NetBoxTable):
     """Table representation of the DatedModel model."""
 
-    created = tables.DateTimeColumn(format="Y-m-d H:i:s")
-    last_updated = tables.DateTimeColumn(format="Y-m-d H:i:s")
+    created = DateTimeColumn()
+    last_updated = DateTimeColumn()
 
     class Meta(NetBoxTable.Meta):
         fields = ("pk", "id", "created", "last_updated", "actions")
@@ -27,7 +26,7 @@ class MACAddressTable(DatedNetboxTable):
     mac_address = tables.Column(linkify=True)
     vendor = tables.Column(linkify=True)
     occurences = tables.Column(accessor="occurences", verbose_name=_("Occurences"))
-    last_seen = DateTimeColumn(format="Y-m-d H:i:s")
+    last_seen = DateTimeColumn()
 
     class Meta(NetBoxTable.Meta):
         model = MACAddress

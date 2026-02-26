@@ -19,7 +19,7 @@ class MACAddressSerializer(NetBoxModelSerializer):
     url = serializers.HyperlinkedIdentityField(
         view_name="plugins-api:netbox_facts-api:macaddress-detail",
     )
-    vendor = NestedMACVendorSerializer(required=True, allow_null=False)
+    vendor = NestedMACVendorSerializer(required=False, allow_null=True, read_only=True)
     interfaces_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -42,6 +42,12 @@ class MACAddressSerializer(NetBoxModelSerializer):
             "last_updated",
             "last_seen",
             "interfaces_count",
+        )
+        brief_fields = (
+            "id",
+            "url",
+            "display",
+            "mac_address",
         )
 
 
@@ -74,6 +80,13 @@ class MACVendorSerializer(NetBoxModelSerializer):
             "created",
             "last_updated",
             "instances_count",
+        )
+        brief_fields = (
+            "id",
+            "url",
+            "display",
+            "manufacturer",
+            "vendor_name",
         )
 
 
@@ -120,4 +133,10 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "custom_fields",
             "created",
             "last_updated",
+        )
+        brief_fields = (
+            "id",
+            "url",
+            "display",
+            "name",
         )

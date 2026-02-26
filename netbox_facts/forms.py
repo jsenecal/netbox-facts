@@ -3,7 +3,7 @@ from django.forms import MultipleChoiceField
 from dcim.choices import DeviceStatusChoices
 from dcim.models.devices import Device, DeviceRole, DeviceType, Platform, Manufacturer
 from dcim.models.sites import Region, Site, SiteGroup, Location
-from extras.choices import DurationChoices
+from core.choices import JobIntervalChoices
 from extras.models.tags import Tag
 from netbox.forms import (
     NetBoxModelForm,
@@ -11,7 +11,7 @@ from netbox.forms import (
     NetBoxModelBulkEditForm,
 )
 from utilities.forms.rendering import FieldSet
-from netbox.forms.base import NetBoxModelImportForm
+from netbox.forms.bulk_import import NetBoxModelImportForm
 from tenancy.models.tenants import Tenant, TenantGroup
 from utilities.forms.fields.dynamic import DynamicModelMultipleChoiceField
 from utilities.forms.fields import CommentField
@@ -161,7 +161,7 @@ class CollectorForm(NetBoxModelForm):
         required=False,
         min_value=1,
         label=_("Repeat every"),
-        widget=NumberWithOptions(options=DurationChoices),
+        widget=NumberWithOptions(options=JobIntervalChoices),
         help_text=_("Interval at which this collection task is re-run (in minutes)"),
     )
 

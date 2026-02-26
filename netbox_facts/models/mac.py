@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netaddr import EUI, NotRegisteredError
 from netbox_facts.choices import CollectionTypeChoices
+from taggit.managers import TaggableManager
 from utilities.querysets import RestrictedQuerySet
 
 from netbox.models import NetBoxModel
@@ -16,6 +17,13 @@ __all__ = ["MACAddress", "MACVendor"]
 
 class MACAddress(NetBoxModel):
     """Model representing a MAC Address seen by one or multiple devices."""
+
+    # Override tags with explicit related_name to avoid clash with dcim.MACAddress
+    tags = TaggableManager(
+        through='extras.TaggedItem',
+        ordering=('weight', 'name'),
+        related_name='netbox_facts_macaddress_set',
+    )
 
     mac_address = MACAddressField(
         _("MAC Address"),
