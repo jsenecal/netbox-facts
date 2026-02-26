@@ -506,9 +506,50 @@ class NapalmCollector:
         )
         self._log_success("L2 circuit collection completed")
 
-    def evpn(self):
-        """Collect EVPN data from devices."""
-        raise NotImplementedError()
+    def evpn(self, driver: NetworkDriver):
+        """Collect EVPN data. Dispatches to vendor-specific implementation."""
+        impl = self._get_vendor_method("evpn")
+        impl(driver)
+
+    def _evpn_junos(self, driver):
+        """Junos EVPN collection via CLI."""
+        try:
+            output = driver.cli(["show evpn mac-table"])
+            raw = output.get("show evpn mac-table", "")
+        except Exception as exc:
+            self._log_failure(f"Failed to retrieve EVPN data: {exc}")
+            return
+
+        if not raw.strip():
+            self._log_info("No EVPN data found.")
+            return
+
+        import re as _re
+        mac_pattern = _re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
+        for line in raw.strip().split("\n"):
+            match = mac_pattern.search(line)
+            if match:
+                mac_str = match.group(1)
+                netbox_mac, created = MACAddress.objects.get_or_create(
+                    mac_address=mac_str
+                )
+                netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
+                netbox_mac.last_seen = self._now
+                netbox_mac.save()
+
+                if created:
+                    netbox_mac.tags.add(AUTO_D_TAG)
+                    self._log_success(
+                        f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                    )
+
+        JournalEntry.objects.create(
+            created=self._now,
+            assigned_object=self._current_device,
+            kind=JournalEntryKindChoices.KIND_INFO,
+            comments=f"EVPN data collected:\n```\n{raw[:2000]}\n```",
+        )
+        self._log_success("EVPN collection completed")
 
     def bgp(self, driver: NetworkDriver):
         """Collect BGP data from a device using get_bgp_neighbors_detail()."""

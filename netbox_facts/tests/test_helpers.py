@@ -775,3 +775,49 @@ class L2CircuitsCollectorTest(CollectorTestMixin, TestCase):
 
         entries = JournalEntry.objects.filter(assigned_object_id=device.pk)
         self.assertTrue(entries.exists())
+
+
+class EVPNCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the evpn() Junos collector."""
+
+    def test_evpn_creates_mac_with_evpn_discovery(self):
+        """evpn() should create MACAddress objects with discovery_method='evpn'."""
+        device = self._create_device("evpn-dev1")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_EVPN,
+            name="EVPN Plan",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        mock_driver = MagicMock()
+        mock_driver.cli.return_value = {
+            "show evpn mac-table": (
+                "MAC address      Logical interface   NH Index  Flags\n"
+                "AA:BB:CC:DD:11:22  vtep.32769         0         D\n"
+                "AA:BB:CC:DD:33:44  vtep.32769         0         D\n"
+            )
+        }
+
+        collector.evpn(mock_driver)
+
+        self.assertTrue(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:11:22").exists())
+        mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:11:22")
+        self.assertEqual(mac.discovery_method, CollectionTypeChoices.TYPE_EVPN)
+
+    def test_evpn_unsupported_driver(self):
+        """evpn() should raise NotImplementedError for non-Junos drivers."""
+        plan = MagicMock()
+        plan.napalm_driver = "eos"
+        plan.collector_type = CollectionTypeChoices.TYPE_EVPN
+
+        with patch.object(NapalmCollector, "__init__", lambda self, p: None):
+            collector = NapalmCollector.__new__(NapalmCollector)
+        collector.plan = plan
+        collector._collector_type = CollectionTypeChoices.TYPE_EVPN
+        collector._now = timezone.now()
+        collector._current_device = None
+        collector._log_prefix = ""
+
+        with self.assertRaises(NotImplementedError):
+            collector.evpn(MagicMock())
