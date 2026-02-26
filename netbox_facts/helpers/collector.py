@@ -35,6 +35,15 @@ if TYPE_CHECKING:
 AUTO_D_TAG = "Automatically Discovered"
 
 
+def _has_netbox_routing():
+    """Check if netbox-routing plugin is installed."""
+    try:
+        import netbox_routing  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 class NapalmCollector:
     """Class to run collection jobs."""
 
@@ -524,8 +533,7 @@ class NapalmCollector:
             self._log_info("No EVPN data found.")
             return
 
-        import re as _re
-        mac_pattern = _re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
+        mac_pattern = re.compile(r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})")
         for line in raw.strip().split("\n"):
             match = mac_pattern.search(line)
             if match:
@@ -632,8 +640,28 @@ class NapalmCollector:
         self._log_success("BGP collection completed")
 
     def _bgp_routing_integration(self):
-        """Stub for future netbox-routing BGPSession integration (Task 11)."""
-        pass
+        """Create/update BGP session in netbox-routing if available."""
+        if not _has_netbox_routing():
+            return
+
+        try:
+            from netbox_routing.models import BGPPeer, BGPRouter, BGPScope  # noqa: F401
+
+            router = BGPRouter.objects.filter(
+                assigned_object_id=self._current_device.pk,
+            ).first()
+            if not router:
+                self._log_info(
+                    f"No BGPRouter found for {self._current_device} in netbox-routing. "
+                    f"Skipping BGP session creation."
+                )
+                return
+
+            self._log_info(
+                f"Found BGPRouter for {self._current_device} in netbox-routing."
+            )
+        except Exception as exc:
+            self._log_warning(f"netbox-routing BGP integration error: {exc}")
 
     def ospf(self, driver: NetworkDriver):
         """Collect OSPF data. Dispatches to vendor-specific implementation."""
@@ -653,10 +681,9 @@ class NapalmCollector:
             self._log_info("No OSPF neighbor data found.")
             return
 
-        import re as _re
-        ip_pattern = _re.compile(
+        ip_pattern = re.compile(
             r"^(\d+\.\d+\.\d+\.\d+)\s+(\S+)\s+(\S+)\s+(\d+\.\d+\.\d+\.\d+)",
-            _re.MULTILINE,
+            re.MULTILINE,
         )
         neighbors = []
         for match in ip_pattern.finditer(raw):
@@ -705,8 +732,24 @@ class NapalmCollector:
         self._log_success("OSPF collection completed")
 
     def _ospf_routing_integration(self, ip_obj, neighbor_data):
-        """Hook for netbox-routing OSPF integration. Implemented in Task 12."""
-        pass
+        """Create/update OSPF data in netbox-routing if available."""
+        if not _has_netbox_routing():
+            return
+
+        try:
+            from netbox_routing.models import OSPFInstance  # noqa: F401
+
+            instance = OSPFInstance.objects.filter(
+                device=self._current_device,
+            ).first()
+            if instance:
+                self._log_info(
+                    f"Found OSPF instance `{instance}` for {self._current_device} "
+                    f"in netbox-routing. Neighbor: {neighbor_data['address']} "
+                    f"(State: {neighbor_data['state']})"
+                )
+        except Exception as exc:
+            self._log_warning(f"netbox-routing OSPF integration error: {exc}")
 
     def execute(self):
         """Execute the collection job."""

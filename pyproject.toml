@@ -32,7 +32,9 @@ Documentation = "https://jsenecal.github.io/netbox-facts"
 Repository = "https://github.com/jsenecal/netbox-facts"
 
 [project.optional-dependencies]
+routing = ["netbox-routing"]
 dev = [
+    "netbox-routing",
     "autoflake",
     "autopep8",
     "bandit",
