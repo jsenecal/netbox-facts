@@ -1,12 +1,28 @@
 from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
+from django.utils import timezone
 
+from dcim.choices import DeviceStatusChoices
+from dcim.models import (
+    Device,
+    DeviceRole,
+    DeviceType,
+    Manufacturer,
+    Site,
+)
+from dcim.models.device_components import Interface
+from extras.models.models import JournalEntry
+
+from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.helpers.collector import NapalmCollector
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
 )
 from netbox_facts.helpers.netbox import get_absolute_url_markdown, get_primary_ip
+from netbox_facts.models import CollectionPlan
+from netbox_facts.models.mac import MACAddress
 
 
 class ParseNetworkInstancesTest(TestCase):
@@ -109,3 +125,128 @@ class GetPrimaryIpTest(TestCase):
         device.__str__ = MagicMock(return_value="device1")
         with self.assertRaises(ValueError):
             get_primary_ip(device)
+
+
+class CollectorTestMixin:
+    """Mixin providing shared setup for collector tests."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.site = Site.objects.create(name="Collector Site", slug="collector-site")
+        cls.manufacturer = Manufacturer.objects.create(
+            name="CollectorMfg", slug="collectormfg"
+        )
+        cls.device_type = DeviceType.objects.create(
+            manufacturer=cls.manufacturer, model="CollModel", slug="collmodel"
+        )
+        cls.role = DeviceRole.objects.create(name="CollRole", slug="collrole")
+
+    def _create_plan(self, collector_type=CollectionTypeChoices.TYPE_INVENTORY, **kwargs):
+        defaults = {
+            "name": f"Plan-{collector_type}-{id(self)}",
+            "collector_type": collector_type,
+            "napalm_driver": "junos",
+            "device_status": [DeviceStatusChoices.STATUS_ACTIVE],
+        }
+        defaults.update(kwargs)
+        return CollectionPlan.objects.create(**defaults)
+
+    def _create_device(self, name, site=None, **kwargs):
+        return Device.objects.create(
+            name=name,
+            site=site or self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status=DeviceStatusChoices.STATUS_ACTIVE,
+            **kwargs,
+        )
+
+    def _make_collector(self, plan):
+        with patch.object(NapalmCollector, "__init__", lambda self, p: None):
+            collector = NapalmCollector.__new__(NapalmCollector)
+        collector.plan = plan
+        collector._collector_type = plan.collector_type
+        collector._napalm_args = {}
+        collector._napalm_driver = None
+        collector._napalm_username = "test"
+        collector._napalm_password = "test"
+        collector._interfaces_re = MagicMock()
+        collector._interfaces_re.match.return_value = True
+        collector._devices = []
+        collector._current_device = None
+        collector._log_prefix = ""
+        collector._now = timezone.now()
+        return collector
+
+
+class InventoryCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the inventory() collector method."""
+
+    def test_inventory_updates_serial(self):
+        """Device serial should be updated from get_facts data."""
+        plan = self._create_plan()
+        device = self._create_device("inv-dev1", serial="OLD_SERIAL")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_facts.return_value = {
+            "uptime": 12345.0,
+            "vendor": "Juniper",
+            "os_version": "21.2R3",
+            "serial_number": "NEW_SERIAL",
+            "model": "QFX5100",
+            "hostname": "switch1",
+            "fqdn": "switch1.example.com",
+            "interface_list": ["ge-0/0/0", "ge-0/0/1"],
+        }
+
+        collector.inventory(driver)
+
+        device.refresh_from_db()
+        self.assertEqual(device.serial, "NEW_SERIAL")
+
+    def test_inventory_creates_journal_entry_on_change(self):
+        """A JournalEntry should be created when serial changes."""
+        plan = self._create_plan(name="Plan-inv-journal")
+        device = self._create_device("inv-dev2", serial="OLD")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_facts.return_value = {
+            "serial_number": "NEW",
+            "os_version": "21.2R3",
+            "hostname": "switch2",
+            "fqdn": "",
+        }
+
+        collector.inventory(driver)
+
+        entries = JournalEntry.objects.filter(
+            assigned_object_id=device.pk,
+        )
+        self.assertTrue(entries.exists())
+        self.assertIn("Serial", entries.first().comments)
+
+    def test_inventory_no_change_no_journal(self):
+        """No JournalEntry should be created when serial stays the same."""
+        plan = self._create_plan(name="Plan-inv-nochange")
+        device = self._create_device("inv-dev3", serial="SAME")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_facts.return_value = {
+            "serial_number": "SAME",
+            "os_version": "21.2R3",
+            "hostname": "switch3",
+            "fqdn": "",
+        }
+
+        collector.inventory(driver)
+
+        entries = JournalEntry.objects.filter(
+            assigned_object_id=device.pk,
+        )
+        self.assertFalse(entries.exists())

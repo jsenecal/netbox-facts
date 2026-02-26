@@ -250,9 +250,37 @@ class NapalmCollector:
         self._ip_neighbors(driver, ndp_table)  # type: ignore
         self._log_success("IPv6 Neighbor Discovery collection completed")
 
-    def inventory(self):
-        """Collect inventory data from devices."""
-        raise NotImplementedError()
+    def inventory(self, driver: NetworkDriver):
+        """Collect inventory data from a device using get_facts()."""
+        facts = driver.get_facts()
+        device = self._current_device
+        changes = []
+        serial_changed = False
+
+        new_serial = facts.get("serial_number", "")
+        if new_serial and device.serial != new_serial:
+            changes.append(f"Serial: `{device.serial}` → `{new_serial}`")
+            Device.objects.filter(pk=device.pk).update(serial=new_serial)
+            serial_changed = True
+
+        os_version = facts.get("os_version", "")
+        if os_version:
+            changes.append(f"OS version: `{os_version}`")
+
+        hostname = facts.get("hostname", "")
+        fqdn = facts.get("fqdn", "")
+        if hostname:
+            changes.append(f"Hostname: `{hostname}`" + (f" (FQDN: `{fqdn}`)" if fqdn else ""))
+
+        if serial_changed:
+            JournalEntry.objects.create(
+                created=self._now,
+                assigned_object=device,
+                kind=JournalEntryKindChoices.KIND_INFO,
+                comments=f"Inventory facts collected:\n" + "\n".join(f"- {c}" for c in changes),
+            )
+
+        self._log_success("Inventory collection completed")
 
     def interfaces(self):
         """Collect interface data from devices."""
