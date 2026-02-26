@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import timedelta
 from typing import Any, Dict, Type
 
-import django_rq
 from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.choices import DeviceStatusChoices
@@ -19,7 +17,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.module_loading import import_string
 from django.utils.translation import gettext_lazy as _
 
 from extras.choices import LogLevelChoices
@@ -299,78 +296,24 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """
         Enqueue a background job to perform the facts collection.
         """
-        # Set the status to "syncing"
-        self.status = CollectorStatusChoices.QUEUED
-        CollectionPlan.objects.filter(pk=self.pk).update(status=self.status)
+        from netbox_facts.jobs import CollectionJobRunner
 
-        # Enqueue a sync job
-        self.current_job = CollectionPlan.enqueue(
-            import_string("netbox_facts.jobs.collection_job"),
-            name=f'Facts collection job for "{self.name}"',
+        user = (
+            self.run_as
+            if request.user.is_superuser and self.run_as is not None
+            else request.user
+        )
+
+        self.current_job = CollectionJobRunner.enqueue(
             instance=self,
-            user=(
-                self.run_as
-                if request.user.is_superuser and self.run_as is not None
-                else request.user
-            ),
+            user=user,
+            queue_name=self.priority,
             request=copy_safe_request(request),
         )
         return self.current_job
 
-    @classmethod
-    def enqueue(  # pylint: disable=too-many-arguments
-        cls,
-        func,
-        instance,
-        name="",
-        user=None,
-        schedule_at=None,
-        interval=None,
-        **kwargs,
-    ):
-        """
-        Create a Job instance and enqueue a job using the given callable
-
-        Args:
-            func: The callable object to be enqueued for execution
-            instance: The NetBox object to which this job pertains
-            name: Name for the job (optional)
-            user: The user responsible for running the job
-            schedule_at: Schedule the job to be executed at the passed date and time
-            interval: Recurrence interval (in minutes)
-        """
-        object_type = ContentType.objects.get_for_model(  # type: ignore
-            instance, for_concrete_model=False
-        )
-        rq_queue_name = instance.priority
-        queue = django_rq.get_queue(rq_queue_name)
-        status = (
-            JobStatusChoices.STATUS_SCHEDULED
-            if schedule_at
-            else JobStatusChoices.STATUS_PENDING
-        )
-        job = Job.objects.create(
-            object_type=object_type,
-            object_id=instance.pk,
-            name=name,
-            status=status,
-            scheduled=schedule_at,
-            interval=interval,
-            user=user,
-            job_id=uuid.uuid4(),
-        )
-
-        if schedule_at:
-            queue.enqueue_at(
-                schedule_at, func, job_id=str(job.job_id), job=job, **kwargs
-            )
-        else:
-            queue.enqueue(func, job_id=str(job.job_id), job=job, **kwargs)
-
-        return job
-
     def run(
-        self, request, *args, **kwargs
+        self, request=None, *args, **kwargs
     ):  # pylint: disable=missing-function-docstring,unused-argument
         if self.status == CollectorStatusChoices.WORKING:
             raise OperationNotSupported(
@@ -388,11 +331,13 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             debugpy.wait_for_client()  # blocks execution until client is attached
             self.napalm_args.pop("debug")
 
-        # Create a new NapalmRunner instance
+        # Create a new NapalmCollector instance
         runner = NapalmCollector(self)
 
-        with event_tracking(request):
-            # Run the collection job
+        if request:
+            with event_tracking(request):
+                runner.execute()
+        else:
             runner.execute()
 
         # Update status & last_synced time
