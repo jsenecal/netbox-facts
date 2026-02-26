@@ -35,3 +35,12 @@ class CollectionJobRunner(JobRunner):
 
         plan = CollectionPlan.objects.get(pk=self.job.object_id)
         plan.run(request=request)
+
+        # Persist the in-memory log to the Job's data field so
+        # the results view can display it.
+        self.job.data = {
+            "log": [
+                {"status": level, "message": message}
+                for level, message in plan.log
+            ],
+        }

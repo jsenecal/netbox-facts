@@ -332,20 +332,26 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             self.napalm_args.pop("debug")
 
         # Create a new NapalmCollector instance
-        runner = NapalmCollector(self)
+        try:
+            runner = NapalmCollector(self)
 
-        if request:
-            with event_tracking(request):
+            if request:
+                with event_tracking(request):
+                    runner.execute()
+            else:
                 runner.execute()
-        else:
-            runner.execute()
 
-        # Update status & last_synced time
-        self.status = CollectorStatusChoices.COMPLETED
-        self.last_run = timezone.now()
-        CollectionPlan.objects.filter(pk=self.pk).update(
-            status=self.status, last_run=self.last_run
-        )
+            # Update status & last_synced time
+            self.status = CollectorStatusChoices.COMPLETED
+            self.last_run = timezone.now()
+            CollectionPlan.objects.filter(pk=self.pk).update(
+                status=self.status, last_run=self.last_run
+            )
+        except Exception:
+            CollectionPlan.objects.filter(pk=self.pk).update(
+                status=CollectorStatusChoices.FAILED
+            )
+            raise
 
     run.alters_data = True
 

@@ -827,18 +827,14 @@ class NetboxRoutingIntegrationTest(TestCase):
     """Tests for conditional netbox-routing integration."""
 
     def test_has_netbox_routing_detection(self):
-        """_has_netbox_routing() should return a boolean."""
-        from netbox_facts.helpers.collector import _has_netbox_routing
-        result = _has_netbox_routing()
-        self.assertIsInstance(result, bool)
+        """HAS_NETBOX_ROUTING should be a boolean."""
+        from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
+        self.assertIsInstance(HAS_NETBOX_ROUTING, bool)
 
     def test_bgp_integration_without_routing(self):
         """BGP collector should work without netbox-routing installed."""
-        # This is already covered by BGPCollectorTest - verify no import errors
-        from netbox_facts.helpers.collector import _has_netbox_routing
-        # If netbox-routing is not installed, this should be False
-        # If it IS installed, the integration should still not error
-        self.assertIsInstance(_has_netbox_routing(), bool)
+        from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
+        self.assertIsInstance(HAS_NETBOX_ROUTING, bool)
 
 
 class OSPFCollectorTest(CollectorTestMixin, TestCase):

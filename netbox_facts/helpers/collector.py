@@ -35,13 +35,11 @@ if TYPE_CHECKING:
 AUTO_D_TAG = "Automatically Discovered"
 
 
-def _has_netbox_routing():
-    """Check if netbox-routing plugin is installed."""
-    try:
-        import netbox_routing  # noqa: F401
-        return True
-    except ImportError:
-        return False
+try:
+    import netbox_routing  # noqa: F401
+    HAS_NETBOX_ROUTING = True
+except ImportError:
+    HAS_NETBOX_ROUTING = False
 
 
 class NapalmCollector:
@@ -402,6 +400,7 @@ class NapalmCollector:
                     )
                     cable.full_clean()
                     cable.save()
+                    cable.tags.add(AUTO_D_TAG)
 
                     JournalEntry.objects.create(
                         created=self._now,
@@ -435,6 +434,9 @@ class NapalmCollector:
 
             iface_name = entry.get("interface", "")
             if not iface_name:
+                continue
+
+            if not self._interfaces_re.match(iface_name):
                 continue
 
             # Get the matching interface from NetBox or skip
@@ -641,7 +643,7 @@ class NapalmCollector:
 
     def _bgp_routing_integration(self):
         """Create/update BGP session in netbox-routing if available."""
-        if not _has_netbox_routing():
+        if not HAS_NETBOX_ROUTING:
             return
 
         try:
@@ -733,7 +735,7 @@ class NapalmCollector:
 
     def _ospf_routing_integration(self, ip_obj, neighbor_data):
         """Create/update OSPF data in netbox-routing if available."""
-        if not _has_netbox_routing():
+        if not HAS_NETBOX_ROUTING:
             return
 
         try:
