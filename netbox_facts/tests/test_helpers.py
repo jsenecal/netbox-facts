@@ -602,3 +602,111 @@ class LLDPCollectorTest(CollectorTestMixin, TestCase):
 
         # Should still be just the one original cable
         self.assertEqual(CableModel.objects.count(), 1)
+
+
+class BGPCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the bgp() collector method."""
+
+    def test_creates_peer_ip(self):
+        """IPAddress should be created for peer remote_address as /32."""
+        from ipam.models import RIR
+
+        rir = RIR.objects.create(name="BGP-RIR", slug="bgp-rir")
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-ip",
+        )
+        device = self._create_device("bgp-dev1")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {
+            "global": {
+                "65001": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65001,
+                        "remote_address": "10.0.0.1",
+                        "local_address": "10.0.0.2",
+                    }
+                ]
+            }
+        }
+
+        collector.bgp(driver)
+
+        from ipam.models.ip import IPAddress as IP
+        self.assertTrue(IP.objects.filter(address="10.0.0.1/32").exists())
+
+    def test_creates_asn_when_rir_exists(self):
+        """ASN object should be created when an RIR exists."""
+        from ipam.models import ASN, RIR
+
+        rir = RIR.objects.create(name="BGP-RIR-ASN", slug="bgp-rir-asn")
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-asn",
+        )
+        device = self._create_device("bgp-dev2")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {
+            "global": {
+                "65001": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65001,
+                        "remote_address": "10.0.1.1",
+                        "local_address": "10.0.1.2",
+                    }
+                ]
+            }
+        }
+
+        collector.bgp(driver)
+
+        self.assertTrue(ASN.objects.filter(asn=65001).exists())
+
+    def test_vrf_awareness(self):
+        """Peer IP should be associated with the correct VRF."""
+        from ipam.models import RIR
+        from ipam.models.vrfs import VRF
+
+        rir = RIR.objects.create(name="BGP-RIR-VRF", slug="bgp-rir-vrf")
+        vrf = VRF.objects.create(name="VRF_BGP", rd="65000:200")
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-vrf",
+        )
+        device = self._create_device("bgp-dev3")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {
+            "VRF_BGP": {
+                "65002": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65002,
+                        "remote_address": "172.16.0.1",
+                        "local_address": "172.16.0.2",
+                    }
+                ]
+            }
+        }
+
+        collector.bgp(driver)
+
+        from ipam.models.ip import IPAddress as IP
+        peer_ip = IP.objects.get(address="172.16.0.1/32")
+        self.assertEqual(peer_ip.vrf, vrf)

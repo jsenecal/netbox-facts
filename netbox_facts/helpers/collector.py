@@ -461,9 +461,89 @@ class NapalmCollector:
         """Collect EVPN data from devices."""
         raise NotImplementedError()
 
-    def bgp(self):
-        """Collect BGP data from devices."""
-        raise NotImplementedError()
+    def bgp(self, driver: NetworkDriver):
+        """Collect BGP data from a device using get_bgp_neighbors_detail()."""
+        from ipam.models import ASN, RIR
+        from ipam.models.vrfs import VRF
+
+        bgp_data = driver.get_bgp_neighbors_detail()
+        device = self._current_device
+
+        for vrf_name, peers_by_as in bgp_data.items():
+            # Resolve VRF (empty string or "global" means no VRF)
+            nb_vrf = None
+            if vrf_name and vrf_name.lower() not in ("global", "default"):
+                try:
+                    nb_vrf = VRF.objects.get(name=vrf_name)
+                except VRF.DoesNotExist:
+                    self._log_warning(
+                        f"Could not find VRF `{vrf_name}` in NetBox. "
+                        "Peers will be created in the global table."
+                    )
+
+            for as_number, peers in peers_by_as.items():
+                # Try to get or create ASN (requires an RIR)
+                nb_asn = None
+                try:
+                    nb_asn, _ = ASN.objects.get_or_create(
+                        asn=int(as_number),
+                        defaults={"rir": RIR.objects.first()},
+                    )
+                except (RIR.DoesNotExist, TypeError):
+                    self._log_warning(
+                        f"No RIR exists in NetBox. Cannot create ASN {as_number}."
+                    )
+
+                for peer in peers:
+                    remote_address = peer.get("remote_address", "")
+                    if not remote_address:
+                        continue
+
+                    # Create IP address as /32 (IPv4) or /128 (IPv6)
+                    try:
+                        ip_obj = ipaddress.ip_address(remote_address)
+                        prefix_len = 32 if ip_obj.version == 4 else 128
+                        ip_str = f"{remote_address}/{prefix_len}"
+                    except ValueError:
+                        self._log_warning(
+                            f"Invalid IP address `{remote_address}`. Skipping."
+                        )
+                        continue
+
+                    nb_ip, created = IPAddress.objects.get_or_create(
+                        address=ip_str,
+                        vrf=nb_vrf,
+                        defaults={
+                            "description": f"BGP peer AS{as_number} discovered on {self._now}",
+                        },
+                    )
+                    if created:
+                        nb_ip.tags.add(AUTO_D_TAG)
+                        JournalEntry.objects.create(
+                            created=self._now,
+                            assigned_object=nb_ip,
+                            kind=JournalEntryKindChoices.KIND_INFO,
+                            comments=(
+                                f"BGP peer discovered by {get_absolute_url_markdown(device, bold=True)}: "
+                                f"AS{as_number} remote address `{remote_address}`"
+                                + (f" in VRF `{vrf_name}`" if nb_vrf else "")
+                                + "."
+                            ),
+                        )
+                        self._log_success(
+                            f"Created peer IP {get_absolute_url_markdown(nb_ip, bold=True)} (AS{as_number})."
+                        )
+                    else:
+                        self._log_info(
+                            f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
+                        )
+
+        self._bgp_routing_integration()
+        self._log_success("BGP collection completed")
+
+    def _bgp_routing_integration(self):
+        """Stub for future netbox-routing BGPSession integration (Task 11)."""
+        pass
 
     def ospf(self):
         """Collect OSPF data from devices."""
