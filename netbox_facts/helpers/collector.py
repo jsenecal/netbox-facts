@@ -635,9 +635,78 @@ class NapalmCollector:
         """Stub for future netbox-routing BGPSession integration (Task 11)."""
         pass
 
-    def ospf(self):
-        """Collect OSPF data from devices."""
-        raise NotImplementedError()
+    def ospf(self, driver: NetworkDriver):
+        """Collect OSPF data. Dispatches to vendor-specific implementation."""
+        impl = self._get_vendor_method("ospf")
+        impl(driver)
+
+    def _ospf_junos(self, driver):
+        """Junos OSPF collection via CLI."""
+        try:
+            output = driver.cli(["show ospf neighbor"])
+            raw = output.get("show ospf neighbor", "")
+        except Exception as exc:
+            self._log_failure(f"Failed to retrieve OSPF data: {exc}")
+            return
+
+        if not raw.strip():
+            self._log_info("No OSPF neighbor data found.")
+            return
+
+        import re as _re
+        ip_pattern = _re.compile(
+            r"^(\d+\.\d+\.\d+\.\d+)\s+(\S+)\s+(\S+)\s+(\d+\.\d+\.\d+\.\d+)",
+            _re.MULTILINE,
+        )
+        neighbors = []
+        for match in ip_pattern.finditer(raw):
+            neighbor_ip = match.group(1)
+            iface_name = match.group(2)
+            state = match.group(3)
+            router_id = match.group(4)
+            neighbors.append({
+                "address": neighbor_ip,
+                "interface": iface_name,
+                "state": state,
+                "router_id": router_id,
+            })
+
+            ip_obj, created = IPAddress.objects.get_or_create(
+                address=f"{neighbor_ip}/32",
+                defaults={
+                    "description": (
+                        f"OSPF neighbor (Router ID: {router_id}) discovered on "
+                        f"{self._current_device} ({self._now.date()})"
+                    ),
+                },
+            )
+            if created:
+                ip_obj.tags.add(AUTO_D_TAG)
+                self._log_success(
+                    f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
+                    f"(Router ID: {router_id})."
+                )
+
+            self._ospf_routing_integration(ip_obj, neighbors[-1])
+
+        if neighbors:
+            neighbor_lines = "\n".join(
+                f"- `{n['address']}` on `{n['interface']}` (State: {n['state']}, "
+                f"Router ID: {n['router_id']})"
+                for n in neighbors
+            )
+            JournalEntry.objects.create(
+                created=self._now,
+                assigned_object=self._current_device,
+                kind=JournalEntryKindChoices.KIND_INFO,
+                comments=f"OSPF neighbors discovered:\n{neighbor_lines}",
+            )
+
+        self._log_success("OSPF collection completed")
+
+    def _ospf_routing_integration(self, ip_obj, neighbor_data):
+        """Hook for netbox-routing OSPF integration. Implemented in Task 12."""
+        pass
 
     def execute(self):
         """Execute the collection job."""

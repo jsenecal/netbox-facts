@@ -821,3 +821,72 @@ class EVPNCollectorTest(CollectorTestMixin, TestCase):
 
         with self.assertRaises(NotImplementedError):
             collector.evpn(MagicMock())
+
+
+class OSPFCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the ospf() Junos collector."""
+
+    def test_ospf_creates_journal_entry(self):
+        """ospf() should create journal entries for discovered neighbors."""
+        device = self._create_device("ospf-dev1")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_OSPF,
+            name="OSPF Plan",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        mock_driver = MagicMock()
+        mock_driver.cli.return_value = {
+            "show ospf neighbor": (
+                "Address          Interface              State     ID               Pri  Dead\n"
+                "10.0.0.1         ge-0/0/0.0             Full      10.0.0.1         128    35\n"
+                "10.0.0.2         ge-0/0/1.0             Full      10.0.0.2         128    33\n"
+            )
+        }
+
+        collector.ospf(mock_driver)
+
+        entries = JournalEntry.objects.filter(assigned_object_id=device.pk)
+        self.assertTrue(entries.exists())
+
+    def test_ospf_creates_peer_ips(self):
+        """ospf() should create IPAddress objects for OSPF neighbors."""
+        from ipam.models import IPAddress
+
+        device = self._create_device("ospf-dev2")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_OSPF,
+            name="OSPF Plan 2",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        mock_driver = MagicMock()
+        mock_driver.cli.return_value = {
+            "show ospf neighbor": (
+                "Address          Interface              State     ID               Pri  Dead\n"
+                "10.0.0.1         ge-0/0/0.0             Full      10.0.0.1         128    35\n"
+            )
+        }
+
+        collector.ospf(mock_driver)
+
+        self.assertTrue(IPAddress.objects.filter(address="10.0.0.1/32").exists())
+
+    def test_ospf_unsupported_driver(self):
+        """ospf() should raise NotImplementedError for non-Junos drivers."""
+        plan = MagicMock()
+        plan.napalm_driver = "eos"
+        plan.collector_type = CollectionTypeChoices.TYPE_OSPF
+
+        with patch.object(NapalmCollector, "__init__", lambda self, p: None):
+            collector = NapalmCollector.__new__(NapalmCollector)
+        collector.plan = plan
+        collector._collector_type = CollectionTypeChoices.TYPE_OSPF
+        collector._now = timezone.now()
+        collector._current_device = None
+        collector._log_prefix = ""
+
+        with self.assertRaises(NotImplementedError):
+            collector.ospf(MagicMock())
