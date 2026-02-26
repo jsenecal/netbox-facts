@@ -453,9 +453,58 @@ class NapalmCollector:
 
         self._log_success("Ethernet switching collection completed")
 
-    def l2_circuits(self):
-        """Collect L2 circuit data from devices."""
-        raise NotImplementedError()
+    def _get_vendor_method(self, method_name):
+        """
+        Get vendor-specific implementation based on NAPALM driver.
+
+        To add support for a new vendor:
+        1. Implement a method named _{method_name}_{vendor}(self, driver)
+        2. Add the driver name to the vendor_map below
+
+        Example for adding EOS support for l2_circuits:
+            def _l2_circuits_eos(self, driver):
+                ...
+            # Then add to vendor_map: 'eos': f'_{method_name}_eos'
+        """
+        vendor_map = {
+            "junos": f"_{method_name}_junos",
+            "netbox_facts.napalm.junos": f"_{method_name}_junos",
+        }
+        driver_name = self.plan.napalm_driver
+        impl_name = vendor_map.get(driver_name)
+        if impl_name and hasattr(self, impl_name):
+            return getattr(self, impl_name)
+        supported = [k for k, v in vendor_map.items() if hasattr(self, v)]
+        raise NotImplementedError(
+            f"{method_name} is not implemented for driver '{driver_name}'. "
+            f"Supported drivers: {supported}"
+        )
+
+    def l2_circuits(self, driver: NetworkDriver):
+        """Collect L2 circuit data. Dispatches to vendor-specific implementation."""
+        impl = self._get_vendor_method("l2_circuits")
+        impl(driver)
+
+    def _l2_circuits_junos(self, driver):
+        """Junos L2 circuit collection via CLI."""
+        try:
+            output = driver.cli(["show l2circuit connections"])
+            raw = output.get("show l2circuit connections", "")
+        except Exception as exc:
+            self._log_failure(f"Failed to retrieve L2 circuit data: {exc}")
+            return
+
+        if not raw.strip():
+            self._log_info("No L2 circuit data found.")
+            return
+
+        JournalEntry.objects.create(
+            created=self._now,
+            assigned_object=self._current_device,
+            kind=JournalEntryKindChoices.KIND_INFO,
+            comments=f"L2 circuit data collected:\n```\n{raw[:2000]}\n```",
+        )
+        self._log_success("L2 circuit collection completed")
 
     def evpn(self):
         """Collect EVPN data from devices."""

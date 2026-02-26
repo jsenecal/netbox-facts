@@ -710,3 +710,68 @@ class BGPCollectorTest(CollectorTestMixin, TestCase):
         from ipam.models.ip import IPAddress as IP
         peer_ip = IP.objects.get(address="172.16.0.1/32")
         self.assertEqual(peer_ip.vrf, vrf)
+
+
+class VendorDispatchTest(TestCase):
+    """Tests for the vendor-specific dispatch mechanism."""
+
+    def _make_collector(self, driver_name="junos"):
+        plan = MagicMock()
+        plan.napalm_driver = driver_name
+        plan.collector_type = "l2_circuits"
+
+        with patch.object(NapalmCollector, "__init__", lambda self, p: None):
+            collector = NapalmCollector.__new__(NapalmCollector)
+        collector.plan = plan
+        collector._collector_type = "l2_circuits"
+        collector._now = timezone.now()
+        collector._current_device = None
+        collector._log_prefix = ""
+        return collector
+
+    def test_dispatch_junos(self):
+        """_get_vendor_method() should return Junos implementation for junos driver."""
+        collector = self._make_collector("junos")
+        method = collector._get_vendor_method("l2_circuits")
+        self.assertTrue(callable(method))
+
+    def test_dispatch_enhanced_junos(self):
+        """_get_vendor_method() should work for netbox_facts.napalm.junos driver."""
+        collector = self._make_collector("netbox_facts.napalm.junos")
+        method = collector._get_vendor_method("l2_circuits")
+        self.assertTrue(callable(method))
+
+    def test_dispatch_unsupported_driver(self):
+        """_get_vendor_method() should raise NotImplementedError for unsupported drivers."""
+        collector = self._make_collector("eos")
+        with self.assertRaises(NotImplementedError):
+            collector._get_vendor_method("l2_circuits")
+
+
+class L2CircuitsCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the l2_circuits() Junos collector."""
+
+    def test_l2_circuits_creates_journal_entry(self):
+        """l2_circuits() should create journal entries for discovered circuits."""
+        device = self._create_device("l2c-dev1")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_L2CIRCTUITS,
+            name="L2C Plan",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        mock_driver = MagicMock()
+        mock_driver.cli.return_value = {
+            "show l2circuit connections": (
+                "Legend for connection status (active = Up)\n"
+                "Neighbor: 10.0.0.1\n"
+                "  Interface: ge-0/0/0.100\n"
+                "  Type: rmt  Status: Up  Circuit-ID: 100\n"
+            )
+        }
+
+        collector.l2_circuits(mock_driver)
+
+        entries = JournalEntry.objects.filter(assigned_object_id=device.pk)
+        self.assertTrue(entries.exists())
