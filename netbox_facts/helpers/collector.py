@@ -326,9 +326,44 @@ class NapalmCollector:
         """Collect LLDP data from devices."""
         raise NotImplementedError()
 
-    def ethernet_switching(self):
-        """Collect ethernet switching data from devices."""
-        raise NotImplementedError()
+    def ethernet_switching(self, driver: NetworkDriver):
+        """Collect ethernet switching data from a device using get_mac_address_table()."""
+        mac_table = driver.get_mac_address_table()
+        device = self._current_device
+
+        for entry in mac_table:
+            mac_addr = entry.get("mac", "")
+            if not mac_addr:
+                continue
+
+            iface_name = entry.get("interface", "")
+            if not iface_name:
+                continue
+
+            # Get the matching interface from NetBox or skip
+            try:
+                nb_iface = device.vc_interfaces().get(name=iface_name)
+            except Interface.DoesNotExist:
+                self._log_warning(
+                    f"Could not find interface `{iface_name}` in NetBox. Skipping."
+                )
+                continue
+
+            netbox_mac, created = MACAddress.objects.get_or_create(
+                mac_address=mac_addr
+            )
+            if created:
+                netbox_mac.tags.add(AUTO_D_TAG)
+                self._log_success(
+                    f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                )
+
+            netbox_mac.interfaces.add(nb_iface)
+            netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
+            netbox_mac.last_seen = self._now
+            netbox_mac.save()
+
+        self._log_success("Ethernet switching collection completed")
 
     def l2_circuits(self):
         """Collect L2 circuit data from devices."""

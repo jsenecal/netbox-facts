@@ -349,3 +349,99 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
         collector.interfaces(driver)
 
         self.assertEqual(MACAddress.objects.count(), 0)
+
+
+class EthernetSwitchingCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the ethernet_switching() collector method."""
+
+    def test_creates_mac_from_table(self):
+        """MACAddress should be created and linked via M2M interfaces."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_L2,
+            name="Plan-ethsw-create",
+        )
+        device = self._create_device("ethsw-dev1")
+        iface = Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_mac_address_table.return_value = [
+            {
+                "mac": "AA:BB:CC:DD:EE:10",
+                "interface": "Ethernet1",
+                "vlan": 100,
+                "static": False,
+                "active": True,
+                "moves": 0,
+                "last_move": 0.0,
+            }
+        ]
+
+        collector.ethernet_switching(driver)
+
+        from netbox_facts.models.mac import MACAddressInterfaceRelation
+        mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:10")
+        self.assertTrue(
+            MACAddressInterfaceRelation.objects.filter(
+                mac_address=mac, interface=iface
+            ).exists()
+        )
+        self.assertEqual(mac.discovery_method, CollectionTypeChoices.TYPE_L2)
+
+    def test_skips_empty_mac(self):
+        """Entries with empty MAC should be skipped."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_L2,
+            name="Plan-ethsw-empty",
+        )
+        device = self._create_device("ethsw-dev2")
+        Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_mac_address_table.return_value = [
+            {
+                "mac": "",
+                "interface": "Ethernet1",
+                "vlan": 100,
+                "static": False,
+                "active": True,
+                "moves": 0,
+                "last_move": 0.0,
+            }
+        ]
+
+        collector.ethernet_switching(driver)
+
+        self.assertEqual(MACAddress.objects.count(), 0)
+
+    def test_skips_interface_not_in_netbox(self):
+        """Entries referencing non-existent interfaces should be skipped without error."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_L2,
+            name="Plan-ethsw-noif",
+        )
+        device = self._create_device("ethsw-dev3")
+        # Do NOT create an interface named "Ethernet99"
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_mac_address_table.return_value = [
+            {
+                "mac": "AA:BB:CC:DD:EE:11",
+                "interface": "Ethernet99",
+                "vlan": 100,
+                "static": False,
+                "active": True,
+                "moves": 0,
+                "last_move": 0.0,
+            }
+        ]
+
+        # Should not raise
+        collector.ethernet_switching(driver)
+
+        self.assertEqual(MACAddress.objects.count(), 0)
