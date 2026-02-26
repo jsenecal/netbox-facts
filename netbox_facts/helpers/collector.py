@@ -14,6 +14,7 @@ from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
 from napalm.base import NetworkDriver
 from napalm.base.exceptions import ConnectionException
+from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
@@ -282,9 +283,44 @@ class NapalmCollector:
 
         self._log_success("Inventory collection completed")
 
-    def interfaces(self):
-        """Collect interface data from devices."""
-        raise NotImplementedError()
+    def interfaces(self, driver: NetworkDriver):
+        """Collect interface data from a device using get_interfaces()."""
+        ifaces = driver.get_interfaces()
+        device = self._current_device
+
+        for iface_name, iface_data in ifaces.items():
+            # Skip interfaces that don't match the configured regex
+            if not self._interfaces_re.match(iface_name):
+                continue
+
+            mac_addr = iface_data.get("mac_address", "")
+            if not mac_addr:
+                continue
+
+            # Get the matching interface from NetBox or skip
+            try:
+                nb_iface = device.vc_interfaces().get(name=iface_name)
+            except Interface.DoesNotExist:
+                self._log_warning(
+                    f"Could not find interface `{iface_name}` in NetBox. Skipping."
+                )
+                continue
+
+            netbox_mac, created = MACAddress.objects.get_or_create(
+                mac_address=mac_addr
+            )
+            if created:
+                netbox_mac.tags.add(AUTO_D_TAG)
+                self._log_success(
+                    f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                )
+
+            netbox_mac.device_interface = nb_iface
+            netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
+            netbox_mac.last_seen = self._now
+            netbox_mac.save()
+
+        self._log_success("Interface collection completed")
 
     def lldp(self):
         """Collect LLDP data from devices."""

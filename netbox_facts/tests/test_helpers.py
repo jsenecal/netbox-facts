@@ -250,3 +250,102 @@ class InventoryCollectorTest(CollectorTestMixin, TestCase):
             assigned_object_id=device.pk,
         )
         self.assertFalse(entries.exists())
+
+
+class InterfacesCollectorTest(CollectorTestMixin, TestCase):
+    """Tests for the interfaces() collector method."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_interfaces_creates_mac_for_interface(self):
+        """MACAddress should be created and linked to the interface."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ifaces-create",
+        )
+        device = self._create_device("iface-dev1")
+        iface = Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "uplink",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:01",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:01")
+        self.assertEqual(mac.device_interface, iface)
+        self.assertEqual(mac.discovery_method, CollectionTypeChoices.TYPE_INTERFACES)
+        self.assertIsNotNone(mac.last_seen)
+
+    def test_interfaces_skips_non_matching_interface(self):
+        """Interfaces not matching the regex should be skipped."""
+        import re as _re
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ifaces-regex",
+        )
+        device = self._create_device("iface-dev2")
+        Interface.objects.create(device=device, name="Management1", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._interfaces_re = _re.compile(r"ge-.*")
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Management1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:02",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        self.assertFalse(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:02").exists())
+
+    def test_interfaces_skips_empty_mac(self):
+        """Interfaces with empty mac_address should be skipped."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ifaces-empty",
+        )
+        device = self._create_device("iface-dev3")
+        Interface.objects.create(device=device, name="Loopback0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Loopback0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 0.0,
+                "mtu": 65535,
+                "mac_address": "",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        self.assertEqual(MACAddress.objects.count(), 0)
