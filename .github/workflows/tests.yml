@@ -6,9 +6,6 @@ on:
       - main
   pull_request:
 
-env:
-  NETBOX_VARIANT: v4.5.3-4.0.1
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -37,7 +34,7 @@ jobs:
           - 6379:6379
 
     container:
-      image: ghcr.io/netbox-community/netbox:${{ env.NETBOX_VARIANT }}
+      image: ghcr.io/netbox-community/netbox:v4.5.3-4.0.1
       env:
         DB_HOST: postgres
         DB_NAME: netbox
