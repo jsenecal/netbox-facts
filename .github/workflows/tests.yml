@@ -51,8 +51,10 @@ jobs:
         shell: bash
         run: |
           cat > /etc/netbox/config/plugins.py <<'EOF'
+          from os import environ
           PLUGINS = ["netbox_facts"]
           PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
+          API_TOKEN_PEPPERS = {1: (environ["SECRET_KEY"] * 2)[:50]}
           EOF
 
       - name: Install plugin
