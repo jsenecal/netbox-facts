@@ -93,7 +93,7 @@ jobs:
               },
           }
           SECRET_KEY = environ.get("SECRET_KEY", "")
-          API_TOKEN_PEPPERS = {"1": "ci-test-pepper-not-for-production-use-0123456789abcdef"}
+          API_TOKEN_PEPPERS = {1: "ci-test-pepper-not-for-production-use-0123456789abcdef"}
           PYEOF
 
           cat > /etc/netbox/config/plugins.py << 'PYEOF'
