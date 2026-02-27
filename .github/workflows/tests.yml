@@ -103,7 +103,7 @@ jobs:
           touch /etc/netbox/config/logging.py
 
       - name: Install plugin
-        run: /opt/netbox/venv/bin/pip install -e .
+        run: uv pip install --python /opt/netbox/venv/bin/python -e .
 
       - name: Run migrations
         run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate --no-input
