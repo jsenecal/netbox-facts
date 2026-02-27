@@ -119,38 +119,38 @@ class CollectorForm(NetBoxModelForm):
     """Form for creating and modifying a collectionplan."""
 
     regions = DynamicModelMultipleChoiceField(
-        label=_("Regions"), queryset=Region.objects.all(), required=False
+        label=_("Regions"), queryset=Region.objects.all(), required=False, selector=True
     )
     site_groups = DynamicModelMultipleChoiceField(
-        label=_("Site groups"), queryset=SiteGroup.objects.all(), required=False
+        label=_("Site groups"), queryset=SiteGroup.objects.all(), required=False, selector=True
     )
     sites = DynamicModelMultipleChoiceField(
-        label=_("Sites"), queryset=Site.objects.all(), required=False
+        label=_("Sites"), queryset=Site.objects.all(), required=False, selector=True
     )
     locations = DynamicModelMultipleChoiceField(
-        label=_("Locations"), queryset=Location.objects.all(), required=False
+        label=_("Locations"), queryset=Location.objects.all(), required=False, selector=True
     )
     device = DynamicModelMultipleChoiceField(
-        label=_("Devices"), queryset=Device.objects.all(), required=False
+        label=_("Devices"), queryset=Device.objects.all(), required=False, selector=True
     )
     device_status = MultipleChoiceField(choices=DeviceStatusChoices, required=False)
     device_types = DynamicModelMultipleChoiceField(
-        label=_("Device types"), queryset=DeviceType.objects.all(), required=False
+        label=_("Device types"), queryset=DeviceType.objects.all(), required=False, selector=True
     )
     roles = DynamicModelMultipleChoiceField(
-        label=_("Roles"), queryset=DeviceRole.objects.all(), required=False
+        label=_("Roles"), queryset=DeviceRole.objects.all(), required=False, selector=True
     )
     platforms = DynamicModelMultipleChoiceField(
-        label=_("Platforms"), queryset=Platform.objects.all(), required=False
+        label=_("Platforms"), queryset=Platform.objects.all(), required=False, selector=True
     )
     tenant_groups = DynamicModelMultipleChoiceField(
-        label=_("Tenant groups"), queryset=TenantGroup.objects.all(), required=False
+        label=_("Tenant groups"), queryset=TenantGroup.objects.all(), required=False, selector=True
     )
     tenants = DynamicModelMultipleChoiceField(
-        label=_("Tenants"), queryset=Tenant.objects.all(), required=False
+        label=_("Tenants"), queryset=Tenant.objects.all(), required=False, selector=True
     )
     tags = DynamicModelMultipleChoiceField(
-        label=_("Tags"), queryset=Tag.objects.all(), required=False
+        label=_("Tags"), queryset=Tag.objects.all(), required=False, selector=True
     )
 
     scheduled_at = forms.DateTimeField(
