@@ -28,6 +28,29 @@ from .choices import (
 )
 from .models import MACAddress, MACVendor, CollectionPlan, FactsReport
 
+
+def get_napalm_driver_choices():
+    """Enumerate available NAPALM drivers (built-in + custom)."""
+    import os
+    from napalm._SUPPORTED_DRIVERS import SUPPORTED_DRIVERS
+
+    # Custom drivers in netbox_facts.napalm (tried first by get_napalm_driver)
+    custom_dir = os.path.join(os.path.dirname(__file__), "napalm")
+    custom_drivers = sorted(
+        f.replace(".py", "")
+        for f in os.listdir(custom_dir)
+        if f.endswith(".py") and f not in ("__init__.py", "helpers.py")
+    )
+
+    # Built-in NAPALM drivers (exclude "base")
+    builtin_drivers = sorted(d for d in SUPPORTED_DRIVERS if d != "base")
+
+    choices = [("", "---------")]
+    if custom_drivers:
+        choices += [(d, f"{d} (enhanced)") for d in custom_drivers]
+    choices += [(d, d) for d in builtin_drivers if d not in custom_drivers]
+    return choices
+
 __all__ = [
     "MACAddressForm",
     "MACAddressBulkEditForm",
@@ -130,10 +153,10 @@ class CollectorForm(NetBoxModelForm):
     locations = DynamicModelMultipleChoiceField(
         label=_("Locations"), queryset=Location.objects.all(), required=False, selector=True
     )
-    device = DynamicModelMultipleChoiceField(
+    devices = DynamicModelMultipleChoiceField(
         label=_("Devices"), queryset=Device.objects.all(), required=False, selector=True
     )
-    device_status = MultipleChoiceField(choices=DeviceStatusChoices, required=False)
+    device_status = MultipleChoiceField(choices=DeviceStatusChoices, required=False, label=_("Device Statuses"))
     device_types = DynamicModelMultipleChoiceField(
         label=_("Device types"), queryset=DeviceType.objects.all(), required=False, selector=True
     )
@@ -151,6 +174,12 @@ class CollectorForm(NetBoxModelForm):
     )
     tags = DynamicModelMultipleChoiceField(
         label=_("Tags"), queryset=Tag.objects.all(), required=False, selector=True
+    )
+
+    napalm_driver = forms.ChoiceField(
+        choices=get_napalm_driver_choices,
+        label=_("NAPALM Driver"),
+        help_text=_("The NAPALM driver to use when connecting to devices"),
     )
 
     scheduled_at = forms.DateTimeField(
