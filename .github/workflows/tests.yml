@@ -48,60 +48,50 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Write NetBox configuration
+        shell: bash
         run: |
           mkdir -p /etc/netbox/config
-          cat > /etc/netbox/config/configuration.py << 'PYEOF'
-          import re
-          from os import environ
-
-          def _read_secret(secret_name, default=None):
-              try:
-                  f = open(f"/run/secrets/{secret_name}", encoding="utf-8")
-              except OSError:
-                  return default
-              else:
-                  with f:
-                      return f.readline().strip()
-
-          ALLOWED_HOSTS = ["*"]
-          DATABASE = {
-              "NAME": environ.get("DB_NAME", "netbox"),
-              "USER": environ.get("DB_USER", "netbox"),
-              "PASSWORD": environ.get("DB_PASSWORD", ""),
-              "HOST": environ.get("DB_HOST", "localhost"),
-              "PORT": environ.get("DB_PORT", "5432"),
-              "OPTIONS": {"sslmode": "prefer"},
-              "CONN_MAX_AGE": 300,
-              "DISABLE_SERVER_SIDE_CURSORS": False,
-          }
-          REDIS = {
-              "tasks": {
-                  "HOST": environ.get("REDIS_HOST", "localhost"),
-                  "PORT": int(environ.get("REDIS_PORT", 6379)),
-                  "PASSWORD": environ.get("REDIS_PASSWORD", ""),
-                  "DATABASE": 0,
-                  "SSL": False,
-                  "INSECURE_SKIP_TLS_VERIFY": False,
-              },
-              "caching": {
-                  "HOST": environ.get("REDIS_HOST", "localhost"),
-                  "PORT": int(environ.get("REDIS_PORT", 6379)),
-                  "PASSWORD": environ.get("REDIS_PASSWORD", ""),
-                  "DATABASE": 1,
-                  "SSL": False,
-                  "INSECURE_SKIP_TLS_VERIFY": False,
-              },
-          }
-          SECRET_KEY = environ.get("SECRET_KEY", "")
-          API_TOKEN_PEPPERS = {1: "ci-test-pepper-not-for-production-use-0123456789abcdef"}
-          PYEOF
-
-          cat > /etc/netbox/config/plugins.py << 'PYEOF'
-          PLUGINS = ["netbox_facts"]
-          PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
-          PYEOF
-
-          touch /etc/netbox/config/logging.py
+          python3 -c "
+          import textwrap, pathlib
+          pathlib.Path('/etc/netbox/config/configuration.py').write_text(textwrap.dedent('''
+              from os import environ
+              ALLOWED_HOSTS = [\"*\"]
+              DATABASE = {
+                  \"NAME\": environ.get(\"DB_NAME\", \"netbox\"),
+                  \"USER\": environ.get(\"DB_USER\", \"netbox\"),
+                  \"PASSWORD\": environ.get(\"DB_PASSWORD\", \"\"),
+                  \"HOST\": environ.get(\"DB_HOST\", \"localhost\"),
+                  \"PORT\": environ.get(\"DB_PORT\", \"5432\"),
+                  \"OPTIONS\": {\"sslmode\": \"prefer\"},
+                  \"CONN_MAX_AGE\": 300,
+                  \"DISABLE_SERVER_SIDE_CURSORS\": False,
+              }
+              REDIS = {
+                  \"tasks\": {
+                      \"HOST\": environ.get(\"REDIS_HOST\", \"localhost\"),
+                      \"PORT\": int(environ.get(\"REDIS_PORT\", 6379)),
+                      \"PASSWORD\": environ.get(\"REDIS_PASSWORD\", \"\"),
+                      \"DATABASE\": 0,
+                      \"SSL\": False,
+                      \"INSECURE_SKIP_TLS_VERIFY\": False,
+                  },
+                  \"caching\": {
+                      \"HOST\": environ.get(\"REDIS_HOST\", \"localhost\"),
+                      \"PORT\": int(environ.get(\"REDIS_PORT\", 6379)),
+                      \"PASSWORD\": environ.get(\"REDIS_PASSWORD\", \"\"),
+                      \"DATABASE\": 1,
+                      \"SSL\": False,
+                      \"INSECURE_SKIP_TLS_VERIFY\": False,
+                  },
+              }
+              SECRET_KEY = environ.get(\"SECRET_KEY\", \"\")
+          ''').lstrip())
+          pathlib.Path('/etc/netbox/config/plugins.py').write_text(textwrap.dedent('''
+              PLUGINS = [\"netbox_facts\"]
+              PLUGINS_CONFIG = {\"netbox_facts\": {\"top_level_menu\": True}}
+          ''').lstrip())
+          pathlib.Path('/etc/netbox/config/logging.py').write_text('')
+          "
 
       - name: Install plugin
         run: uv pip install --python /opt/netbox/venv/bin/python -e .
