@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from netbox.api.serializers import NetBoxModelSerializer
 
-from ..models import MACAddress, MACVendor, CollectionPlan
+from ..models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
 from .nested_serializers import NestedMACVendorSerializer
 
 
@@ -113,6 +113,7 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "priority",
             "status",
             "enabled",
+            "detect_only",
             "description",
             "collector_type",
             "comments",
@@ -139,4 +140,59 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "url",
             "display",
             "name",
+        )
+
+
+class FactsReportEntrySerializer(serializers.ModelSerializer):
+    """Serializer for FactsReportEntry."""
+
+    class Meta:
+        model = FactsReportEntry
+        fields = (
+            "id",
+            "report",
+            "action",
+            "status",
+            "collector_type",
+            "device",
+            "object_type",
+            "object_id",
+            "object_repr",
+            "detected_values",
+            "current_values",
+            "error_message",
+            "created",
+            "applied_at",
+        )
+        read_only_fields = fields
+
+
+class FactsReportSerializer(NetBoxModelSerializer):
+    """Serializer for FactsReport."""
+
+    url = serializers.HyperlinkedIdentityField(
+        view_name="plugins-api:netbox_facts-api:factsreport-detail",
+    )
+    entry_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = FactsReport
+        fields = (
+            "id",
+            "url",
+            "display",
+            "collection_plan",
+            "status",
+            "summary",
+            "entry_count",
+            "created",
+            "completed_at",
+            "tags",
+            "custom_fields",
+        )
+        brief_fields = (
+            "id",
+            "url",
+            "display",
+            "status",
         )

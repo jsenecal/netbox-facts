@@ -104,4 +104,25 @@ urlpatterns = (
         views.CollectorBulkEditView.as_view(),
         name="collectionplan_bulk_edit",
     ),
+    # Facts Reports
+    path(
+        "facts-reports/",
+        views.FactsReportListView.as_view(),
+        name="factsreport_list",
+    ),
+    path(
+        "facts-reports/delete/",
+        views.FactsReportBulkDeleteView.as_view(),
+        name="factsreport_bulk_delete",
+    ),
+    path(
+        "facts-report/<int:pk>/",
+        include(get_model_urls("netbox_facts", "factsreport")),
+    ),
+    path(
+        "facts-report/<int:pk>/changelog/",
+        ObjectChangeLogView.as_view(),
+        name="factsreport_changelog",
+        kwargs={"model": models.FactsReport},
+    ),
 )

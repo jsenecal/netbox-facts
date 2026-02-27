@@ -7,7 +7,7 @@ from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
@@ -24,6 +24,7 @@ from utilities.views import (
 )
 
 from . import filtersets, forms, models, tables
+from .choices import EntryActionChoices, EntryStatusChoices
 
 
 @register_model_view(models.MACAddress)
@@ -360,3 +361,173 @@ class CollectorBulkDeleteView(generic.BulkDeleteView):
     queryset = models.CollectionPlan.objects.all()
     filterset = filtersets.CollectorFilterSet
     table = tables.CollectorTable
+
+
+###
+# FactsReport
+###
+
+
+class FactsReportListView(generic.ObjectListView):
+    """List view for FactsReport instances."""
+
+    queryset = models.FactsReport.objects.annotate(
+        entry_count=Count("entries"),
+        new_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_NEW)),
+        changed_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_CHANGED)),
+        stale_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_STALE)),
+    )
+    table = tables.FactsReportTable
+    filterset = filtersets.FactsReportFilterSet
+    filterset_form = forms.FactsReportFilterForm
+
+
+@register_model_view(models.FactsReport)
+class FactsReportView(generic.ObjectView):
+    """Detail view for FactsReport instances."""
+
+    queryset = models.FactsReport.objects.all()
+
+    def get_extra_context(self, request, instance):
+        entries = instance.entries.all()
+        pending_count = entries.filter(status=EntryStatusChoices.STATUS_PENDING).count()
+        applied_count = entries.filter(status=EntryStatusChoices.STATUS_APPLIED).count()
+        skipped_count = entries.filter(status=EntryStatusChoices.STATUS_SKIPPED).count()
+        failed_count = entries.filter(status=EntryStatusChoices.STATUS_FAILED).count()
+
+        return {
+            "entry_stats": {
+                "pending": pending_count,
+                "applied": applied_count,
+                "skipped": skipped_count,
+                "failed": failed_count,
+                "total": entries.count(),
+            },
+        }
+
+
+@register_model_view(models.FactsReport, "delete")
+class FactsReportDeleteView(generic.ObjectDeleteView):
+    """Delete view for FactsReport instances."""
+
+    queryset = models.FactsReport.objects.all()
+
+
+class FactsReportBulkDeleteView(generic.BulkDeleteView):
+    """Bulk delete view for FactsReport instances."""
+
+    queryset = models.FactsReport.objects.all()
+    filterset = filtersets.FactsReportFilterSet
+    table = tables.FactsReportTable
+
+
+@register_model_view(models.FactsReport, "entries")
+class FactsReportEntriesView(generic.ObjectChildrenView):
+    """Entries tab for a FactsReport."""
+
+    queryset = models.FactsReport.objects.all()
+    child_model = models.FactsReportEntry
+    table = tables.FactsReportEntryTable
+    filterset = filtersets.FactsReportEntryFilterSet
+    template_name = "netbox_facts/factsreport_entries.html"
+    tab = ViewTab(
+        label=_("Entries"),
+        badge=lambda x: x.entries.count(),
+        permission="netbox_facts.view_factsreport",
+        weight=500,
+    )
+
+    def get_children(self, request, parent):
+        return parent.entries.all()
+
+    def get_extra_context(self, request, instance):
+        has_pending = instance.entries.filter(
+            status=EntryStatusChoices.STATUS_PENDING
+        ).exists()
+        return {"has_pending": has_pending}
+
+
+@register_model_view(models.FactsReport, "apply")
+class FactsReportApplyView(BaseObjectView):
+    """POST-only view to apply selected entries."""
+
+    queryset = models.FactsReport.objects.all()
+
+    def get_required_permission(self):
+        return "netbox_facts.apply_factsreport"
+
+    def get(self, request, pk):
+        return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+    def post(self, request, pk):
+        from .helpers.applier import apply_entries
+
+        report = get_object_or_404(self.queryset, pk=pk)
+        entry_pks = request.POST.getlist("pk")
+
+        if not entry_pks:
+            messages.warning(request, _("No entries selected."))
+            return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+
+        applied, failed = apply_entries(report, entry_pks)
+        if applied:
+            messages.success(request, _("Applied {count} entries.").format(count=applied))
+        if failed:
+            messages.warning(request, _("{count} entries failed to apply.").format(count=failed))
+
+        return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+
+
+@register_model_view(models.FactsReport, "skip")
+class FactsReportSkipView(BaseObjectView):
+    """POST-only view to skip selected entries."""
+
+    queryset = models.FactsReport.objects.all()
+
+    def get_required_permission(self):
+        return "netbox_facts.apply_factsreport"
+
+    def get(self, request, pk):
+        return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+    def post(self, request, pk):
+        from .helpers.applier import skip_entries
+
+        report = get_object_or_404(self.queryset, pk=pk)
+        entry_pks = request.POST.getlist("pk")
+
+        if not entry_pks:
+            messages.warning(request, _("No entries selected."))
+            return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+
+        count = skip_entries(report, entry_pks)
+        messages.success(request, _("Skipped {count} entries.").format(count=count))
+
+        return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+
+
+@register_model_view(models.CollectionPlan, "reports")
+class CollectionPlanReportsView(generic.ObjectChildrenView):
+    """Reports tab on CollectionPlan detail."""
+
+    queryset = models.CollectionPlan.objects.all()
+    child_model = models.FactsReport
+    table = tables.FactsReportTable
+    filterset = filtersets.FactsReportFilterSet
+    template_name = "generic/object_children.html"
+    tab = ViewTab(
+        label=_("Reports"),
+        badge=lambda x: x.reports.count(),
+        permission="netbox_facts.view_factsreport",
+        weight=600,
+    )
+
+    def get_children(self, request, parent):
+        return models.FactsReport.objects.filter(
+            collection_plan=parent,
+        ).annotate(
+            entry_count=Count("entries"),
+            new_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_NEW)),
+            changed_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_CHANGED)),
+            stale_count=Count("entries", filter=Q(entries__action=EntryActionChoices.ACTION_STALE)),
+        )

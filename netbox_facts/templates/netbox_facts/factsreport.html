@@ -1,0 +1,111 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load i18n %}
+{% load tz %}
+
+{% block extra_controls %}
+{% if perms.netbox_facts.apply_factsreport and entry_stats.pending > 0 %}
+<form action="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}" method="post">
+    {% csrf_token %}
+    {% for entry in object.entries.all %}
+    {% if entry.status == "pending" %}
+    <input type="hidden" name="pk" value="{{ entry.pk }}">
+    {% endif %}
+    {% endfor %}
+    <button type="submit" class="btn btn-success">
+        <i class="mdi mdi-check-all" aria-hidden="true"></i> {% trans "Apply All Pending" %}
+    </button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Report Details" %}</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">{% trans "Collection Plan" %}</th>
+                        <td>{{ object.collection_plan|linkify }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Status" %}</th>
+                        <td>
+                            <span class="badge bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Job" %}</th>
+                        <td>{{ object.job|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Created" %}</th>
+                        <td>{{ object.created }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Completed" %}</th>
+                        <td>{{ object.completed_at|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Created By" %}</th>
+                        <td>{{ object.created_by|default:"System" }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        {% include 'inc/panels/custom_fields.html' %}
+    </div>
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Summary" %}</h5>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <h3 class="text-success">{{ object.summary.new|default:"0" }}</h3>
+                        <small class="text-muted">{% trans "New" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-warning">{{ object.summary.changed|default:"0" }}</h3>
+                        <small class="text-muted">{% trans "Changed" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-info">{{ object.summary.confirmed|default:"0" }}</h3>
+                        <small class="text-muted">{% trans "Confirmed" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-secondary">{{ object.summary.stale|default:"0" }}</h3>
+                        <small class="text-muted">{% trans "Stale" %}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h5 class="card-header">{% trans "Entry Status" %}</h5>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <h3 class="text-info">{{ entry_stats.pending }}</h3>
+                        <small class="text-muted">{% trans "Pending" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-success">{{ entry_stats.applied }}</h3>
+                        <small class="text-muted">{% trans "Applied" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-secondary">{{ entry_stats.skipped }}</h3>
+                        <small class="text-muted">{% trans "Skipped" %}</small>
+                    </div>
+                    <div class="col">
+                        <h3 class="text-danger">{{ entry_stats.failed }}</h3>
+                        <small class="text-muted">{% trans "Failed" %}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% include 'inc/panels/tags.html' %}
+        {% include 'inc/panels/comments.html' %}
+    </div>
+</div>
+{% endblock content %}

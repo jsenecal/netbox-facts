@@ -1,10 +1,13 @@
 """Runner class for collection jobs."""
 
+from __future__ import annotations
+
 import ipaddress
 import re
 from itertools import groupby
 from typing import TYPE_CHECKING, Generator, Tuple, Type, List, Dict, Any
 
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from dcim.models.device_components import Interface
 from dcim.models.devices import Device
@@ -14,7 +17,12 @@ from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
 from napalm.base import NetworkDriver
 from napalm.base.exceptions import ConnectionException
-from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.choices import (
+    CollectionTypeChoices,
+    EntryActionChoices,
+    EntryStatusChoices,
+    ReportStatusChoices,
+)
 from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
@@ -31,6 +39,7 @@ from netbox_facts.napalm.junos import EnhancedJunOSDriver
 
 if TYPE_CHECKING:
     from netbox_facts.models.collection_plan import CollectionPlan
+    from netbox_facts.models.facts_report import FactsReport, FactsReportEntry
 
 AUTO_D_TAG = "Automatically Discovered"
 
@@ -66,6 +75,8 @@ class NapalmCollector:
         self._current_device: Device | None = None
         self._log_prefix = ""
         self._now = timezone.now()
+        self._report: FactsReport | None = None
+        self._detect_only: bool = getattr(plan, "detect_only", False)
 
         # Get the NAPALM driver
         try:
@@ -77,6 +88,59 @@ class NapalmCollector:
 
         # Get the devices to collect from
         self._devices = plan.get_devices_queryset()
+
+    def _should_apply(self) -> bool:
+        """Return True if mutations should be performed (detect_only is False)."""
+        return not self._detect_only
+
+    def _record_entry(
+        self,
+        action: str,
+        collector_type: str,
+        device: Device,
+        detected_values: dict,
+        current_values: dict | None = None,
+        object_instance=None,
+        object_repr: str = "",
+    ) -> "FactsReportEntry | None":
+        """Create a FactsReportEntry. Returns the entry or None if no report."""
+        if self._report is None:
+            return None
+
+        from netbox_facts.models.facts_report import FactsReportEntry
+
+        ct = None
+        obj_id = None
+        if object_instance is not None and hasattr(object_instance, "pk") and object_instance.pk:
+            ct = ContentType.objects.get_for_model(object_instance)
+            obj_id = object_instance.pk
+
+        entry = FactsReportEntry.objects.create(
+            report=self._report,
+            action=action,
+            status=EntryStatusChoices.STATUS_PENDING,
+            collector_type=collector_type,
+            device=device,
+            object_type=ct,
+            object_id=obj_id,
+            object_repr=object_repr,
+            detected_values=detected_values,
+            current_values=current_values or {},
+        )
+        return entry
+
+    def _mark_entry_applied(self, entry, object_instance=None):
+        """Mark an entry as applied, optionally updating its GenericFK."""
+        if entry is None:
+            return
+        entry.status = EntryStatusChoices.STATUS_APPLIED
+        entry.applied_at = timezone.now()
+        update_fields = ["status", "applied_at"]
+        if object_instance is not None and hasattr(object_instance, "pk") and object_instance.pk:
+            entry.object_type = ContentType.objects.get_for_model(object_instance)
+            entry.object_id = object_instance.pk
+            update_fields.extend(["object_type", "object_id"])
+        entry.save(update_fields=update_fields)
 
     def _get_network_instances(
         self, driver: NetworkDriver
@@ -182,66 +246,108 @@ class NapalmCollector:
                     )
                     continue
 
-                netbox_mac, created = MACAddress.objects.get_or_create(
-                    mac_address=arp_entry["mac"]
+                # Determine action for MAC
+                existing_mac = MACAddress.objects.filter(mac_address=arp_entry["mac"]).first()
+                mac_action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
+
+                # Determine action for IP
+                existing_ip = IPAddress.objects.filter(
+                    address=str(ip_interface_object), vrf=routing_instance
+                ).first()
+                ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
+
+                vrf_name = str(routing_instance) if routing_instance else None
+                detected = {
+                    "mac": arp_entry["mac"],
+                    "ip": str(ip_interface_object),
+                    "interface": interface_name,
+                    "vrf": vrf_name,
+                }
+
+                # Record MAC entry
+                mac_entry = self._record_entry(
+                    action=mac_action,
+                    collector_type=self._collector_type,
+                    device=self._current_device,
+                    detected_values=detected,
+                    object_instance=existing_mac,
+                    object_repr=f"MAC {arp_entry['mac']}",
                 )
-                if created:
-                    netbox_mac.tags.add(AUTO_D_TAG)
-                    self._log_success(
-                        f"Succesfully created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                    )
-                else:
-                    self._log_info(
-                        f"Found existing MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                    )
 
-                netbox_mac.interfaces.add(netbox_interface)
-
-                # Get or create an IPAddress for this entry
-
-                (
-                    netbox_address,
-                    created,
-                ) = IPAddress.objects.get_or_create(
-                    vrf=routing_instance,
-                    address=str(ip_interface_object),
-                    defaults={
-                        "description": f"Automatically discovered on {self._now}",
-                    },
-                )  # pylint: disable=no-member
-                if created:
-                    JournalEntry.objects.create(
-                        created=self._now,
-                        assigned_object=netbox_address,
-                        kind=JournalEntryKindChoices.KIND_INFO,
-                        comments=(
-                            f"Dicovered by {self._current_device} with MAC"
-                            + f" {get_absolute_url_markdown(netbox_mac, bold=True)}"
-                            + f" on interface {get_absolute_url_markdown(netbox_interface, bold=True)} via"
-                            + f" {self.plan.get_collector_type_display()} collection."  # type: ignore
-                        ),
-                    )
-                    netbox_address.tags.add(AUTO_D_TAG)
-                    self._log_success(
-                        f"Succesfully created IP address {get_absolute_url_markdown(netbox_address, bold=True)}."
-                    )
-                else:
-                    self._log_info(
-                        f"Found existing IP address {get_absolute_url_markdown(netbox_address, bold=True)}."
-                    )
-
-                # Add the IPAddress to the MACAddress
-                netbox_mac.ip_addresses.add(netbox_address)
-
-                # Update the last seen timestamp
-                netbox_mac.last_seen = self._now
-                netbox_mac.save()
-                self._log_success(
-                    f"Succesfully updated {get_absolute_url_markdown(netbox_mac, bold=True)} found on "
-                    + f"{get_absolute_url_markdown(netbox_interface, bold=True)} with IP address"
-                    + get_absolute_url_markdown(netbox_address, bold=True)
-                    + "."
+                # Record IP entry
+                ip_entry = self._record_entry(
+                    action=ip_action,
+                    collector_type=self._collector_type,
+                    device=self._current_device,
+                    detected_values=detected,
+                    object_instance=existing_ip,
+                    object_repr=f"IP {ip_interface_object}",
                 )
+
+                if self._should_apply():
+                    netbox_mac, created = MACAddress.objects.get_or_create(
+                        mac_address=arp_entry["mac"]
+                    )
+                    if created:
+                        netbox_mac.tags.add(AUTO_D_TAG)
+                        self._log_success(
+                            f"Succesfully created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                        )
+                    else:
+                        self._log_info(
+                            f"Found existing MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                        )
+
+                    netbox_mac.interfaces.add(netbox_interface)
+
+                    # Get or create an IPAddress for this entry
+                    (
+                        netbox_address,
+                        created,
+                    ) = IPAddress.objects.get_or_create(
+                        vrf=routing_instance,
+                        address=str(ip_interface_object),
+                        defaults={
+                            "description": f"Automatically discovered on {self._now}",
+                        },
+                    )  # pylint: disable=no-member
+                    if created:
+                        JournalEntry.objects.create(
+                            created=self._now,
+                            assigned_object=netbox_address,
+                            kind=JournalEntryKindChoices.KIND_INFO,
+                            comments=(
+                                f"Dicovered by {self._current_device} with MAC"
+                                + f" {get_absolute_url_markdown(netbox_mac, bold=True)}"
+                                + f" on interface {get_absolute_url_markdown(netbox_interface, bold=True)} via"
+                                + f" {self.plan.get_collector_type_display()} collection."  # type: ignore
+                            ),
+                        )
+                        netbox_address.tags.add(AUTO_D_TAG)
+                        self._log_success(
+                            f"Succesfully created IP address {get_absolute_url_markdown(netbox_address, bold=True)}."
+                        )
+                    else:
+                        self._log_info(
+                            f"Found existing IP address {get_absolute_url_markdown(netbox_address, bold=True)}."
+                        )
+
+                    # Add the IPAddress to the MACAddress
+                    netbox_mac.ip_addresses.add(netbox_address)
+
+                    # Update the last seen timestamp
+                    netbox_mac.last_seen = self._now
+                    netbox_mac.save()
+                    self._log_success(
+                        f"Succesfully updated {get_absolute_url_markdown(netbox_mac, bold=True)} found on "
+                        + f"{get_absolute_url_markdown(netbox_interface, bold=True)} with IP address"
+                        + get_absolute_url_markdown(netbox_address, bold=True)
+                        + "."
+                    )
+
+                    # Mark entries as applied with correct object references
+                    self._mark_entry_applied(mac_entry, netbox_mac)
+                    self._mark_entry_applied(ip_entry, netbox_address)
         # TODO Mark stale IP addresses as deprecated
 
     def arp(self, driver: NetworkDriver | EnhancedJunOSDriver):
@@ -266,10 +372,39 @@ class NapalmCollector:
         serial_changed = False
 
         new_serial = facts.get("serial_number", "")
+        detected = {
+            "serial_number": new_serial,
+            "os_version": facts.get("os_version", ""),
+            "hostname": facts.get("hostname", ""),
+            "fqdn": facts.get("fqdn", ""),
+        }
+        current = {
+            "serial_number": device.serial,
+        }
+
         if new_serial and device.serial != new_serial:
+            action = EntryActionChoices.ACTION_CHANGED
             changes.append(f"Serial: `{device.serial}` → `{new_serial}`")
-            Device.objects.filter(pk=device.pk).update(serial=new_serial)
             serial_changed = True
+        elif new_serial:
+            action = EntryActionChoices.ACTION_CONFIRMED
+        else:
+            action = EntryActionChoices.ACTION_CONFIRMED
+
+        inv_entry = self._record_entry(
+            action=action,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values=detected,
+            current_values=current,
+            object_instance=device,
+            object_repr=f"Device {device.name}",
+        )
+
+        if self._should_apply():
+            if serial_changed:
+                Device.objects.filter(pk=device.pk).update(serial=new_serial)
+            self._mark_entry_applied(inv_entry, device)
 
         os_version = facts.get("os_version", "")
         if os_version:
@@ -280,7 +415,7 @@ class NapalmCollector:
         if hostname:
             changes.append(f"Hostname: `{hostname}`" + (f" (FQDN: `{fqdn}`)" if fqdn else ""))
 
-        if serial_changed:
+        if serial_changed and self._should_apply():
             JournalEntry.objects.create(
                 created=self._now,
                 assigned_object=device,
@@ -313,19 +448,41 @@ class NapalmCollector:
                 )
                 continue
 
-            netbox_mac, created = MACAddress.objects.get_or_create(
-                mac_address=mac_addr
-            )
-            if created:
-                netbox_mac.tags.add(AUTO_D_TAG)
-                self._log_success(
-                    f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                )
+            existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
+            action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
+            detected = {
+                "interface": iface_name,
+                "mac_address": mac_addr,
+                "is_enabled": iface_data.get("is_enabled"),
+                "speed": iface_data.get("speed"),
+                "mtu": iface_data.get("mtu"),
+                "is_up": iface_data.get("is_up"),
+            }
 
-            netbox_mac.device_interface = nb_iface
-            netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
-            netbox_mac.last_seen = self._now
-            netbox_mac.save()
+            iface_entry = self._record_entry(
+                action=action,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values=detected,
+                object_instance=existing_mac or nb_iface,
+                object_repr=f"Interface {iface_name} MAC {mac_addr}",
+            )
+
+            if self._should_apply():
+                netbox_mac, created = MACAddress.objects.get_or_create(
+                    mac_address=mac_addr
+                )
+                if created:
+                    netbox_mac.tags.add(AUTO_D_TAG)
+                    self._log_success(
+                        f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                    )
+
+                netbox_mac.device_interface = nb_iface
+                netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
+                netbox_mac.last_seen = self._now
+                netbox_mac.save()
+                self._mark_entry_applied(iface_entry, netbox_mac)
 
         self._log_success("Interface collection completed")
 
@@ -350,6 +507,7 @@ class NapalmCollector:
             for neighbor in neighbors:
                 remote_system_name = neighbor.get("remote_system_name", "")
                 remote_port = neighbor.get("remote_port", "")
+                remote_chassis_id = neighbor.get("remote_chassis_id", "")
 
                 if not remote_system_name or not remote_port:
                     continue
@@ -391,34 +549,51 @@ class NapalmCollector:
                     )
                     continue
 
-                # Create the cable
-                try:
-                    cable = Cable(
-                        a_terminations=[local_iface],
-                        b_terminations=[remote_iface],
-                        status=LinkStatusChoices.STATUS_CONNECTED,
-                    )
-                    cable.full_clean()
-                    cable.save()
-                    cable.tags.add(AUTO_D_TAG)
+                detected = {
+                    "local_interface": local_iface_name,
+                    "remote_device": remote_system_name,
+                    "remote_interface": remote_port,
+                    "remote_chassis_id": remote_chassis_id,
+                }
 
-                    JournalEntry.objects.create(
-                        created=self._now,
-                        assigned_object=device,
-                        kind=JournalEntryKindChoices.KIND_INFO,
-                        comments=(
-                            f"LLDP: Created cable between `{local_iface_name}` and "
-                            f"`{remote_system_name}:{remote_port}`."
-                        ),
-                    )
-                    self._log_success(
-                        f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
-                    )
-                except Exception as exc:
-                    self._log_warning(
-                        f"Could not create cable between `{local_iface_name}` and "
-                        f"`{remote_system_name}:{remote_port}`: {exc}"
-                    )
+                lldp_entry = self._record_entry(
+                    action=EntryActionChoices.ACTION_NEW,
+                    collector_type=self._collector_type,
+                    device=device,
+                    detected_values=detected,
+                    object_repr=f"Cable {local_iface_name} ↔ {remote_system_name}:{remote_port}",
+                )
+
+                if self._should_apply():
+                    # Create the cable
+                    try:
+                        cable = Cable(
+                            a_terminations=[local_iface],
+                            b_terminations=[remote_iface],
+                            status=LinkStatusChoices.STATUS_CONNECTED,
+                        )
+                        cable.full_clean()
+                        cable.save()
+                        cable.tags.add(AUTO_D_TAG)
+
+                        JournalEntry.objects.create(
+                            created=self._now,
+                            assigned_object=device,
+                            kind=JournalEntryKindChoices.KIND_INFO,
+                            comments=(
+                                f"LLDP: Created cable between `{local_iface_name}` and "
+                                f"`{remote_system_name}:{remote_port}`."
+                            ),
+                        )
+                        self._log_success(
+                            f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
+                        )
+                        self._mark_entry_applied(lldp_entry, cable)
+                    except Exception as exc:
+                        self._log_warning(
+                            f"Could not create cable between `{local_iface_name}` and "
+                            f"`{remote_system_name}:{remote_port}`: {exc}"
+                        )
 
         self._log_success("LLDP collection completed")
 
@@ -448,19 +623,38 @@ class NapalmCollector:
                 )
                 continue
 
-            netbox_mac, created = MACAddress.objects.get_or_create(
-                mac_address=mac_addr
-            )
-            if created:
-                netbox_mac.tags.add(AUTO_D_TAG)
-                self._log_success(
-                    f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                )
+            existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
+            action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
+            detected = {
+                "mac": mac_addr,
+                "interface": iface_name,
+                "vlan": entry.get("vlan"),
+            }
 
-            netbox_mac.interfaces.add(nb_iface)
-            netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
-            netbox_mac.last_seen = self._now
-            netbox_mac.save()
+            l2_entry = self._record_entry(
+                action=action,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values=detected,
+                object_instance=existing_mac,
+                object_repr=f"MAC {mac_addr} on {iface_name}",
+            )
+
+            if self._should_apply():
+                netbox_mac, created = MACAddress.objects.get_or_create(
+                    mac_address=mac_addr
+                )
+                if created:
+                    netbox_mac.tags.add(AUTO_D_TAG)
+                    self._log_success(
+                        f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                    )
+
+                netbox_mac.interfaces.add(nb_iface)
+                netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
+                netbox_mac.last_seen = self._now
+                netbox_mac.save()
+                self._mark_entry_applied(l2_entry, netbox_mac)
 
         self._log_success("Ethernet switching collection completed")
 
@@ -509,12 +703,23 @@ class NapalmCollector:
             self._log_info("No L2 circuit data found.")
             return
 
-        JournalEntry.objects.create(
-            created=self._now,
-            assigned_object=self._current_device,
-            kind=JournalEntryKindChoices.KIND_INFO,
-            comments=f"L2 circuit data collected:\n```\n{raw[:2000]}\n```",
+        detected = {"raw_output": raw[:2000]}
+        l2c_entry = self._record_entry(
+            action=EntryActionChoices.ACTION_CONFIRMED,
+            collector_type=self._collector_type,
+            device=self._current_device,
+            detected_values=detected,
+            object_repr=f"L2 circuit data on {self._current_device}",
         )
+
+        if self._should_apply():
+            JournalEntry.objects.create(
+                created=self._now,
+                assigned_object=self._current_device,
+                kind=JournalEntryKindChoices.KIND_INFO,
+                comments=f"L2 circuit data collected:\n```\n{raw[:2000]}\n```",
+            )
+            self._mark_entry_applied(l2c_entry, self._current_device)
         self._log_success("L2 circuit collection completed")
 
     def evpn(self, driver: NetworkDriver):
@@ -540,25 +745,41 @@ class NapalmCollector:
             match = mac_pattern.search(line)
             if match:
                 mac_str = match.group(1)
-                netbox_mac, created = MACAddress.objects.get_or_create(
-                    mac_address=mac_str
+                existing_mac = MACAddress.objects.filter(mac_address=mac_str).first()
+                action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
+                detected = {"mac": mac_str}
+
+                evpn_entry = self._record_entry(
+                    action=action,
+                    collector_type=self._collector_type,
+                    device=self._current_device,
+                    detected_values=detected,
+                    object_instance=existing_mac,
+                    object_repr=f"EVPN MAC {mac_str}",
                 )
-                netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
-                netbox_mac.last_seen = self._now
-                netbox_mac.save()
 
-                if created:
-                    netbox_mac.tags.add(AUTO_D_TAG)
-                    self._log_success(
-                        f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                if self._should_apply():
+                    netbox_mac, created = MACAddress.objects.get_or_create(
+                        mac_address=mac_str
                     )
+                    netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
+                    netbox_mac.last_seen = self._now
+                    netbox_mac.save()
 
-        JournalEntry.objects.create(
-            created=self._now,
-            assigned_object=self._current_device,
-            kind=JournalEntryKindChoices.KIND_INFO,
-            comments=f"EVPN data collected:\n```\n{raw[:2000]}\n```",
-        )
+                    if created:
+                        netbox_mac.tags.add(AUTO_D_TAG)
+                        self._log_success(
+                            f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
+                        )
+                    self._mark_entry_applied(evpn_entry, netbox_mac)
+
+        if self._should_apply():
+            JournalEntry.objects.create(
+                created=self._now,
+                assigned_object=self._current_device,
+                kind=JournalEntryKindChoices.KIND_INFO,
+                comments=f"EVPN data collected:\n```\n{raw[:2000]}\n```",
+            )
         self._log_success("EVPN collection completed")
 
     def bgp(self, driver: NetworkDriver):
@@ -582,18 +803,6 @@ class NapalmCollector:
                     )
 
             for as_number, peers in peers_by_as.items():
-                # Try to get or create ASN (requires an RIR)
-                nb_asn = None
-                try:
-                    nb_asn, _ = ASN.objects.get_or_create(
-                        asn=int(as_number),
-                        defaults={"rir": RIR.objects.first()},
-                    )
-                except (RIR.DoesNotExist, TypeError):
-                    self._log_warning(
-                        f"No RIR exists in NetBox. Cannot create ASN {as_number}."
-                    )
-
                 for peer in peers:
                     remote_address = peer.get("remote_address", "")
                     if not remote_address:
@@ -610,33 +819,65 @@ class NapalmCollector:
                         )
                         continue
 
-                    nb_ip, created = IPAddress.objects.get_or_create(
-                        address=ip_str,
-                        vrf=nb_vrf,
-                        defaults={
-                            "description": f"BGP peer AS{as_number} discovered on {self._now}",
-                        },
+                    existing_ip = IPAddress.objects.filter(address=ip_str, vrf=nb_vrf).first()
+                    ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
+                    detected = {
+                        "remote_address": remote_address,
+                        "remote_as": int(as_number),
+                        "vrf": vrf_name if nb_vrf else None,
+                        "state": "up" if peer.get("up") else "down",
+                    }
+
+                    bgp_entry = self._record_entry(
+                        action=ip_action,
+                        collector_type=self._collector_type,
+                        device=device,
+                        detected_values=detected,
+                        object_instance=existing_ip,
+                        object_repr=f"BGP peer {remote_address} AS{as_number}",
                     )
-                    if created:
-                        nb_ip.tags.add(AUTO_D_TAG)
-                        JournalEntry.objects.create(
-                            created=self._now,
-                            assigned_object=nb_ip,
-                            kind=JournalEntryKindChoices.KIND_INFO,
-                            comments=(
-                                f"BGP peer discovered by {get_absolute_url_markdown(device, bold=True)}: "
-                                f"AS{as_number} remote address `{remote_address}`"
-                                + (f" in VRF `{vrf_name}`" if nb_vrf else "")
-                                + "."
-                            ),
+
+                    if self._should_apply():
+                        # Try to get or create ASN (requires an RIR)
+                        nb_asn = None
+                        try:
+                            nb_asn, _ = ASN.objects.get_or_create(
+                                asn=int(as_number),
+                                defaults={"rir": RIR.objects.first()},
+                            )
+                        except (RIR.DoesNotExist, TypeError):
+                            self._log_warning(
+                                f"No RIR exists in NetBox. Cannot create ASN {as_number}."
+                            )
+
+                        nb_ip, created = IPAddress.objects.get_or_create(
+                            address=ip_str,
+                            vrf=nb_vrf,
+                            defaults={
+                                "description": f"BGP peer AS{as_number} discovered on {self._now}",
+                            },
                         )
-                        self._log_success(
-                            f"Created peer IP {get_absolute_url_markdown(nb_ip, bold=True)} (AS{as_number})."
-                        )
-                    else:
-                        self._log_info(
-                            f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
-                        )
+                        if created:
+                            nb_ip.tags.add(AUTO_D_TAG)
+                            JournalEntry.objects.create(
+                                created=self._now,
+                                assigned_object=nb_ip,
+                                kind=JournalEntryKindChoices.KIND_INFO,
+                                comments=(
+                                    f"BGP peer discovered by {get_absolute_url_markdown(device, bold=True)}: "
+                                    f"AS{as_number} remote address `{remote_address}`"
+                                    + (f" in VRF `{vrf_name}`" if nb_vrf else "")
+                                    + "."
+                                ),
+                            )
+                            self._log_success(
+                                f"Created peer IP {get_absolute_url_markdown(nb_ip, bold=True)} (AS{as_number})."
+                            )
+                        else:
+                            self._log_info(
+                                f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
+                            )
+                        self._mark_entry_applied(bgp_entry, nb_ip)
 
         self._bgp_routing_integration()
         self._log_success("BGP collection completed")
@@ -700,25 +941,45 @@ class NapalmCollector:
                 "router_id": router_id,
             })
 
-            ip_obj, created = IPAddress.objects.get_or_create(
-                address=f"{neighbor_ip}/32",
-                defaults={
-                    "description": (
-                        f"OSPF neighbor (Router ID: {router_id}) discovered on "
-                        f"{self._current_device} ({self._now.date()})"
-                    ),
-                },
+            existing_ip = IPAddress.objects.filter(address=f"{neighbor_ip}/32").first()
+            ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
+            detected = {
+                "address": neighbor_ip,
+                "interface": iface_name,
+                "state": state,
+                "router_id": router_id,
+            }
+
+            ospf_entry = self._record_entry(
+                action=ip_action,
+                collector_type=self._collector_type,
+                device=self._current_device,
+                detected_values=detected,
+                object_instance=existing_ip,
+                object_repr=f"OSPF neighbor {neighbor_ip} (RID: {router_id})",
             )
-            if created:
-                ip_obj.tags.add(AUTO_D_TAG)
-                self._log_success(
-                    f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
-                    f"(Router ID: {router_id})."
+
+            if self._should_apply():
+                ip_obj, created = IPAddress.objects.get_or_create(
+                    address=f"{neighbor_ip}/32",
+                    defaults={
+                        "description": (
+                            f"OSPF neighbor (Router ID: {router_id}) discovered on "
+                            f"{self._current_device} ({self._now.date()})"
+                        ),
+                    },
                 )
+                if created:
+                    ip_obj.tags.add(AUTO_D_TAG)
+                    self._log_success(
+                        f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
+                        f"(Router ID: {router_id})."
+                    )
+                self._mark_entry_applied(ospf_entry, ip_obj)
 
-            self._ospf_routing_integration(ip_obj, neighbors[-1])
+                self._ospf_routing_integration(ip_obj, neighbors[-1])
 
-        if neighbors:
+        if neighbors and self._should_apply():
             neighbor_lines = "\n".join(
                 f"- `{n['address']}` on `{n['interface']}` (State: {n['state']}, "
                 f"Router ID: {n['router_id']})"
@@ -755,38 +1016,63 @@ class NapalmCollector:
 
     def execute(self):
         """Execute the collection job."""
+        from netbox_facts.models.facts_report import FactsReport
 
         assert self._napalm_driver is not None
 
-        for device in self._devices:
-            self._current_device = device
-            self._log_prefix = get_absolute_url_markdown(device, bold=True)
+        # Create a report for this run
+        self._report = FactsReport.objects.create(
+            collection_plan=self.plan,
+            status=ReportStatusChoices.STATUS_PENDING,
+        )
 
-            self._log_info(
-                f"Starting {self.plan.get_collector_type_display()} collection"  # type: ignore
-            )
+        try:
+            for device in self._devices:
+                self._current_device = device
+                self._log_prefix = get_absolute_url_markdown(device, bold=True)
 
-            try:
-                primary_ip = get_primary_ip(self._current_device)
-            except ValueError:
-                self._log_warning(
-                    "Device has no primary IP address configured. Skipping."
+                self._log_info(
+                    f"Starting {self.plan.get_collector_type_display()} collection"  # type: ignore
                 )
-                continue
 
-            try:
-                with self._napalm_driver(
-                    primary_ip,
-                    self._napalm_username,
-                    self._napalm_password,
-                    optional_args=self._napalm_args,
-                ) as driver:
-                    # Lookup the collection method and call it
-                    getattr(self, self._collector_type)(driver)
-            except AttributeError as exc:
-                raise NotImplementedError from exc
-            except ConnectionException:
-                self._log_failure("An error occurred while connecting to the device")
+                try:
+                    primary_ip = get_primary_ip(self._current_device)
+                except ValueError:
+                    self._log_warning(
+                        "Device has no primary IP address configured. Skipping."
+                    )
+                    continue
+
+                try:
+                    with self._napalm_driver(
+                        primary_ip,
+                        self._napalm_username,
+                        self._napalm_password,
+                        optional_args=self._napalm_args,
+                    ) as driver:
+                        # Lookup the collection method and call it
+                        getattr(self, self._collector_type)(driver)
+                except AttributeError as exc:
+                    raise NotImplementedError from exc
+                except ConnectionException:
+                    self._log_failure("An error occurred while connecting to the device")
+        except Exception:
+            # Mark the report as failed on unhandled exceptions
+            self._report.update_summary()
+            self._report.completed_at = timezone.now()
+            self._report.status = ReportStatusChoices.STATUS_FAILED
+            self._report.save(update_fields=["completed_at", "status"])
+            raise
+        else:
+            # Finalize report on success
+            self._report.update_summary()
+            self._report.completed_at = timezone.now()
+            self._report.status = (
+                ReportStatusChoices.STATUS_APPLIED
+                if self._should_apply()
+                else ReportStatusChoices.STATUS_PENDING
+            )
+            self._report.save(update_fields=["completed_at", "status"])
 
     def _log_debug(self, message):
         """Log a message at DEBUG level."""

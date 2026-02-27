@@ -176,6 +176,8 @@ class CollectorTestMixin:
         collector._current_device = None
         collector._log_prefix = ""
         collector._now = timezone.now()
+        collector._report = None
+        collector._detect_only = getattr(plan, "detect_only", False)
         return collector
 
 
@@ -727,6 +729,8 @@ class VendorDispatchTest(TestCase):
         collector._now = timezone.now()
         collector._current_device = None
         collector._log_prefix = ""
+        collector._report = None
+        collector._detect_only = False
         return collector
 
     def test_dispatch_junos(self):
@@ -818,6 +822,8 @@ class EVPNCollectorTest(CollectorTestMixin, TestCase):
         collector._now = timezone.now()
         collector._current_device = None
         collector._log_prefix = ""
+        collector._report = None
+        collector._detect_only = False
 
         with self.assertRaises(NotImplementedError):
             collector.evpn(MagicMock())
@@ -901,6 +907,171 @@ class OSPFCollectorTest(CollectorTestMixin, TestCase):
         collector._now = timezone.now()
         collector._current_device = None
         collector._log_prefix = ""
+        collector._report = None
+        collector._detect_only = False
 
         with self.assertRaises(NotImplementedError):
             collector.ospf(MagicMock())
+
+
+class DetectOnlyInventoryTest(CollectorTestMixin, TestCase):
+    """Tests that detect_only=True prevents mutations in inventory()."""
+
+    def test_detect_only_inventory_no_serial_update(self):
+        """With detect_only=True, device serial should NOT be updated."""
+        from netbox_facts.models.facts_report import FactsReport, FactsReportEntry
+
+        plan = self._create_plan(name="DetectOnly-inv", detect_only=True)
+        device = self._create_device("detect-inv-dev", serial="OLD_SERIAL")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_facts.return_value = {
+            "serial_number": "NEW_SERIAL",
+            "os_version": "21.2R3",
+            "hostname": "switch1",
+            "fqdn": "",
+        }
+
+        collector.inventory(driver)
+
+        device.refresh_from_db()
+        self.assertEqual(device.serial, "OLD_SERIAL")
+
+        # Verify entry was created
+        entries = report.entries.all()
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries[0].action, "changed")
+        self.assertEqual(entries[0].status, "pending")
+        self.assertEqual(entries[0].detected_values["serial_number"], "NEW_SERIAL")
+
+
+class DetectOnlyInterfacesTest(CollectorTestMixin, TestCase):
+    """Tests that detect_only=True prevents mutations in interfaces()."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_detect_only_interfaces_no_mac_created(self):
+        """With detect_only=True, no MACAddress objects should be created."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="DetectOnly-ifaces",
+            detect_only=True,
+        )
+        device = self._create_device("detect-iface-dev")
+        Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "uplink",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:99",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        self.assertFalse(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:99").exists())
+        self.assertEqual(report.entries.count(), 1)
+        self.assertEqual(report.entries.first().status, "pending")
+
+
+class DetectOnlyEthernetSwitchingTest(CollectorTestMixin, TestCase):
+    """Tests that detect_only=True prevents mutations in ethernet_switching()."""
+
+    def test_detect_only_no_mac_created(self):
+        """With detect_only=True, no MACAddress objects should be created."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_L2,
+            name="DetectOnly-ethsw",
+            detect_only=True,
+        )
+        device = self._create_device("detect-ethsw-dev")
+        Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_mac_address_table.return_value = [
+            {
+                "mac": "AA:BB:CC:DD:EE:98",
+                "interface": "Ethernet1",
+                "vlan": 100,
+                "static": False,
+                "active": True,
+                "moves": 0,
+                "last_move": 0.0,
+            }
+        ]
+
+        collector.ethernet_switching(driver)
+
+        self.assertFalse(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:98").exists())
+        self.assertEqual(report.entries.count(), 1)
+        self.assertEqual(report.entries.first().action, "new")
+        self.assertEqual(report.entries.first().status, "pending")
+
+
+class DetectOnlyLLDPTest(CollectorTestMixin, TestCase):
+    """Tests that detect_only=True prevents mutations in lldp()."""
+
+    def test_detect_only_no_cable_created(self):
+        """With detect_only=True, no Cable objects should be created."""
+        from dcim.models.cables import Cable as CableModel
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_LLDP,
+            name="DetectOnly-lldp",
+            detect_only=True,
+        )
+        device_a = self._create_device("detect-lldp-a")
+        device_b = self._create_device("detect-lldp-b")
+        Interface.objects.create(device=device_a, name="Ethernet1", type="1000base-t")
+        Interface.objects.create(device=device_b, name="Ethernet1", type="1000base-t")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device_a
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_lldp_neighbors_detail.return_value = {
+            "Ethernet1": [
+                {
+                    "parent_interface": "Ethernet1",
+                    "remote_chassis_id": "AA:BB:CC:DD:EE:FF",
+                    "remote_system_name": "detect-lldp-b",
+                    "remote_port": "Ethernet1",
+                    "remote_port_description": "",
+                }
+            ]
+        }
+
+        collector.lldp(driver)
+
+        self.assertEqual(CableModel.objects.count(), 0)
+        self.assertEqual(report.entries.count(), 1)
+        self.assertEqual(report.entries.first().action, "new")
+        self.assertEqual(report.entries.first().status, "pending")

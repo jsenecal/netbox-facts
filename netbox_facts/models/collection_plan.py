@@ -123,6 +123,14 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         verbose_name=_("last run"), blank=True, null=True, editable=False
     )
 
+    detect_only = models.BooleanField(
+        default=False,
+        help_text=_(
+            "When enabled, collection runs produce a report without modifying "
+            "NetBox objects. Changes can be reviewed and selectively applied."
+        ),
+    )
+
     comments = models.TextField(
         _("Comments"),
         blank=True,
@@ -159,6 +167,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "napalm_driver",
         "napalm_args",
         "interval",
+        "detect_only",
     )
 
     class Meta:

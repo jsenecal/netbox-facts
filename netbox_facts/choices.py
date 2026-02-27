@@ -62,3 +62,47 @@ class CollectorPriorityChoices(ChoiceSet):
         (PRIORITY_DEFAULT, _("Default"), "purple"),
         (PRIORITY_LOW, _("Low"), "blue"),
     ]
+
+
+class ReportStatusChoices(ChoiceSet):
+    STATUS_PENDING = "pending"
+    STATUS_COMPLETED = "completed"
+    STATUS_PARTIAL = "partial"
+    STATUS_APPLIED = "applied"
+    STATUS_FAILED = "failed"
+
+    CHOICES = (
+        (STATUS_PENDING, _("Pending"), "cyan"),
+        (STATUS_COMPLETED, _("Completed"), "blue"),
+        (STATUS_PARTIAL, _("Partial"), "orange"),
+        (STATUS_APPLIED, _("Applied"), "green"),
+        (STATUS_FAILED, _("Failed"), "red"),
+    )
+
+
+class EntryActionChoices(ChoiceSet):
+    ACTION_NEW = "new"
+    ACTION_CHANGED = "changed"
+    ACTION_CONFIRMED = "confirmed"
+    ACTION_STALE = "stale"
+
+    CHOICES = (
+        (ACTION_NEW, _("New"), "green"),
+        (ACTION_CHANGED, _("Changed"), "orange"),
+        (ACTION_CONFIRMED, _("Confirmed"), "blue"),
+        (ACTION_STALE, _("Stale"), "gray"),
+    )
+
+
+class EntryStatusChoices(ChoiceSet):
+    STATUS_PENDING = "pending"
+    STATUS_APPLIED = "applied"
+    STATUS_SKIPPED = "skipped"
+    STATUS_FAILED = "failed"
+
+    CHOICES = (
+        (STATUS_PENDING, _("Pending"), "cyan"),
+        (STATUS_APPLIED, _("Applied"), "green"),
+        (STATUS_SKIPPED, _("Skipped"), "gray"),
+        (STATUS_FAILED, _("Failed"), "red"),
+    )

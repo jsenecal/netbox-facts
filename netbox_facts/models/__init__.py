@@ -5,6 +5,7 @@ from .mac import (
     MACAddressIPAddressRelation,
 )
 from .collection_plan import CollectionPlan
+from .facts_report import FactsReport, FactsReportEntry
 
 __all__ = [
     "MACAddress",
@@ -12,4 +13,6 @@ __all__ = [
     "CollectionPlan",
     "MACAddressInterfaceRelation",
     "MACAddressIPAddressRelation",
+    "FactsReport",
+    "FactsReportEntry",
 ]

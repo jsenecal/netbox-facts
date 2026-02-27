@@ -24,8 +24,9 @@ from .choices import (
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
+    ReportStatusChoices,
 )
-from .models import MACAddress, MACVendor, CollectionPlan
+from .models import MACAddress, MACVendor, CollectionPlan, FactsReport
 
 __all__ = [
     "MACAddressForm",
@@ -37,6 +38,7 @@ __all__ = [
     "CollectorForm",
     "CollectionPlanBulkEditForm",
     "CollectionPlanFilterForm",
+    "FactsReportFilterForm",
 ]
 
 
@@ -172,6 +174,7 @@ class CollectorForm(NetBoxModelForm):
             "collector_type",
             "description",
             "enabled",
+            "detect_only",
             name=_("Collector"),
         ),
         FieldSet(
@@ -205,6 +208,7 @@ class CollectorForm(NetBoxModelForm):
             "collector_type",
             "description",
             "enabled",
+            "detect_only",
             "regions",
             "site_groups",
             "sites",
@@ -281,3 +285,17 @@ class CollectionPlanFilterForm(NetBoxModelFilterSetForm):
         choices=CollectionTypeChoices, required=False, label=_("Collector Type")
     )
     enabled = forms.NullBooleanField(required=False, label=_("Enabled"))
+
+
+class FactsReportFilterForm(NetBoxModelFilterSetForm):
+    model = FactsReport
+    fieldsets = (
+        FieldSet("q", "filter_id"),
+        FieldSet("collection_plan", "status", name=_("Attributes")),
+    )
+    collection_plan = DynamicModelMultipleChoiceField(
+        queryset=CollectionPlan.objects.all(), required=False, label=_("Collection Plan")
+    )
+    status = forms.MultipleChoiceField(
+        choices=ReportStatusChoices, required=False, label=_("Status")
+    )

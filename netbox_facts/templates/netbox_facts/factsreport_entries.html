@@ -1,0 +1,16 @@
+{% extends 'generic/object_children.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block extra_controls %}
+{% if perms.netbox_facts.apply_factsreport and has_pending %}
+<div class="btn-group" role="group">
+    <button type="submit" name="apply" formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}" class="btn btn-success btn-sm">
+        <i class="mdi mdi-check" aria-hidden="true"></i> {% trans "Apply Selected" %}
+    </button>
+    <button type="submit" name="skip" formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=object.pk %}" class="btn btn-secondary btn-sm">
+        <i class="mdi mdi-close" aria-hidden="true"></i> {% trans "Skip Selected" %}
+    </button>
+</div>
+{% endif %}
+{% endblock %}

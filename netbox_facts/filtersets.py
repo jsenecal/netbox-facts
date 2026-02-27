@@ -7,11 +7,20 @@ from .choices import (
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
+    EntryActionChoices,
+    EntryStatusChoices,
+    ReportStatusChoices,
 )
 from .fields import MACPrefixField
-from .models import MACAddress, MACVendor, CollectionPlan
+from .models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
 
-__all__ = ["MACAddressFilterSet", "MACVendorFilterSet", "CollectorFilterSet"]
+__all__ = [
+    "MACAddressFilterSet",
+    "MACVendorFilterSet",
+    "CollectorFilterSet",
+    "FactsReportFilterSet",
+    "FactsReportEntryFilterSet",
+]
 
 
 class MACAddressFilterSet(NetBoxModelFilterSet):
@@ -85,3 +94,33 @@ class CollectorFilterSet(NetBoxModelFilterSet):
 
     def search(self, queryset, name, value):
         return queryset.filter(name__icontains=value)
+
+
+class FactsReportFilterSet(NetBoxModelFilterSet):
+    """Filter set for the FactsReport model."""
+
+    collection_plan = django_filters.ModelMultipleChoiceFilter(
+        queryset=CollectionPlan.objects.all(),
+    )
+    status = django_filters.MultipleChoiceFilter(
+        choices=ReportStatusChoices,
+    )
+
+    class Meta:
+        model = FactsReport
+        fields = ["collection_plan", "status"]
+
+    def search(self, queryset, name, value):
+        return queryset.filter(collection_plan__name__icontains=value)
+
+
+class FactsReportEntryFilterSet(django_filters.FilterSet):
+    """Filter set for the FactsReportEntry model."""
+
+    action = django_filters.MultipleChoiceFilter(choices=EntryActionChoices)
+    status = django_filters.MultipleChoiceFilter(choices=EntryStatusChoices)
+    collector_type = django_filters.MultipleChoiceFilter(choices=CollectionTypeChoices)
+
+    class Meta:
+        model = FactsReportEntry
+        fields = ["action", "status", "collector_type", "device"]

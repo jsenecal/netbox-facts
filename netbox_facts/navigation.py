@@ -57,6 +57,14 @@ facts_collection_menu = (
     ),
 )
 
+facts_reports_menu = (
+    PluginMenuItem(
+        link="plugins:netbox_facts:factsreport_list",
+        link_text=_("Facts Reports"),
+        permissions=["netbox_facts.view_factsreport"],
+    ),
+)
+
 if get_plugin_config("netbox_facts", "top_level_menu"):
     # add a top level entry
     menu = PluginMenu(
@@ -64,9 +72,10 @@ if get_plugin_config("netbox_facts", "top_level_menu"):
         groups=(
             ("Networking", networking_menu),
             ("Facts Collection", facts_collection_menu),
+            ("Facts Reports", facts_reports_menu),
         ),
         icon_class="mdi mdi-checkbox-multiple-marked-outline",
     )
 else:
     # display under plugins
-    menu_items = networking_menu + facts_collection_menu
+    menu_items = networking_menu + facts_collection_menu + facts_reports_menu

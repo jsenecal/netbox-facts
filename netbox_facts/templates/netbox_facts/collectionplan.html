@@ -56,6 +56,10 @@
                         <th scope="row">{% trans "Status" %}</th>
                         <td>{{ object.get_status_display }}</td>
                     </tr>
+                    <tr>
+                        <th scope="row">{% trans "Detect Only" %}</th>
+                        <td>{% checkmark object.detect_only %}</td>
+                    </tr>
                 </table>
             </div>
         </div>
