@@ -36,78 +36,83 @@ jobs:
         ports:
           - 6379:6379
 
+    container:
+      image: ghcr.io/netbox-community/netbox:${{ env.NETBOX_VARIANT }}
+      env:
+        DB_HOST: postgres
+        DB_NAME: netbox
+        DB_USER: netbox
+        DB_PASSWORD: testpassword
+        REDIS_HOST: redis
+        REDIS_PASSWORD: ""
+        SECRET_KEY: ci-test-secret-key-not-for-production-use-0123456789
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pull NetBox image and extract venv
-        run: |
-          docker create --name netbox-extract ghcr.io/netbox-community/netbox:${{ env.NETBOX_VARIANT }}
-          sudo docker cp netbox-extract:/opt/netbox /opt/netbox
-          docker rm netbox-extract
-
       - name: Write NetBox configuration
         run: |
-          sudo mkdir -p /etc/netbox/config
-          cat > /tmp/configuration.py << 'PYEOF'
+          mkdir -p /etc/netbox/config
+          cat > /etc/netbox/config/configuration.py << 'PYEOF'
           import re
           from os import environ
 
+          def _read_secret(secret_name, default=None):
+              try:
+                  f = open(f"/run/secrets/{secret_name}", encoding="utf-8")
+              except OSError:
+                  return default
+              else:
+                  with f:
+                      return f.readline().strip()
+
           ALLOWED_HOSTS = ["*"]
           DATABASE = {
-              "NAME": "netbox",
-              "USER": "netbox",
-              "PASSWORD": "testpassword",
-              "HOST": "localhost",
-              "PORT": "5432",
+              "NAME": environ.get("DB_NAME", "netbox"),
+              "USER": environ.get("DB_USER", "netbox"),
+              "PASSWORD": environ.get("DB_PASSWORD", ""),
+              "HOST": environ.get("DB_HOST", "localhost"),
+              "PORT": environ.get("DB_PORT", "5432"),
               "OPTIONS": {"sslmode": "prefer"},
               "CONN_MAX_AGE": 300,
               "DISABLE_SERVER_SIDE_CURSORS": False,
           }
           REDIS = {
               "tasks": {
-                  "HOST": "localhost",
-                  "PORT": 6379,
-                  "PASSWORD": "",
+                  "HOST": environ.get("REDIS_HOST", "localhost"),
+                  "PORT": int(environ.get("REDIS_PORT", 6379)),
+                  "PASSWORD": environ.get("REDIS_PASSWORD", ""),
                   "DATABASE": 0,
                   "SSL": False,
                   "INSECURE_SKIP_TLS_VERIFY": False,
               },
               "caching": {
-                  "HOST": "localhost",
-                  "PORT": 6379,
-                  "PASSWORD": "",
+                  "HOST": environ.get("REDIS_HOST", "localhost"),
+                  "PORT": int(environ.get("REDIS_PORT", 6379)),
+                  "PASSWORD": environ.get("REDIS_PASSWORD", ""),
                   "DATABASE": 1,
                   "SSL": False,
                   "INSECURE_SKIP_TLS_VERIFY": False,
               },
           }
-          SECRET_KEY = "ci-test-secret-key-not-for-production-use-0123456789"
+          SECRET_KEY = environ.get("SECRET_KEY", "")
+          PYEOF
+
+          cat > /etc/netbox/config/plugins.py << 'PYEOF'
           PLUGINS = ["netbox_facts"]
           PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
           PYEOF
-          sudo cp /tmp/configuration.py /etc/netbox/config/configuration.py
 
-          cat > /tmp/plugins.py << 'PYEOF'
-          PLUGINS = ["netbox_facts"]
-          PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
-          PYEOF
-          sudo cp /tmp/plugins.py /etc/netbox/config/plugins.py
-
-          # Empty logging config
-          echo "" | sudo tee /etc/netbox/config/logging.py
+          touch /etc/netbox/config/logging.py
 
       - name: Install plugin
-        run: |
-          /opt/netbox/venv/bin/python -m pip install -e .
+        run: /opt/netbox/venv/bin/pip install -e .
 
       - name: Run migrations
-        run: |
-          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate --no-input
+        run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate --no-input
 
       - name: Check for missing migrations
-        run: |
-          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py makemigrations netbox_facts --check
+        run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py makemigrations netbox_facts --check
 
       - name: Run tests
-        run: |
-          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py test netbox_facts
+        run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py test netbox_facts
