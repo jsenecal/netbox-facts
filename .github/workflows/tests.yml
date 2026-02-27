@@ -1,0 +1,113 @@
+name: tests
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+env:
+  NETBOX_VARIANT: v4.5.3-4.0.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: netbox
+          POSTGRES_USER: netbox
+          POSTGRES_PASSWORD: testpassword
+        options: >-
+          --health-cmd "pg_isready -U netbox"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull NetBox image and extract venv
+        run: |
+          docker create --name netbox-extract ghcr.io/netbox-community/netbox:${{ env.NETBOX_VARIANT }}
+          sudo docker cp netbox-extract:/opt/netbox /opt/netbox
+          docker rm netbox-extract
+
+      - name: Write NetBox configuration
+        run: |
+          sudo mkdir -p /etc/netbox/config
+          cat > /tmp/configuration.py << 'PYEOF'
+          import re
+          from os import environ
+
+          ALLOWED_HOSTS = ["*"]
+          DATABASE = {
+              "NAME": "netbox",
+              "USER": "netbox",
+              "PASSWORD": "testpassword",
+              "HOST": "localhost",
+              "PORT": "5432",
+              "OPTIONS": {"sslmode": "prefer"},
+              "CONN_MAX_AGE": 300,
+              "DISABLE_SERVER_SIDE_CURSORS": False,
+          }
+          REDIS = {
+              "tasks": {
+                  "HOST": "localhost",
+                  "PORT": 6379,
+                  "PASSWORD": "",
+                  "DATABASE": 0,
+                  "SSL": False,
+                  "INSECURE_SKIP_TLS_VERIFY": False,
+              },
+              "caching": {
+                  "HOST": "localhost",
+                  "PORT": 6379,
+                  "PASSWORD": "",
+                  "DATABASE": 1,
+                  "SSL": False,
+                  "INSECURE_SKIP_TLS_VERIFY": False,
+              },
+          }
+          SECRET_KEY = "ci-test-secret-key-not-for-production-use-0123456789"
+          PLUGINS = ["netbox_facts"]
+          PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
+          PYEOF
+          sudo cp /tmp/configuration.py /etc/netbox/config/configuration.py
+
+          cat > /tmp/plugins.py << 'PYEOF'
+          PLUGINS = ["netbox_facts"]
+          PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
+          PYEOF
+          sudo cp /tmp/plugins.py /etc/netbox/config/plugins.py
+
+          # Empty logging config
+          echo "" | sudo tee /etc/netbox/config/logging.py
+
+      - name: Install plugin
+        run: |
+          /opt/netbox/venv/bin/python -m pip install -e .
+
+      - name: Run migrations
+        run: |
+          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate --no-input
+
+      - name: Check for missing migrations
+        run: |
+          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py makemigrations netbox_facts --check
+
+      - name: Run tests
+        run: |
+          /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py test netbox_facts
