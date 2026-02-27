@@ -57,7 +57,7 @@ collectstatic:
 
 PHONY: runserver
 runserver:
-	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py runserver 0.0.0.0:8000
+	-${VENV_PY_PATH} ${NETBOX_MANAGE_PATH}/manage.py runserver 0.0.0.0:8009
 
 .PHONY: launch ## Start NetBox
 launch:
