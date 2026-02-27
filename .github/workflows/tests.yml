@@ -7,7 +7,7 @@ on:
   pull_request:
 
 env:
-  NETBOX_VARIANT: v4.5.3-4.0.0
+  NETBOX_VARIANT: v4.5.3-4.0.1
 
 jobs:
   test:
