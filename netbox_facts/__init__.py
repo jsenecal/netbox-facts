@@ -20,8 +20,8 @@ class FactsConfig(PluginConfig):
     author_email = "contact@jonathansenecal.com"
     default_settings = {
         "top_level_menu": True,
-        "napalm_username": "***REDACTED***",
-        "napalm_password": "***REDACTED***",
+        "napalm_username": "",
+        "napalm_password": "",
         "global_napalm_args": {},
         "valid_interfaces_re": "(?P<phy>(?:[fgxe][et]-(?P<fpc>\d+)/(?P<asic>\d+)/(?P<port>\d+)(?P<channel>\:\d+)?)|irb|vlan|(?:st|ae|reth|lo|em|fxp|me)\d+)(?:\.(?P<unit>0|[1-9][0-9]{0,3}|1[1-5][0-9]{0,3}))?",
     }
