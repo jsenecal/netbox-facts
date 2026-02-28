@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://jsenecal.github.io/netbox-facts/</loc>
+         <lastmod>2026-02-28</lastmod>
+    </url>
+    <url>
+         <loc>https://jsenecal.github.io/netbox-facts/changelog/</loc>
+         <lastmod>2026-02-28</lastmod>
+    </url>
+    <url>
+         <loc>https://jsenecal.github.io/netbox-facts/contributing/</loc>
+         <lastmod>2026-02-28</lastmod>
+    </url>
+    <url>
+         <loc>https://jsenecal.github.io/netbox-facts/plans/2026-02-26-phase2-phase3-design/</loc>
+         <lastmod>2026-02-28</lastmod>
+    </url>
+    <url>
+         <loc>https://jsenecal.github.io/netbox-facts/plans/2026-02-26-phase2-phase3-implementation/</loc>
+         <lastmod>2026-02-28</lastmod>
+    </url>
+</urlset>
