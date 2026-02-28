@@ -18,8 +18,8 @@ def handle_mac_change(
     """
     if instance.vendor is None:
         try:
-            instance.vendor = MACVendor.objects.get_by_mac_address(instance.mac_address)  # type: ignore
-            instance.save()
+            vendor = MACVendor.objects.get_by_mac_address(instance.mac_address)
+            MACAddress.objects.filter(pk=instance.pk).update(vendor=vendor)
         except MACVendor.DoesNotExist:  # pylint: disable=no-member # type: ignore
             vendor_name = instance.vendor_name_from_mac_address
             if vendor_name is None:
@@ -48,8 +48,8 @@ def handle_mac_change(
         int(instance.vendor.mac_prefix) & ~0x0000FFFFFF
         != int(instance.mac_address) & ~0x0000FFFFFF
     ):
-        instance.vendor = MACVendor.objects.get_by_mac_address(instance.mac_address)  # type: ignore
-        instance.save()
+        vendor = MACVendor.objects.get_by_mac_address(instance.mac_address)
+        MACAddress.objects.filter(pk=instance.pk).update(vendor=vendor)
 
 
 @receiver(post_save, sender=MACVendor)
