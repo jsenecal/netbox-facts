@@ -317,7 +317,7 @@ class NapalmCollector:
                             assigned_object=netbox_address,
                             kind=JournalEntryKindChoices.KIND_INFO,
                             comments=(
-                                f"Dicovered by {self._current_device} with MAC"
+                                f"Discovered by {self._current_device} with MAC"
                                 + f" {get_absolute_url_markdown(netbox_mac, bold=True)}"
                                 + f" on interface {get_absolute_url_markdown(netbox_interface, bold=True)} via"
                                 + f" {self.plan.get_collector_type_display()} collection."  # type: ignore
