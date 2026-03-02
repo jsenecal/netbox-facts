@@ -2,9 +2,11 @@ from django.db.models import Count
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 
 from netbox.api.viewsets import NetBoxModelViewSet
 
+from ..exceptions import OperationNotSupported
 from .. import filtersets, models
 from ..helpers.applier import apply_entries, skip_entries
 from .serializers import (
@@ -14,6 +16,12 @@ from .serializers import (
     FactsReportSerializer,
     FactsReportEntrySerializer,
 )
+
+
+class FactsMutationThrottle(UserRateThrottle):
+    """Throttle mutating actions (run, apply, skip) to 30 requests/minute."""
+
+    rate = "30/minute"
 
 
 class MACAddressViewSet(NetBoxModelViewSet):
@@ -49,6 +57,19 @@ class CollectorViewSet(NetBoxModelViewSet):
     serializer_class = CollectionPlanSerializer
     filterset_class = filtersets.CollectorFilterSet
 
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
+    def run(self, request, pk=None):
+        """Enqueue a collection job for this plan."""
+        plan = self.get_object()
+        try:
+            job = plan.enqueue_collection_job(request)
+        except OperationNotSupported as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"job": job.pk}, status=status.HTTP_202_ACCEPTED)
+
 
 class FactsReportViewSet(NetBoxModelViewSet):
     """ViewSet for FactsReport with apply/skip actions."""
@@ -67,7 +88,7 @@ class FactsReportViewSet(NetBoxModelViewSet):
         invalid_pks = set(entry_pks) - valid_pks
         return invalid_pks or None
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
     def apply(self, request, pk=None):
         """Apply selected entries: POST with {"entries": [pk, pk, ...]}"""
         report = self.get_object()
@@ -89,7 +110,7 @@ class FactsReportViewSet(NetBoxModelViewSet):
             "failed": failed,
         })
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
     def skip(self, request, pk=None):
         """Skip selected entries: POST with {"entries": [pk, pk, ...]}"""
         report = self.get_object()

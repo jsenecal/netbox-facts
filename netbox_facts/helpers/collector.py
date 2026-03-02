@@ -7,7 +7,11 @@ import re
 from itertools import groupby
 from typing import TYPE_CHECKING, Generator, Tuple, Type, List, Dict, Any
 
+import django.core.exceptions
+import django.db
+
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import CharField, Func
 from django.utils import timezone
 from dcim.models.device_components import Interface
 from dcim.models.devices import Device
@@ -16,7 +20,13 @@ from extras.models.models import JournalEntry
 from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
 from napalm.base import NetworkDriver
-from napalm.base.exceptions import ConnectionException
+from napalm.base.exceptions import (
+    CommandErrorException,
+    CommandTimeoutException,
+    ConnectionException,
+    ModuleImportError,
+    NapalmException,
+)
 from netbox_facts.choices import (
     CollectionTypeChoices,
     EntryActionChoices,
@@ -35,13 +45,12 @@ from netbox_facts.helpers.netbox import (
     resolve_napalm_network_instances,
 )
 from netbox_facts.models.mac import MACAddress
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
 
 if TYPE_CHECKING:
     from netbox_facts.models.collection_plan import CollectionPlan
     from netbox_facts.models.facts_report import FactsReport, FactsReportEntry
-
-AUTO_D_TAG = "Automatically Discovered"
 
 
 try:
@@ -71,6 +80,10 @@ class NapalmCollector:
         self._interfaces_re = re.compile(
             get_plugin_config("netbox_facts", "valid_interfaces_re")
         )
+        # Inject NAPALM connection timeout into optional_args
+        napalm_timeout = get_plugin_config("netbox_facts", "napalm_timeout", 60)
+        if napalm_timeout and "timeout" not in self._napalm_args:
+            self._napalm_args["timeout"] = napalm_timeout
         self._devices = Device.objects.none()
         self._current_device: Device | None = None
         self._log_prefix = ""
@@ -81,7 +94,7 @@ class NapalmCollector:
         # Get the NAPALM driver
         try:
             self._napalm_driver = plan.get_napalm_driver()
-        except Exception as exc:  # pylint: disable=broad-except
+        except (ModuleImportError, ModuleNotFoundError) as exc:
             raise CollectionError(
                 f"There was an error initializing the napalm driver: {exc}"
             ) from exc
@@ -167,6 +180,45 @@ class NapalmCollector:
             )
         )
         table_as_list = list(table)
+
+        # Pre-fetch existing MACs in bulk to avoid N+1 queries
+        all_macs = {
+            entry["mac"]
+            for entry in table_as_list
+            if entry["mac"] and entry.get("state", "") != "unreachable"
+        }
+        existing_macs_by_addr = {}
+        if all_macs:
+            for mac_obj in MACAddress.objects.filter(mac_address__in=all_macs):
+                key = str(mac_obj.mac_address).replace(":", "").upper()
+                existing_macs_by_addr[key] = mac_obj
+
+        # Pre-fetch existing IPs in bulk to avoid N+1 queries
+        all_raw_ips = list(
+            {
+                entry["ip"]
+                for entry in table_as_list
+                if entry["ip"] and entry["mac"]
+                and entry.get("state", "") != "unreachable"
+            }
+        )
+        existing_ips_map = {}  # (cidr_str, vrf_id) -> IPAddress
+        if all_raw_ips:
+            for ip_obj in (
+                IPAddress.objects.annotate(
+                    _host=Func(
+                        "address", function="HOST",
+                        output_field=CharField(),
+                    )
+                )
+                .filter(_host__in=all_raw_ips)
+                .select_related("vrf")
+            ):
+                key = (str(ip_obj.address), ip_obj.vrf_id)
+                existing_ips_map[key] = ip_obj
+
+        seen_ips = set()  # Track (cidr_str, vrf_id) for stale detection
+
         for interface_name, arp_data in groupby(
             table_as_list, key=lambda x: x["interface"]
         ):
@@ -246,15 +298,19 @@ class NapalmCollector:
                     )
                     continue
 
-                # Determine action for MAC
-                existing_mac = MACAddress.objects.filter(mac_address=arp_entry["mac"]).first()
+                # Determine action for MAC (using pre-fetched bulk data)
+                mac_cache_key = arp_entry["mac"].replace(":", "").upper()
+                existing_mac = existing_macs_by_addr.get(mac_cache_key)
                 mac_action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
 
-                # Determine action for IP
-                existing_ip = IPAddress.objects.filter(
-                    address=str(ip_interface_object), vrf=routing_instance
-                ).first()
+                # Determine action for IP (using pre-fetched bulk data)
+                ip_cache_key = (
+                    str(ip_interface_object),
+                    routing_instance.pk if routing_instance else None,
+                )
+                existing_ip = existing_ips_map.get(ip_cache_key)
                 ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
+                seen_ips.add(ip_cache_key)
 
                 vrf_name = str(routing_instance) if routing_instance else None
                 detected = {
@@ -348,7 +404,36 @@ class NapalmCollector:
                     # Mark entries as applied with correct object references
                     self._mark_entry_applied(mac_entry, netbox_mac)
                     self._mark_entry_applied(ip_entry, netbox_address)
-        # TODO Mark stale IP addresses as deprecated
+        # Detect stale IPs: previously discovered IPs on this device
+        # that are no longer present in the current ARP/NDP table
+        if self._current_device and seen_ips:
+            device_macs = MACAddress.objects.filter(
+                interfaces__in=self._current_device.vc_interfaces()
+            ).distinct()
+            known_ips = (
+                IPAddress.objects.filter(mac_addresses__in=device_macs)
+                .filter(tags__name=AUTO_D_TAG)
+                .select_related("vrf")
+                .distinct()
+            )
+            for ip_obj in known_ips:
+                key = (str(ip_obj.address), ip_obj.vrf_id)
+                if key not in seen_ips:
+                    self._record_entry(
+                        action=EntryActionChoices.ACTION_STALE,
+                        collector_type=self._collector_type,
+                        device=self._current_device,
+                        detected_values={},
+                        current_values={
+                            "ip": str(ip_obj.address),
+                            "vrf": str(ip_obj.vrf) if ip_obj.vrf else None,
+                        },
+                        object_instance=ip_obj,
+                        object_repr=f"IP {ip_obj.address}",
+                    )
+                    self._log_info(
+                        f"IP {ip_obj.address} not seen in current table — flagged as stale."
+                    )
 
     def arp(self, driver: NetworkDriver | EnhancedJunOSDriver):
         """Collect ARP table data from a device."""
@@ -589,7 +674,9 @@ class NapalmCollector:
                             f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
                         )
                         self._mark_entry_applied(lldp_entry, cable)
-                    except Exception as exc:
+                    except (Device.DoesNotExist, Interface.DoesNotExist, ValueError,
+                            django.core.exceptions.ValidationError,
+                            django.db.IntegrityError) as exc:
                         self._log_warning(
                             f"Could not create cable between `{local_iface_name}` and "
                             f"`{remote_system_name}:{remote_port}`: {exc}"
@@ -695,7 +782,7 @@ class NapalmCollector:
         try:
             output = driver.cli(["show l2circuit connections"])
             raw = output.get("show l2circuit connections", "")
-        except Exception as exc:
+        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve L2 circuit data: {exc}")
             return
 
@@ -732,7 +819,7 @@ class NapalmCollector:
         try:
             output = driver.cli(["show evpn mac-table"])
             raw = output.get("show evpn mac-table", "")
-        except Exception as exc:
+        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve EVPN data: {exc}")
             return
 
@@ -903,7 +990,7 @@ class NapalmCollector:
             self._log_info(
                 f"Found BGPRouter for {self._current_device} in netbox-routing."
             )
-        except Exception as exc:
+        except (NapalmException, django.db.IntegrityError, ValueError, AttributeError) as exc:
             self._log_warning(f"netbox-routing BGP integration error: {exc}")
 
     def ospf(self, driver: NetworkDriver):
@@ -916,7 +1003,7 @@ class NapalmCollector:
         try:
             output = driver.cli(["show ospf neighbor"])
             raw = output.get("show ospf neighbor", "")
-        except Exception as exc:
+        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve OSPF data: {exc}")
             return
 
@@ -1011,7 +1098,7 @@ class NapalmCollector:
                     f"in netbox-routing. Neighbor: {neighbor_data['address']} "
                     f"(State: {neighbor_data['state']})"
                 )
-        except Exception as exc:
+        except (NapalmException, django.db.IntegrityError, ValueError, AttributeError) as exc:
             self._log_warning(f"netbox-routing OSPF integration error: {exc}")
 
     def execute(self):
@@ -1054,10 +1141,10 @@ class NapalmCollector:
                         getattr(self, self._collector_type)(driver)
                 except AttributeError as exc:
                     raise NotImplementedError from exc
-                except ConnectionException:
-                    self._log_failure("An error occurred while connecting to the device")
+                except ConnectionException as exc:
+                    self._log_failure(f"Connection error: {exc}")
         except Exception:
-            # Mark the report as failed on unhandled exceptions
+            # Safety net: mark the report as failed on unhandled exceptions
             self._report.update_summary()
             self._report.completed_at = timezone.now()
             self._report.status = ReportStatusChoices.STATUS_FAILED

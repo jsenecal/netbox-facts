@@ -96,6 +96,12 @@ class MACAddressDeleteView(generic.ObjectDeleteView):
     queryset = models.MACAddress.objects.all()
 
 
+@register_model_view(models.MACAddress, "bulk_import", path="import", detail=False)
+class MACAddressBulkImportView(generic.BulkImportView):
+    queryset = models.MACAddress.objects.all()
+    model_form = forms.MACAddressImportForm
+
+
 class MACAddressBulkEditView(generic.BulkEditView):
     """Bulk edit view for MACAddress instances."""
 
@@ -156,6 +162,12 @@ class MACVendorInstancesView(generic.ObjectChildrenView):
                     occurences=Count("interfaces"),
                 )
             )
+
+
+@register_model_view(models.MACVendor, "bulk_import", path="import", detail=False)
+class MACVendorBulkImportView(generic.BulkImportView):
+    queryset = models.MACVendor.objects.all()
+    model_form = forms.MACVendorImportForm
 
 
 class MACVendorBulkEditView(generic.BulkEditView):
@@ -278,8 +290,14 @@ class CollectorRunView(BaseObjectView):
         return redirect(plan.get_absolute_url())
 
     def post(self, request, pk):
+        from .exceptions import OperationNotSupported
+
         plan: models.CollectionPlan = get_object_or_404(self.queryset, pk=pk)
-        job = plan.enqueue_collection_job(request)
+        try:
+            job = plan.enqueue_collection_job(request)
+        except OperationNotSupported as exc:
+            messages.warning(request, str(exc))
+            return redirect(plan.get_absolute_url())
 
         messages.success(request, f"Queued job #{job.pk} to sync {plan}")
         return redirect("plugins:netbox_facts:collectionplan_results", pk=plan.pk)
@@ -344,6 +362,12 @@ class CollectorResultsView(ScriptResultView):
             return response
 
         return render(request, "netbox_facts/collector_result.html", context)
+
+
+@register_model_view(models.CollectionPlan, "bulk_import", path="import", detail=False)
+class CollectionPlanBulkImportView(generic.BulkImportView):
+    queryset = models.CollectionPlan.objects.all()
+    model_form = forms.CollectionPlanImportForm
 
 
 class CollectorBulkEditView(generic.BulkEditView):

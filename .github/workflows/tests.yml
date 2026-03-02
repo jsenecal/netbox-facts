@@ -58,7 +58,10 @@ jobs:
           EOF
 
       - name: Install plugin
-        run: uv pip install --python /opt/netbox/venv/bin/python -e .
+        run: uv pip install --python /opt/netbox/venv/bin/python -e ".[dev]"
+
+      - name: Lint with ruff
+        run: /opt/netbox/venv/bin/python -m ruff check netbox_facts/
 
       - name: Run migrations
         run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py migrate --no-input
@@ -66,5 +69,8 @@ jobs:
       - name: Check for missing migrations
         run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py makemigrations netbox_facts --check
 
-      - name: Run tests
-        run: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py test netbox_facts
+      - name: Run tests with coverage
+        run: |
+          uv pip install --python /opt/netbox/venv/bin/python coverage
+          /opt/netbox/venv/bin/python -m coverage run --source=netbox_facts /opt/netbox/netbox/manage.py test netbox_facts
+          /opt/netbox/venv/bin/python -m coverage report --fail-under=20

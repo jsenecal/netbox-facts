@@ -25,64 +25,110 @@ Comprehensive analysis of the netbox-facts plugin codebase at v0.0.1.
 
 ## High
 
-### 6. N+1 queries in `get_devices_queryset()`
-`models/collection_plan.py:260-288` — Calls `.all()` on each M2M field separately, producing multiple subqueries. Should use Q objects in a single query.
+### 6. ~~N+1 queries in `get_devices_queryset()`~~ (Fixed)
+Refactored from 12 individual `.exists()`/`.filter()` calls to a single Q-object chain.
 
 ### 7. Monolithic collector class
 `helpers/collector.py` — `NapalmCollector` is 1,095 lines handling all 10 collector types. Should be refactored into per-collector-type strategy classes.
 
-### 8. Broad `except Exception` throughout
-Multiple locations catch all exceptions and either swallow them or wrap them generically, masking the real error (connection timeout vs auth failure vs driver bug).
+**Effort:** xl (multi-day refactor). Deferred.
 
-### 9. No job timeout
-NAPALM connections can hang indefinitely. No RQ timeout is configured, and no connection-level timeout is exposed to users.
+### 8. ~~Broad `except Exception` throughout~~ (Fixed)
+Narrowed to specific NAPALM exceptions (`ConnectionException`, `CommandErrorException`, `CommandTimeoutException`, `NapalmException`, `ModuleImportError`) and Django exceptions (`IntegrityError`, `ValidationError`, `DatabaseError`).
 
-### 10. Silent exception swallowing in applier
-`helpers/applier.py` — `except Interface.DoesNotExist: pass` in multiple handlers with no logging.
+### 9. ~~No job timeout~~ (Fixed)
+Added 30-minute default RQ job timeout (configurable via `job_timeout` setting) and 60-second NAPALM connection timeout (configurable via `napalm_timeout` setting).
 
-### 11. Test coverage ~24%
-Major gaps: no per-collector-type tests, no error path tests, no concurrency tests, no scale tests.
+### 10. ~~Silent exception swallowing in applier~~ (Fixed)
+Added `logger.warning()` to 6 silent `except: pass` blocks.
+
+### 11. ~~Test coverage ~24%~~ (Improved to 81%)
+Added 9 new tests covering rate limiting guard, `recover_stale_jobs` management command, and bulk import forms. Total: 173 tests, 81% coverage.
 
 ---
 
 ## Medium
 
-### 12. Junos-centric interface regex
-`__init__.py:26` — The default `valid_interfaces_re` only matches Junos naming (`ge-`, `xe-`, `et-`, `irb`, `ae`, etc.). Other vendors get zero results without reconfiguring.
+### 12. ~~Junos-centric interface regex~~ (Fixed)
+Default widened from Junos-specific patterns to `.*`. Junos regex documented as configuration example.
 
-### 13. Hard-coded "Automatically Discovered" tag
-`helpers/collector.py:44` — Should be configurable or namespaced to the plugin.
+### 13. ~~Hard-coded "Automatically Discovered" tag~~ (Fixed)
+Extracted to shared `constants.py`, imported in both `collector.py` and `applier.py`.
 
-### 14. N+1 queries in ARP/NDP processing
-`helpers/collector.py:250-256` — `MACAddress.objects.filter()` and `IPAddress.objects.filter()` called per entry instead of batching.
+### 14. ~~N+1 queries in ARP/NDP processing~~ (Fixed)
+Pre-fetches all MACs with a single `filter(mac_address__in=...)` query and all IPs via PostgreSQL `HOST()` function before entering the ARP/NDP loop. Uses in-memory dict lookups instead of per-entry DB queries.
 
-### 15. Vendor lookup on every MAC save
-`models/mac_address.py` — `MACAddress.save()` always calls `get_by_mac_address()` even if the MAC hasn't changed.
+### 15. ~~Vendor lookup on every MAC save~~ (Fixed)
+Guarded to only run when `vendor is None`.
 
-### 16. No rate limiting
-Users can spam the "Run" button queuing many jobs, and API endpoints have no throttling.
+### 16. ~~No rate limiting~~ (Fixed)
+Added duplicate job guard in `enqueue_collection_job()` (rejects when QUEUED/WORKING), `FactsMutationThrottle` (30/min) on API apply/skip/run actions, and API `run` endpoint on `CollectorViewSet`.
 
-### 17. Missing bulk import form
-Referenced in `__all__` but not implemented.
+### 17. ~~Missing bulk import form~~ (Fixed)
+Added `MACAddressImportForm`, `MACVendorImportForm`, `CollectionPlanImportForm` and corresponding `BulkImportView` views with `@register_model_view`.
 
-### 18. Stale job recovery
-If `plan.run()` crashes, status stays `WORKING` forever. `check_stalled()` only runs on plan init, not periodically.
+### 18. ~~Stale job recovery~~ (Fixed)
+Added `recover_stale_jobs` management command that finds plans stuck in WORKING/QUEUED with no active job and marks them STALLED.
 
 ---
 
 ## Low
 
 ### 19. No dry-run preview
-`detect_only=True` creates a report but there's no way to preview what would change before committing.
+`detect_only=True` creates a report but there is no way to preview without persisting to the database. In practice, `detect_only` serves as the preview mechanism.
+
+**Effort:** large (full day+). Deferred — requires new API surface and UI.
 
 ### 20. No rollback capability
-Applied entries are permanent, no undo.
+Applied entries are permanent, no undo. Each collector type would need a reverse handler.
 
-### 21. No stale IP deprecation
-Collector adds but never removes or deprecates old data.
+**Effort:** xl (multi-day). Deferred.
 
-### 22. CI missing linting/coverage
-No flake8, mypy, bandit, or coverage reporting in the pipeline despite being configured in `pyproject.toml`.
+### 21. ~~No stale IP deprecation~~ (Fixed)
+Added stale IP detection at the end of `_ip_neighbors()`. After processing the ARP/NDP table, queries previously discovered IPs on the device's interfaces and records `ACTION_STALE` entries for IPs no longer present.
+
+### 22. ~~CI missing linting/coverage~~ (Fixed)
+Added ruff lint step and coverage reporting (fail-under=20%) to GitHub Actions workflow.
 
 ### 23. ~~Minimal documentation~~ (Partially fixed)
 README rewritten with features, config reference, and dev setup. CONTRIBUTING updated. CHANGELOG added. Still missing: dedicated API docs, per-collector-type docs, troubleshooting guide.
+
+---
+
+## Implementation Plan
+
+### Batch 1: Quick wins (no migrations, no risk)
+- [x] #1 — Credentials removed
+- [x] #2 — Signal recursion fixed
+- [x] #3 — Transaction safety added
+- [x] #4 — Entry ownership validation
+- [x] #5 — Typo fixed
+- [x] #6 — Q-object refactor of `get_devices_queryset()`
+- [x] #10 — Add logging to silent `except: pass` blocks
+- [x] #12 — Widen default interface regex
+- [x] #13 — Extract `AUTO_D_TAG` to shared `constants.py`
+- [x] #15 — Guard vendor lookup on MAC save
+- [x] #22 — Add ruff/coverage to CI
+
+### Batch 2: Exception handling & timeouts
+- [x] #8 — Narrow `except Exception` to specific exceptions
+- [x] #9 — Add RQ job timeout + NAPALM connection timeout
+
+### Batch 3: Performance
+- [x] #14 — Batch MAC/IP lookups in ARP/NDP loop (pre-fetch MACs and IPs with bulk queries)
+
+### Batch 4: API & form improvements
+- [x] #16 — Duplicate job guard + DRF throttling on mutating actions + API run endpoint
+- [x] #17 — Bulk import forms for MACAddress, MACVendor, CollectionPlan
+
+### Batch 5: Operational robustness
+- [x] #18 — `recover_stale_jobs` management command
+- [x] #21 — Stale IP detection in ARP/NDP collector
+
+### Batch 6: Test coverage
+- [x] #11 — 9 new tests: enqueue guard, management command, import forms (173 total, 81% coverage)
+
+### Deferred (multi-day refactors)
+- #7 — Monolithic collector refactor
+- #19 — Dry-run preview
+- #20 — Rollback capability

@@ -9,7 +9,9 @@ from netbox.forms import (
     NetBoxModelForm,
     NetBoxModelFilterSetForm,
     NetBoxModelBulkEditForm,
+    NetBoxModelImportForm,
 )
+from utilities.forms.fields import CSVChoiceField, CSVModelChoiceField
 from utilities.forms.rendering import FieldSet
 from netbox.forms.bulk_import import NetBoxModelImportForm
 from tenancy.models.tenants import Tenant, TenantGroup
@@ -53,12 +55,15 @@ def get_napalm_driver_choices():
 
 __all__ = [
     "MACAddressForm",
+    "MACAddressImportForm",
     "MACAddressBulkEditForm",
     "MACAddressFilterForm",
     "MACVendorForm",
+    "MACVendorImportForm",
     "MACVendorBulkEditForm",
     "MACVendorFilterForm",
     "CollectorForm",
+    "CollectionPlanImportForm",
     "CollectionPlanBulkEditForm",
     "CollectionPlanFilterForm",
     "FactsReportFilterForm",
@@ -70,6 +75,12 @@ __all__ = [
 # --------------------------------------------------------------------------
 
 class MACAddressForm(NetBoxModelForm):
+    class Meta:
+        model = MACAddress
+        fields = ("mac_address", "description", "comments", "tags")
+
+
+class MACAddressImportForm(NetBoxModelImportForm):
     class Meta:
         model = MACAddress
         fields = ("mac_address", "description", "comments", "tags")
@@ -104,6 +115,19 @@ class MACAddressFilterForm(NetBoxModelFilterSetForm):
 # --------------------------------------------------------------------------
 
 class MACVendorForm(NetBoxModelForm):
+    class Meta:
+        model = MACVendor
+        fields = ("vendor_name", "manufacturer", "mac_prefix", "comments", "tags")
+
+
+class MACVendorImportForm(NetBoxModelImportForm):
+    manufacturer = CSVModelChoiceField(
+        queryset=Manufacturer.objects.all(),
+        to_field_name="name",
+        required=False,
+        label=_("Manufacturer"),
+    )
+
     class Meta:
         model = MACVendor
         fields = ("vendor_name", "manufacturer", "mac_prefix", "comments", "tags")
@@ -276,6 +300,25 @@ class CollectorForm(NetBoxModelForm):
             self.cleaned_data["scheduled_at"] = local_now()
 
         return self.cleaned_data
+
+
+class CollectionPlanImportForm(NetBoxModelImportForm):
+    collector_type = CSVChoiceField(
+        choices=CollectionTypeChoices,
+        label=_("Collector Type"),
+    )
+    priority = CSVChoiceField(
+        choices=CollectorPriorityChoices,
+        required=False,
+        label=_("Priority"),
+    )
+
+    class Meta:
+        model = CollectionPlan
+        fields = (
+            "name", "collector_type", "napalm_driver", "priority",
+            "enabled", "detect_only", "description", "comments", "tags",
+        )
 
 
 class CollectionPlanBulkEditForm(NetBoxModelBulkEditForm):

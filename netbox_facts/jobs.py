@@ -1,6 +1,9 @@
 import logging
 
+from django.db import DatabaseError
+
 from netbox.jobs import JobRunner
+from netbox.plugins.utils import get_plugin_config
 
 from netbox_facts.choices import CollectorStatusChoices
 
@@ -17,6 +20,10 @@ class CollectionJobRunner(JobRunner):
     def enqueue(cls, *args, **kwargs):
         """Enqueue a collection job, setting the plan status to QUEUED."""
         from netbox_facts.models import CollectionPlan
+
+        # Apply default job timeout from plugin settings if not explicitly set
+        if "job_timeout" not in kwargs:
+            kwargs["job_timeout"] = get_plugin_config("netbox_facts", "job_timeout", 1800)
 
         job = super().enqueue(*args, **kwargs)
 
@@ -57,7 +64,7 @@ class CollectionJobRunner(JobRunner):
                 if report and not report.job_id:
                     report.job = self.job
                     report.save(update_fields=["job"])
-            except Exception:
+            except DatabaseError:
                 logger.warning(
                     "Failed to link FactsReport to job %s for plan %s",
                     self.job.pk, plan.pk, exc_info=True,

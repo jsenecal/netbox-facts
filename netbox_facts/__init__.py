@@ -22,8 +22,10 @@ class FactsConfig(PluginConfig):
         "top_level_menu": True,
         "napalm_username": "",
         "napalm_password": "",
+        "napalm_timeout": 60,
         "global_napalm_args": {},
-        "valid_interfaces_re": "(?P<phy>(?:[fgxe][et]-(?P<fpc>\d+)/(?P<asic>\d+)/(?P<port>\d+)(?P<channel>\:\d+)?)|irb|vlan|(?:st|ae|reth|lo|em|fxp|me)\d+)(?:\.(?P<unit>0|[1-9][0-9]{0,3}|1[1-5][0-9]{0,3}))?",
+        "valid_interfaces_re": ".*",
+        "job_timeout": 1800,
     }
 
     def ready(self):

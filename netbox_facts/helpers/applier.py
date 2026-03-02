@@ -19,11 +19,10 @@ from netbox_facts.choices import (
     EntryStatusChoices,
     ReportStatusChoices,
 )
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.models.mac import MACAddress
 
 logger = logging.getLogger("netbox_facts")
-
-AUTO_D_TAG = "Automatically Discovered"
 
 
 def apply_entries(report, entry_pks):
@@ -141,7 +140,8 @@ def _apply_arp_entry(entry, now):
                 nb_iface = entry.device.vc_interfaces().get(name=iface_name)
                 netbox_mac.interfaces.add(nb_iface)
             except Interface.DoesNotExist:
-                pass
+                logger.warning("Interface %s not found on device %s for ARP entry %s",
+                               iface_name, entry.device, entry.pk)
         _set_entry_object(entry, netbox_mac)
     else:
         # IP entry: create/update IP and associate with MAC
@@ -155,7 +155,7 @@ def _apply_arp_entry(entry, now):
             try:
                 vrf = VRF.objects.get(name=vrf_name)
             except VRF.DoesNotExist:
-                pass
+                logger.warning("VRF %s not found for ARP/NDP entry %s", vrf_name, entry.pk)
 
         nb_ip, created = IPAddress.objects.get_or_create(
             address=ip_str,
@@ -207,7 +207,8 @@ def _apply_interfaces_entry(entry, now):
             nb_iface = entry.device.vc_interfaces().get(name=iface_name)
             netbox_mac.device_interface = nb_iface
         except Interface.DoesNotExist:
-            pass
+            logger.warning("Interface %s not found on device %s for interfaces entry %s",
+                           iface_name, entry.device, entry.pk)
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
     netbox_mac.last_seen = now
@@ -264,7 +265,8 @@ def _apply_ethernet_switching_entry(entry, now):
             nb_iface = entry.device.vc_interfaces().get(name=iface_name)
             netbox_mac.interfaces.add(nb_iface)
         except Interface.DoesNotExist:
-            pass
+            logger.warning("Interface %s not found on device %s for ethernet switching entry %s",
+                           iface_name, entry.device, entry.pk)
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
     netbox_mac.last_seen = now
@@ -290,7 +292,7 @@ def _apply_bgp_entry(entry, now):
         try:
             nb_vrf = VRF.objects.get(name=vrf_name)
         except VRF.DoesNotExist:
-            pass
+            logger.warning("VRF %s not found for BGP entry %s", vrf_name, entry.pk)
 
     try:
         ip_obj = ipaddress.ip_address(remote_address)
@@ -314,7 +316,7 @@ def _apply_bgp_entry(entry, now):
                 defaults={"rir": RIR.objects.first()},
             )
         except (RIR.DoesNotExist, TypeError):
-            pass
+            logger.warning("Could not create ASN %s for BGP entry %s (no RIR found)", as_number, entry.pk)
 
     _set_entry_object(entry, nb_ip)
 

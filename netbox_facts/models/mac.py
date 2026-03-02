@@ -118,16 +118,18 @@ class MACAddress(NetBoxModel):
             return None
 
     def save(self, *args, **kwargs):
-        try:
-            if isinstance(self.mac_address, str):
-                self.mac_address = EUI(
-                    self.mac_address,
-                    version=48,
-                    dialect=mac_unix_expanded_uppercase,
-                )
-            self.vendor = MACVendor.objects.get_by_mac_address(self.mac_address)  # type: ignore
-        except MACVendor.DoesNotExist:  # pylint: disable=no-member
-            pass
+        if isinstance(self.mac_address, str):
+            self.mac_address = EUI(
+                self.mac_address,
+                version=48,
+                dialect=mac_unix_expanded_uppercase,
+            )
+        # Only look up vendor when it's missing; the signal handler covers updates
+        if self.vendor is None:
+            try:
+                self.vendor = MACVendor.objects.get_by_mac_address(self.mac_address)  # type: ignore
+            except MACVendor.DoesNotExist:  # pylint: disable=no-member
+                pass
         super().save(*args, **kwargs)
 
     def __str__(self):

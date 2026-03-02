@@ -259,33 +259,32 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     # pylint: disable=no-member
     def get_devices_queryset(self):
         """Return a queryset of devices matching the collection plan."""
+        from django.db.models import Q
 
-        devices = Device.objects.all()
-        if self.devices.exists():
-            devices = devices.filter(pk__in=self.devices.all())
+        q = Q()
+        # Each populated filter narrows the result (AND logic across dimensions)
+        m2m_filters = [
+            ("devices", "pk__in"),
+            ("regions", "region__in"),
+            ("site_groups", "site__group__in"),
+            ("sites", "site__in"),
+            ("locations", "location__in"),
+            ("device_types", "device_type__in"),
+            ("roles", "role__in"),
+            ("platforms", "platform__in"),
+            ("tenant_groups", "tenant__group__in"),
+            ("tenants", "tenant__in"),
+            ("tags", "tags__in"),
+        ]
+        for field_name, lookup in m2m_filters:
+            pks = getattr(self, field_name).values_list("pk", flat=True)
+            if pks:
+                q &= Q(**{lookup: pks})
+
         if self.device_status:
-            devices = devices.filter(status__in=self.device_status)
-        if self.regions.exists():
-            devices = devices.filter(region__in=self.regions.all())
-        if self.site_groups.exists():
-            devices = devices.filter(site__group__in=self.site_groups.all())
-        if self.sites.exists():
-            devices = devices.filter(site__in=self.sites.all())
-        if self.locations.exists():
-            devices = devices.filter(location__in=self.locations.all())
-        if self.device_types.exists():
-            devices = devices.filter(device_type__in=self.device_types.all())
-        if self.roles.exists():
-            devices = devices.filter(role__in=self.roles.all())
-        if self.platforms.exists():
-            devices = devices.filter(platform__in=self.platforms.all())
-        if self.tenant_groups.exists():
-            devices = devices.filter(tenant__group__in=self.tenant_groups.all())
-        if self.tenants.exists():
-            devices = devices.filter(tenant__in=self.tenants.all())
-        if self.tags.exists():
-            devices = devices.filter(tags__in=self.tags.all())
-        return devices.distinct()
+            q &= Q(status__in=self.device_status)
+
+        return Device.objects.filter(q).distinct()
 
     def get_napalm_args(self) -> Dict[str, Any]:
         """Return the NAPALM arguments to use when initiating the driver."""
@@ -304,8 +303,18 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     def enqueue_collection_job(self, request):
         """
         Enqueue a background job to perform the facts collection.
+
+        Raises OperationNotSupported if the plan is already queued or working.
         """
         from netbox_facts.jobs import CollectionJobRunner
+
+        if self.status in (
+            CollectorStatusChoices.QUEUED,
+            CollectorStatusChoices.WORKING,
+        ):
+            raise OperationNotSupported(
+                f"Cannot enqueue collection job; plan is already {self.get_status_display().lower()}."
+            )
 
         user = (
             self.run_as

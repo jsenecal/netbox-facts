@@ -46,6 +46,8 @@ class CollectionJobRunnerTest(TestCase):
     def test_run_calls_plan_run(self, mock_plan_cls):
         """run() should fetch the plan and call plan.run()."""
         mock_plan = MagicMock()
+        mock_plan.pk = self.plan.pk
+        mock_plan.log = []
         mock_plan_cls.objects.get.return_value = mock_plan
 
         mock_job = MagicMock()
@@ -61,6 +63,8 @@ class CollectionJobRunnerTest(TestCase):
     def test_run_passes_request_kwarg(self, mock_plan_cls):
         """run() should forward the request kwarg to plan.run()."""
         mock_plan = MagicMock()
+        mock_plan.pk = self.plan.pk
+        mock_plan.log = []
         mock_plan_cls.objects.get.return_value = mock_plan
         mock_request = MagicMock()
 
