@@ -12,9 +12,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("contenttypes", "0002_remove_content_type_name"),
-        ("core", "0021_job_queue_name"),
-        ("dcim", "0226_add_mptt_tree_indexes"),
-        ("extras", "0134_owner"),
+        ("core", "0001_squashed_0005"),
+        ("dcim", "0001_squashed"),
+        ("extras", "0001_squashed"),
         ("netbox_facts", "0022_netbox_facts"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
