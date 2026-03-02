@@ -9,14 +9,14 @@ Comprehensive analysis of the netbox-facts plugin codebase at v0.0.1.
 ### 1. ~~`***REDACTED***` left as default settings~~ (Fixed)
 `netbox_facts/__init__.py` — `git-filter-repo` replaced hardcoded credentials with `***REDACTED***` across all history, including the working tree defaults. These have been restored to empty strings `""`.
 
-### 2. Potential infinite recursion in signals
-`signals.py` — `post_save` on `MACVendor` updates all matching `MACAddress` objects. Each MAC save triggers `handle_mac_change()`, which may look up vendors again. No recursion guard exists.
+### 2. ~~Potential infinite recursion in signals~~ (Fixed)
+`signals.py` — `post_save` on `MACVendor` updates all matching `MACAddress` objects. Each MAC save triggers `handle_mac_change()`, which may look up vendors again. Fixed by using `MACAddress.objects.filter().update()` instead of `instance.save()` to avoid re-triggering signals.
 
-### 3. No `@transaction.atomic` in applier
-`helpers/applier.py` — `apply_entries()` processes entries individually. A failure partway through leaves the report in a corrupted partial state with no rollback.
+### 3. ~~No `@transaction.atomic` in applier~~ (Fixed)
+`helpers/applier.py` — `apply_entries()` now uses `transaction.atomic()` with per-entry savepoints so individual failures don't corrupt the report.
 
-### 4. API doesn't validate entry ownership
-`api/views.py` — The apply/skip endpoints don't verify that the entry belongs to the report in the URL. A user could apply entries from any report.
+### 4. ~~API doesn't validate entry ownership~~ (Fixed)
+`api/views.py` — The apply/skip endpoints now validate that all entry PKs belong to the report before processing.
 
 ### 5. ~~Typo in journal entries~~ (Fixed)
 `helpers/collector.py:320` — `"Dicovered by"` → `"Discovered by"`.
@@ -84,5 +84,5 @@ Collector adds but never removes or deprecates old data.
 ### 22. CI missing linting/coverage
 No flake8, mypy, bandit, or coverage reporting in the pipeline despite being configured in `pyproject.toml`.
 
-### 23. Minimal documentation
-No API docs, no collector-type docs, no troubleshooting guide.
+### 23. ~~Minimal documentation~~ (Partially fixed)
+README rewritten with features, config reference, and dev setup. CONTRIBUTING updated. CHANGELOG added. Still missing: dedicated API docs, per-collector-type docs, troubleshooting guide.

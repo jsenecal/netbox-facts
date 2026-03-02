@@ -7,17 +7,19 @@ name = "netbox-facts"
 description = "Gather operational facts from supported NetBox Devices"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [
     { name = "Jonathan Senecal", email = "contact@jonathansenecal.com" },
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 keywords = ["netbox", "netbox-plugin", "napalm", "network-automation"]
 dependencies = [
@@ -55,7 +57,10 @@ dev = [
     "rich",
     "ruff",
     "sourcery-analytics",
-    "sphinx",
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocs-include-markdown-plugin",
+    "mkdocstrings[python]",
     "twine",
     "watchdog",
     "wheel",
@@ -84,7 +89,7 @@ profile = "black"
 line_length = 120
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.12"
 ignore_missing_imports = true
 
 [tool.bumpversion]
