@@ -59,6 +59,14 @@ class FactsReportViewSet(NetBoxModelViewSet):
     serializer_class = FactsReportSerializer
     filterset_class = filtersets.FactsReportFilterSet
 
+    def _validate_entry_ownership(self, report, entry_pks):
+        """Check all entry PKs belong to the report. Returns invalid PKs or None."""
+        valid_pks = set(
+            report.entries.filter(pk__in=entry_pks).values_list("pk", flat=True)
+        )
+        invalid_pks = set(entry_pks) - valid_pks
+        return invalid_pks or None
+
     @action(detail=True, methods=["post"])
     def apply(self, request, pk=None):
         """Apply selected entries: POST with {"entries": [pk, pk, ...]}"""
@@ -67,6 +75,12 @@ class FactsReportViewSet(NetBoxModelViewSet):
         if not entry_pks:
             return Response(
                 {"detail": "No entries specified."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        invalid_pks = self._validate_entry_ownership(report, entry_pks)
+        if invalid_pks:
+            return Response(
+                {"detail": f"Entries {sorted(invalid_pks)} do not belong to this report."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         applied, failed = apply_entries(report, entry_pks)
@@ -83,6 +97,12 @@ class FactsReportViewSet(NetBoxModelViewSet):
         if not entry_pks:
             return Response(
                 {"detail": "No entries specified."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        invalid_pks = self._validate_entry_ownership(report, entry_pks)
+        if invalid_pks:
+            return Response(
+                {"detail": f"Entries {sorted(invalid_pks)} do not belong to this report."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         count = skip_entries(report, entry_pks)

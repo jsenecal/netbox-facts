@@ -4,6 +4,7 @@ import ipaddress
 import logging
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.utils import timezone
 
 from dcim.models.device_components import Interface
@@ -36,29 +37,31 @@ def apply_entries(report, entry_pks):
     failed = 0
     now = timezone.now()
 
-    for entry in entries:
-        handler = APPLY_HANDLERS.get(entry.collector_type)
-        if handler is None:
-            entry.status = EntryStatusChoices.STATUS_FAILED
-            entry.error_message = f"No apply handler for collector type '{entry.collector_type}'"
-            entry.save(update_fields=["status", "error_message"])
-            failed += 1
-            continue
+    with transaction.atomic():
+        for entry in entries:
+            handler = APPLY_HANDLERS.get(entry.collector_type)
+            if handler is None:
+                entry.status = EntryStatusChoices.STATUS_FAILED
+                entry.error_message = f"No apply handler for collector type '{entry.collector_type}'"
+                entry.save(update_fields=["status", "error_message"])
+                failed += 1
+                continue
 
-        try:
-            handler(entry, now)
-            entry.status = EntryStatusChoices.STATUS_APPLIED
-            entry.applied_at = now
-            entry.save(update_fields=["status", "applied_at", "object_type", "object_id"])
-            applied += 1
-        except Exception as exc:
-            entry.status = EntryStatusChoices.STATUS_FAILED
-            entry.error_message = str(exc)[:1000]
-            entry.save(update_fields=["status", "error_message"])
-            failed += 1
-            logger.warning("Failed to apply entry %s: %s", entry.pk, exc)
+            try:
+                with transaction.atomic():
+                    handler(entry, now)
+                    entry.status = EntryStatusChoices.STATUS_APPLIED
+                    entry.applied_at = now
+                    entry.save(update_fields=["status", "applied_at", "object_type", "object_id"])
+                applied += 1
+            except Exception as exc:
+                entry.status = EntryStatusChoices.STATUS_FAILED
+                entry.error_message = str(exc)[:1000]
+                entry.save(update_fields=["status", "error_message"])
+                failed += 1
+                logger.warning("Failed to apply entry %s: %s", entry.pk, exc)
 
-    _update_report_status(report)
+        _update_report_status(report)
     return applied, failed
 
 

@@ -55,13 +55,17 @@ Ready to contribute? Here's how to set up `netbox_facts` for local development.
     $ git clone git@github.com:your_name_here/netbox-facts.git
     ```
 
-3. Install dependencies and start your virtualenv:
+3. Open the project in VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension. The `.devcontainer` configuration will build a container with a full NetBox installation.
+
+4. Inside the dev container, install the plugin and set up the environment:
 
     ```
-    $ poetry install -E test -E doc -E dev
+    $ make all
     ```
 
-4. Create a branch for local development:
+    This installs the plugin in editable mode using **uv**, runs migrations, collects static files, loads sample data, and starts the dev server.
+
+5. Create a branch for local development:
 
     ```
     $ git checkout -b name-of-your-bugfix-or-feature
@@ -69,14 +73,15 @@ Ready to contribute? Here's how to set up `netbox_facts` for local development.
 
     Now you can make your changes locally.
 
-5. When you're done making changes, check that your changes pass the
-   tests, including testing other Python versions, with tox:
+6. When you're done making changes, run the tests:
 
     ```
-    $ poetry run tox
+    $ make test
     ```
 
-6. Commit your changes and push your branch to GitHub:
+    This checks for missing migrations and runs the Django test suite.
+
+7. Commit your changes and push your branch to GitHub:
 
     ```
     $ git add .
@@ -84,7 +89,7 @@ Ready to contribute? Here's how to set up `netbox_facts` for local development.
     $ git push origin name-of-your-bugfix-or-feature
     ```
 
-7. Submit a pull request through the GitHub website.
+8. Submit a pull request through the GitHub website.
 
 ## Pull Request Guidelines
 
@@ -98,7 +103,6 @@ Before you submit a pull request, check that it meets these guidelines:
    https://github.com/jsenecal/netbox-facts/actions
    and make sure that the tests pass for all supported Python versions.
 
-
 ## Deploying
 
 A reminder for the maintainers on how to deploy.
@@ -106,7 +110,7 @@ Make sure all your changes are committed (including an entry in CHANGELOG.md).
 Then run:
 
 ```
-$ poetry run bump2version patch # possible: major / minor / patch
+$ bump2version patch  # possible: major / minor / patch
 $ git push
 $ git push --tags
 ```
