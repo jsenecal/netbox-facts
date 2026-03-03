@@ -26,7 +26,6 @@ junos_iface_view:
     source_filtering: source-filtering
     esi_value: esi-value
     esi_mode: esi-mode
-    logical_interfaces: _junos_logical_iface_table
 
 junos_logical_iface_table:
   rpc: get-interface-information
@@ -34,10 +33,6 @@ junos_logical_iface_table:
     routing_instance: all
   args_key: interface_name
   item: physical-interface/logical-interface
-  view: junos_logical_iface_view
-
-_junos_logical_iface_table:
-  item: logical-interface
   view: junos_logical_iface_view
 
 junos_logical_iface_view:

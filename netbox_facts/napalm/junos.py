@@ -52,12 +52,13 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
         RPC as ``interface_name`` which accepts shell-style globs and Junos
         regex (e.g. ``'[riafgxel][reto!im]*'``).
 
-        Returns the standard NAPALM dict keyed by interface name, but each
-        entry is enriched with ``link_mode``, ``source_filtering``, ESI fields,
-        and a ``logical_interfaces`` sub-dict.
+        Uses two separate table queries (physical then logical) and combines
+        the results.  Each entry is enriched with ``link_mode``,
+        ``source_filtering``, ESI fields, and a ``logical_interfaces`` sub-dict.
         """
         result = {}
 
+        # --- 1. Physical interfaces ---
         physical = junos_views.junos_iface_table(self.device)
         if interface_name:
             physical.get(interface_name=interface_name)
@@ -87,7 +88,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
                         speed_value *= 1000.0
                     speed = speed_value
 
-            entry = {
+            result[iface] = {
                 "is_up": iface_data.get("is_up", False),
                 "is_enabled": True if iface_data.get("is_enabled") is None else iface_data["is_enabled"],
                 "description": iface_data.get("description") or "",
@@ -101,62 +102,63 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
                 "esi_mode": iface_data.get("esi_mode") or "",
             }
 
-            # Parse nested logical interfaces
-            logical_raw = iface_data.get("logical_interfaces")
-            if logical_raw:
-                entry["logical_interfaces"] = self._parse_logical_interfaces(logical_raw)
+        # --- 2. Logical interfaces (separate RPC) ---
+        logical = junos_views.junos_logical_iface_table(self.device)
+        if interface_name:
+            logical.get(interface_name=interface_name)
+        else:
+            logical.get()
 
-            result[iface] = entry
-
-        return result
-
-    @staticmethod
-    def _parse_logical_interfaces(logical_raw):
-        """Parse logical interface table data into a dict.
-
-        *logical_raw* is a PyEZ nested Table instance.  We iterate via
-        ``table.items()`` which yields ``(key, [(field, val), ...])``
-        tuples — the same pattern used by the ARP / NDP getters.
-        """
-        logical = {}
-        for li_entry in logical_raw.items():
+        for li_entry in logical.items():
             liface = li_entry[0]
             liface_data = {elem[0]: elem[1] for elem in li_entry[1]}
 
+            # Determine parent physical interface (e.g. "ge-0/0/0.0" -> "ge-0/0/0")
+            parent = liface.rsplit(".", 1)[0] if "." in liface else liface
+
             lentry = {
                 "description": liface_data.get("description") or "",
+                "is_up": liface_data.get("is_up", False),
+                "is_enabled": True if liface_data.get("is_enabled") is None else liface_data["is_enabled"],
                 "encapsulation": liface_data.get("encapsulation") or "",
                 "vrf": liface_data.get("vrf") or "",
                 "esi_value": liface_data.get("esi_value") or "",
                 "esi_mode": liface_data.get("esi_mode") or "",
             }
 
-            # Parse address families
+            # Parse address families (nested table)
             family_raw = liface_data.get("family")
             if family_raw:
-                families = {}
-                for fam_entry_raw in family_raw.items():
-                    fname = fam_entry_raw[0]
-                    fdata = {elem[0]: elem[1] for elem in fam_entry_raw[1]}
-                    fam_entry = {
-                        "mtu": fdata.get("mtu"),
-                        "ae_bundle": fdata.get("ae_bundle") or "",
-                    }
-                    addr_raw = fdata.get("addresses")
-                    if addr_raw:
-                        addresses = {}
-                        for addr_entry_raw in addr_raw.items():
-                            adest = addr_entry_raw[0]
-                            adata = {elem[0]: elem[1] for elem in addr_entry_raw[1]}
-                            addresses[adest] = {
-                                "local": adata.get("local") or "",
-                                "broadcast": adata.get("broadcast") or "",
-                                "preferred": bool(adata.get("preferred")),
-                                "primary": bool(adata.get("primary")),
-                            }
-                        fam_entry["addresses"] = addresses
-                    families[fname] = fam_entry
-                lentry["families"] = families
+                lentry["families"] = self._parse_address_families(family_raw)
 
-            logical[liface] = lentry
-        return logical
+            if parent in result:
+                result[parent].setdefault("logical_interfaces", {})[liface] = lentry
+
+        return result
+
+    @staticmethod
+    def _parse_address_families(family_raw):
+        """Parse address family nested table into a dict."""
+        families = {}
+        for fam_entry_raw in family_raw.items():
+            fname = fam_entry_raw[0]
+            fdata = {elem[0]: elem[1] for elem in fam_entry_raw[1]}
+            fam_entry = {
+                "mtu": fdata.get("mtu"),
+                "ae_bundle": fdata.get("ae_bundle") or "",
+            }
+            addr_raw = fdata.get("addresses")
+            if addr_raw:
+                addresses = {}
+                for addr_entry_raw in addr_raw.items():
+                    adest = addr_entry_raw[0]
+                    adata = {elem[0]: elem[1] for elem in addr_entry_raw[1]}
+                    addresses[adest] = {
+                        "local": adata.get("local") or "",
+                        "broadcast": adata.get("broadcast") or "",
+                        "preferred": bool(adata.get("preferred")),
+                        "primary": bool(adata.get("primary")),
+                    }
+                fam_entry["addresses"] = addresses
+            families[fname] = fam_entry
+        return families
