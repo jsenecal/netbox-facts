@@ -3,11 +3,14 @@
 
 import ipaddress
 from typing import Any, Dict, Generator, List, Tuple
+from dcim.models.device_components import Interface
 from dcim.models.devices import Device
 from ipam.models import IPAddress
 from ipam.models.ip import Prefix
 
 from ipam.models.vrfs import VRF
+
+from netbox_facts.constants import AUTO_D_TAG
 
 
 def get_absolute_url_markdown(instance: Any, code=False, bold=False) -> str:
@@ -131,3 +134,41 @@ def resolve_napalm_interfaces_ip_addresses(interfaces, network_instances=None):
                 }
 
         yield interface_name, new_data
+
+
+def detect_interface_type(name):
+    """Detect NetBox interface type from interface name.
+
+    Returns 'lag' for ae* (no dot), 'virtual' for lo*/irb*/vlan* or
+    anything with a dot (logical unit), and 'other' for everything else.
+    """
+    if "." in name:
+        return "virtual"
+    lower = name.lower()
+    if lower.startswith("ae"):
+        return "lag"
+    if lower.startswith(("lo", "irb", "vlan")):
+        return "virtual"
+    return "other"
+
+
+def get_or_create_interface(device, name):
+    """Look up an interface on a device, creating it if missing.
+
+    When created, the interface is tagged with AUTO_D_TAG and its type
+    is inferred from the name via detect_interface_type().
+    """
+    try:
+        return device.vc_interfaces().get(name=name)
+    except Interface.DoesNotExist:
+        iface_type = detect_interface_type(name)
+        nb_iface = Interface.objects.create(
+            device=device, name=name, type=iface_type
+        )
+        nb_iface.tags.add(AUTO_D_TAG)
+        return nb_iface
+
+
+def duplicate_object_warning(label, value):
+    """Format a warning message for duplicate objects requiring manual cleanup."""
+    return f"Duplicate {label} `{value}` objects in NetBox \u2014 manual cleanup required. Skipping."

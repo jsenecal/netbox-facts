@@ -40,8 +40,11 @@ from netbox_facts.helpers.napalm import (
     parse_network_instances,
 )
 from netbox_facts.helpers.netbox import (
+    detect_interface_type,
+    duplicate_object_warning,
     get_absolute_url_markdown,
     get_connection_ips,
+    get_or_create_interface,
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
 )
@@ -351,7 +354,7 @@ class NapalmCollector:
                         )
                     except MACAddress.MultipleObjectsReturned:
                         self._log_warning(
-                            f"Duplicate MAC `{arp_entry['mac']}` objects in NetBox — manual cleanup required. Skipping."
+                            duplicate_object_warning("MAC", arp_entry["mac"])
                         )
                         continue
                     if created:
@@ -380,7 +383,7 @@ class NapalmCollector:
                         )  # pylint: disable=no-member
                     except IPAddress.MultipleObjectsReturned:
                         self._log_warning(
-                            f"Duplicate IP `{ip_interface_object}` objects in NetBox — manual cleanup required. Skipping."
+                            duplicate_object_warning("IP", ip_interface_object)
                         )
                         continue
                     if created:
@@ -526,32 +529,16 @@ class NapalmCollector:
 
         self._log_success("Inventory collection completed")
 
-    @staticmethod
-    def _detect_interface_type(name):
-        """Detect NetBox interface type from interface name.
-
-        Returns 'lag' for ae* (no dot), 'virtual' for lo*/irb*/vlan* or
-        anything with a dot (logical unit), and 'other' for everything else.
-        """
-        if "." in name:
-            return "virtual"
-        lower = name.lower()
-        if lower.startswith("ae"):
-            return "lag"
-        if lower.startswith(("lo", "irb", "vlan")):
-            return "virtual"
-        return "other"
-
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
 
-        When created, the interface is tagged with AUTO_D_TAG and its type
-        is inferred from the name via _detect_interface_type().
+        Delegates to the shared get_or_create_interface() helper and
+        optionally populates description/enabled/mtu from iface_data.
         """
         try:
             return device.vc_interfaces().get(name=name)
         except Interface.DoesNotExist:
-            iface_type = self._detect_interface_type(name)
+            iface_type = detect_interface_type(name)
             kwargs = {"device": device, "name": name, "type": iface_type}
             if iface_data:
                 if iface_data.get("description"):
@@ -624,7 +611,7 @@ class NapalmCollector:
                     )
                 except MACAddress.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate MAC `{mac_addr}` objects in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("MAC", mac_addr)
                     )
                     continue
                 except (django.core.exceptions.ValidationError, ValueError) as exc:
@@ -731,8 +718,8 @@ class NapalmCollector:
                         )
                     except VRF.MultipleObjectsReturned:
                         self._log_warning(
-                            f"Duplicate VRF `{vrf_name}` objects in NetBox — manual cleanup required. "
-                            f"IPs on `{li_name}` will be created without VRF."
+                            duplicate_object_warning("VRF", vrf_name)
+                            + f" IPs on `{li_name}` will be created without VRF."
                         )
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
@@ -847,7 +834,7 @@ class NapalmCollector:
                     )
                 except Prefix.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate Prefix `{net}` objects in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("Prefix", net)
                     )
                     return
                 if prefix_created:
@@ -867,7 +854,7 @@ class NapalmCollector:
                 )
             except IPAddress.MultipleObjectsReturned:
                 self._log_warning(
-                    f"Duplicate IP `{cidr}` objects in NetBox — manual cleanup required. Skipping."
+                    duplicate_object_warning("IP", cidr)
                 )
                 return
             if created:
@@ -899,7 +886,7 @@ class NapalmCollector:
                 continue
             except Interface.MultipleObjectsReturned:
                 self._log_warning(
-                    f"Duplicate interface `{local_iface_name}` objects in NetBox — manual cleanup required. Skipping."
+                    duplicate_object_warning("interface", local_iface_name)
                 )
                 continue
 
@@ -921,7 +908,7 @@ class NapalmCollector:
                     continue
                 except Device.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate device `{remote_system_name}` objects in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("device", remote_system_name)
                     )
                     continue
 
@@ -942,7 +929,7 @@ class NapalmCollector:
                     continue
                 except Interface.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate interface `{remote_port}` on `{remote_system_name}` in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("interface", f"{remote_port}` on `{remote_system_name}")
                     )
                     continue
 
@@ -1035,7 +1022,7 @@ class NapalmCollector:
                 continue
             except Interface.MultipleObjectsReturned:
                 self._log_warning(
-                    f"Duplicate interface `{iface_name}` objects in NetBox — manual cleanup required. Skipping."
+                    duplicate_object_warning("interface", iface_name)
                 )
                 continue
 
@@ -1063,7 +1050,7 @@ class NapalmCollector:
                     )
                 except MACAddress.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate MAC `{mac_addr}` objects in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("MAC", mac_addr)
                     )
                     continue
                 if created:
@@ -1187,7 +1174,7 @@ class NapalmCollector:
                         )
                     except MACAddress.MultipleObjectsReturned:
                         self._log_warning(
-                            f"Duplicate MAC `{mac_str}` objects in NetBox — manual cleanup required. Skipping."
+                            duplicate_object_warning("MAC", mac_str)
                         )
                         continue
                     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
@@ -1231,8 +1218,8 @@ class NapalmCollector:
                     )
                 except VRF.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate VRF `{vrf_name}` objects in NetBox — manual cleanup required. "
-                        "Peers will be created in the global table."
+                        duplicate_object_warning("VRF", vrf_name)
+                        + " Peers will be created in the global table."
                     )
 
             for as_number, peers in peers_by_as.items():
@@ -1284,7 +1271,7 @@ class NapalmCollector:
                             )
                         except ASN.MultipleObjectsReturned:
                             self._log_warning(
-                                f"Duplicate ASN `{as_number}` objects in NetBox — manual cleanup required."
+                                duplicate_object_warning("ASN", as_number)
                             )
 
                         try:
@@ -1297,7 +1284,7 @@ class NapalmCollector:
                             )
                         except IPAddress.MultipleObjectsReturned:
                             self._log_warning(
-                                f"Duplicate IP `{ip_str}` objects in NetBox — manual cleanup required. Skipping."
+                                duplicate_object_warning("IP", ip_str)
                             )
                             continue
                         if created:
@@ -1415,7 +1402,7 @@ class NapalmCollector:
                     )
                 except IPAddress.MultipleObjectsReturned:
                     self._log_warning(
-                        f"Duplicate IP `{neighbor_ip}/32` objects in NetBox — manual cleanup required. Skipping."
+                        duplicate_object_warning("IP", f"{neighbor_ip}/32")
                     )
                     continue
                 if created:

@@ -20,38 +20,10 @@ from netbox_facts.choices import (
     ReportStatusChoices,
 )
 from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.helpers.netbox import get_or_create_interface
 from netbox_facts.models.mac import MACAddress
 
 logger = logging.getLogger("netbox_facts")
-
-
-def _detect_interface_type(name):
-    """Detect NetBox interface type from interface name."""
-    if "." in name:
-        return "virtual"
-    lower = name.lower()
-    if lower.startswith("ae"):
-        return "lag"
-    if lower.startswith(("lo", "irb", "vlan")):
-        return "virtual"
-    return "other"
-
-
-def _get_or_create_interface(device, name):
-    """Look up an interface on a device, creating it if missing.
-
-    When created, the interface is tagged with AUTO_D_TAG and its type
-    is inferred from the name via _detect_interface_type().
-    """
-    try:
-        return device.vc_interfaces().get(name=name)
-    except Interface.DoesNotExist:
-        iface_type = _detect_interface_type(name)
-        nb_iface = Interface.objects.create(
-            device=device, name=name, type=iface_type
-        )
-        nb_iface.tags.add(AUTO_D_TAG)
-        return nb_iface
 
 
 def apply_entries(report, entry_pks):
@@ -243,7 +215,7 @@ def _apply_interfaces_mac(entry, dv, now):
         netbox_mac.tags.add(AUTO_D_TAG)
 
     if iface_name:
-        nb_iface = _get_or_create_interface(entry.device, iface_name)
+        nb_iface = get_or_create_interface(entry.device, iface_name)
         netbox_mac.device_interface = nb_iface
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
@@ -256,8 +228,8 @@ def _apply_interfaces_lag(entry, dv):
     """Apply a LAG membership entry."""
     iface_name = dv["interface"]
     ae_name = dv["lag_parent"]
-    nb_iface = _get_or_create_interface(entry.device, iface_name)
-    ae_iface = _get_or_create_interface(entry.device, ae_name)
+    nb_iface = get_or_create_interface(entry.device, iface_name)
+    ae_iface = get_or_create_interface(entry.device, ae_name)
     nb_iface.lag = ae_iface
     nb_iface.save()
     _set_entry_object(entry, nb_iface)
@@ -279,7 +251,7 @@ def _apply_interfaces_ip(entry, dv, now):
         except VRF.DoesNotExist:
             logger.warning("VRF %s not found for interfaces IP entry %s", vrf_name, entry.pk)
 
-    nb_li = _get_or_create_interface(entry.device, li_name)
+    nb_li = get_or_create_interface(entry.device, li_name)
 
     # Create prefix if non-host-route
     if prefix_str:
