@@ -48,10 +48,7 @@ class CollectionJobRunner(JobRunner):
             # Persist the in-memory log to the Job's data field so
             # the results view can display it, even on failure.
             self.job.data = {
-                "log": [
-                    {"status": level, "message": message}
-                    for level, message in plan.log
-                ],
+                "log": list(plan.log),
             }
 
             # Link the most recent report to this job

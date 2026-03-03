@@ -40,7 +40,7 @@ from netbox_facts.helpers.napalm import (
 )
 from netbox_facts.helpers.netbox import (
     get_absolute_url_markdown,
-    get_primary_ip,
+    get_connection_ips,
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
 )
@@ -1123,27 +1123,38 @@ class NapalmCollector:
                 )
 
                 try:
-                    primary_ip = get_primary_ip(self._current_device)
+                    connection_ips = get_connection_ips(
+                        self._current_device,
+                        self.plan.connection_target,
+                    )
                 except ValueError:
                     self._log_warning(
-                        "Device has no primary IP address configured. Skipping."
+                        "Device has no usable IP address configured. Skipping."
                     )
                     continue
 
-                try:
-                    with self._napalm_driver(
-                        primary_ip,
-                        self._napalm_username,
-                        self._napalm_password,
-                        optional_args=self._napalm_args,
-                    ) as driver:
-                        # Lookup the collection method and call it
-                        getattr(self, self._collector_type)(driver)
-                except AttributeError as exc:
-                    raise NotImplementedError from exc
-                except ConnectionException as exc:
-                    detail = exc.__cause__ or exc
-                    self._log_failure(f"Connection error: {detail}")
+                connected = False
+                for ip, label in connection_ips:
+                    self._log_info(f"Connecting via {label} IP `{ip}`")
+                    try:
+                        with self._napalm_driver(
+                            ip,
+                            self._napalm_username,
+                            self._napalm_password,
+                            optional_args=self._napalm_args,
+                        ) as driver:
+                            # Lookup the collection method and call it
+                            getattr(self, self._collector_type)(driver)
+                        connected = True
+                        break
+                    except AttributeError as exc:
+                        raise NotImplementedError from exc
+                    except ConnectionException as exc:
+                        detail = exc.__cause__ or exc
+                        self._log_warning(f"Connection failed via {label} IP `{ip}`: {detail}")
+
+                if not connected:
+                    self._log_failure("All connection attempts failed.")
         except Exception:
             # Safety net: mark the report as failed on unhandled exceptions
             self._report.update_summary()

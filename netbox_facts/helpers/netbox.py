@@ -35,6 +35,38 @@ def get_primary_ip(instance: Device) -> str:
     raise ValueError(f"Device {instance} does not have a primary IP address.")
 
 
+def get_connection_ips(instance: Device, target: str) -> list[tuple[str, str]]:
+    """Return a list of (ip, label) tuples to try for connecting to a device.
+
+    ``target`` is a ConnectionTargetChoices value.
+    """
+    from netbox_facts.choices import ConnectionTargetChoices
+
+    primary = None
+    if instance.primary_ip is not None:
+        primary = (str(instance.primary_ip.address.ip), "primary")
+
+    oob = None
+    if instance.oob_ip is not None:
+        oob = (str(instance.oob_ip.address.ip), "oob")
+
+    if target == ConnectionTargetChoices.TARGET_PRIMARY:
+        candidates = [primary]
+    elif target == ConnectionTargetChoices.TARGET_OOB:
+        candidates = [oob]
+    elif target == ConnectionTargetChoices.TARGET_PRIMARY_THEN_OOB:
+        candidates = [primary, oob]
+    elif target == ConnectionTargetChoices.TARGET_OOB_THEN_PRIMARY:
+        candidates = [oob, primary]
+    else:
+        candidates = [primary]
+
+    result = [c for c in candidates if c is not None]
+    if not result:
+        raise ValueError(f"Device {instance} has no usable IP address for target '{target}'.")
+    return result
+
+
 def resolve_napalm_network_instances(
     instances,
 ) -> Generator[Tuple[str, Dict[str, str | List[str]]], Any, Any]:

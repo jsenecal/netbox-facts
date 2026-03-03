@@ -35,6 +35,7 @@ from ..choices import (
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
+    ConnectionTargetChoices,
 )
 from ..helpers import NapalmCollector
 
@@ -131,6 +132,16 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         ),
     )
 
+    connection_target = models.CharField(
+        max_length=20,
+        choices=ConnectionTargetChoices,
+        default=ConnectionTargetChoices.TARGET_PRIMARY,
+        help_text=_(
+            "Which IP address to use when connecting to devices. "
+            "\"Both\" options try the first, then fall back to the second on connection failure."
+        ),
+    )
+
     comments = models.TextField(
         _("Comments"),
         blank=True,
@@ -168,6 +179,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "napalm_args",
         "interval",
         "detect_only",
+        "connection_target",
     )
 
     class Meta:
@@ -373,27 +385,35 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     run.alters_data = True
 
+    def _log(self, level, message):
+        """Append a timestamped log entry."""
+        self.log.append({
+            "time": timezone.now().isoformat(),
+            "status": level,
+            "message": str(message),
+        })
+
     def log_debug(self, message):
         """Log a message at DEBUG level."""
         logger.log(logging.DEBUG, message)
-        self.log.append((LogLevelChoices.LOG_DEFAULT, str(message)))
+        self._log(LogLevelChoices.LOG_DEFAULT, message)
 
     def log_success(self, message):
         """Log a message at SUCCESS level."""
         logger.log(logging.INFO, message)  # No syslog equivalent for SUCCESS
-        self.log.append((LogLevelChoices.LOG_SUCCESS, str(message)))
+        self._log(LogLevelChoices.LOG_SUCCESS, message)
 
     def log_info(self, message):
         """Log a message at INFO level."""
         logger.log(logging.INFO, message)
-        self.log.append((LogLevelChoices.LOG_INFO, str(message)))
+        self._log(LogLevelChoices.LOG_INFO, message)
 
     def log_warning(self, message):
         """Log a message at WARNING level."""
         logger.log(logging.WARNING, message)
-        self.log.append((LogLevelChoices.LOG_WARNING, str(message)))
+        self._log(LogLevelChoices.LOG_WARNING, message)
 
     def log_failure(self, message):
         """Log a message at ERROR level."""
         logger.log(logging.ERROR, message)
-        self.log.append((LogLevelChoices.LOG_FAILURE, str(message)))
+        self._log(LogLevelChoices.LOG_FAILURE, message)

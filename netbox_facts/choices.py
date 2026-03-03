@@ -30,6 +30,20 @@ class CollectionTypeChoices(ChoiceSet):
     ]
 
 
+class ConnectionTargetChoices(ChoiceSet):
+    TARGET_PRIMARY = "primary"
+    TARGET_OOB = "oob"
+    TARGET_PRIMARY_THEN_OOB = "primary_then_oob"
+    TARGET_OOB_THEN_PRIMARY = "oob_then_primary"
+
+    CHOICES = [
+        (TARGET_PRIMARY, _("Primary IP"), "blue"),
+        (TARGET_OOB, _("OOB IP"), "purple"),
+        (TARGET_PRIMARY_THEN_OOB, _("Primary IP, then OOB"), "cyan"),
+        (TARGET_OOB_THEN_PRIMARY, _("OOB IP, then Primary"), "teal"),
+    ]
+
+
 class CollectorStatusChoices(ChoiceSet):
     NEW = "new"
     QUEUED = "queued"

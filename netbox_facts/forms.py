@@ -250,7 +250,7 @@ class CollectorForm(NetBoxModelForm):
             "interval",
             name=_("Scheduling"),
         ),
-        FieldSet("napalm_driver", "napalm_args", name=_("Runtime settings")),
+        FieldSet("napalm_driver", "napalm_args", "connection_target", name=_("Runtime settings")),
     )
 
     class Meta:
@@ -279,6 +279,7 @@ class CollectorForm(NetBoxModelForm):
             "interval",
             "napalm_driver",
             "napalm_args",
+            "connection_target",
         )
 
     def __init__(self, *args, **kwargs):  # pylint: disable=no-member
@@ -312,12 +313,11 @@ class CollectionPlanImportForm(NetBoxModelImportForm):
         required=False,
         label=_("Priority"),
     )
-
     class Meta:
         model = CollectionPlan
         fields = (
-            "name", "collector_type", "napalm_driver", "priority",
-            "enabled", "detect_only", "description", "comments", "tags",
+            "name", "collector_type", "napalm_driver", "connection_target",
+            "priority", "enabled", "detect_only", "description", "comments", "tags",
         )
 
 
