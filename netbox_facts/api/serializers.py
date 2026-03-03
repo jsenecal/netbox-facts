@@ -167,12 +167,13 @@ class FactsReportEntrySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class FactsReportSerializer(NetBoxModelSerializer):
+class FactsReportSerializer(serializers.ModelSerializer):
     """Serializer for FactsReport."""
 
     url = serializers.HyperlinkedIdentityField(
         view_name="plugins-api:netbox_facts-api:factsreport-detail",
     )
+    display = serializers.SerializerMethodField()
     entry_count = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -184,11 +185,10 @@ class FactsReportSerializer(NetBoxModelSerializer):
             "collection_plan",
             "status",
             "summary",
+            "error_message",
             "entry_count",
             "created",
             "completed_at",
-            "tags",
-            "custom_fields",
         )
         brief_fields = (
             "id",
@@ -196,3 +196,6 @@ class FactsReportSerializer(NetBoxModelSerializer):
             "display",
             "status",
         )
+
+    def get_display(self, obj):
+        return str(obj)

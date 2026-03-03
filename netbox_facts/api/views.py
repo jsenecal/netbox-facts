@@ -74,7 +74,7 @@ class CollectorViewSet(NetBoxModelViewSet):
 class FactsReportViewSet(NetBoxModelViewSet):
     """ViewSet for FactsReport with apply/skip actions."""
 
-    queryset = models.FactsReport.objects.prefetch_related("tags").annotate(
+    queryset = models.FactsReport.objects.annotate(
         entry_count=Count("entries"),
     )
     serializer_class = FactsReportSerializer
