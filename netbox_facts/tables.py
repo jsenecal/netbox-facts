@@ -148,6 +148,7 @@ class FactsReportEntryTable(NetBoxTable):
     device = tables.Column(linkify=True)
     object_repr = tables.Column(verbose_name=_("Object"))
     collector_type = ChoiceFieldColumn()
+    actions = ActionsColumn(actions=())
 
     class Meta(NetBoxTable.Meta):
         model = FactsReportEntry
