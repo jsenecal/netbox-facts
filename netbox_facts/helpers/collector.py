@@ -795,7 +795,7 @@ class NapalmCollector:
         if self._should_apply():
             # Create prefix (skip host routes)
             if net.num_addresses > 1:
-                Prefix.objects.get_or_create(
+                nb_prefix, prefix_created = Prefix.objects.get_or_create(
                     prefix=str(net),
                     vrf=netbox_vrf,
                     defaults={
@@ -805,6 +805,8 @@ class NapalmCollector:
                         ),
                     },
                 )
+                if prefix_created:
+                    nb_prefix.tags.add(AUTO_D_TAG)
             # Create/get IPAddress
             nb_ip, created = IPAddress.objects.get_or_create(
                 address=cidr,
@@ -1411,12 +1413,13 @@ class NapalmCollector:
 
                 if not connected:
                     self._log_failure("All connection attempts failed.")
-        except Exception:
+        except Exception as exc:
             # Safety net: mark the report as failed on unhandled exceptions
             self._report.update_summary()
             self._report.completed_at = timezone.now()
             self._report.status = ReportStatusChoices.STATUS_FAILED
-            self._report.save(update_fields=["completed_at", "status"])
+            self._report.error_message = str(exc)[:2000]
+            self._report.save(update_fields=["completed_at", "status", "error_message"])
             raise
         else:
             # Finalize report on success

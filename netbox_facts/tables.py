@@ -160,6 +160,7 @@ class FactsReportEntryTable(NetBoxTable):
             "object_repr",
             "created",
             "applied_at",
+            "error_message",
         )
         default_columns = (
             "pk",

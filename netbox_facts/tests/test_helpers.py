@@ -17,6 +17,7 @@ from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 
 from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.collector import NapalmCollector
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
@@ -1222,6 +1223,8 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         ip = IPAddress.objects.get(address="10.0.1.1/24")
         self.assertEqual(ip.assigned_object, li)
         self.assertTrue(Prefix.objects.filter(prefix="10.0.1.0/24").exists())
+        nb_prefix = Prefix.objects.get(prefix="10.0.1.0/24")
+        self.assertTrue(nb_prefix.tags.filter(name=AUTO_D_TAG).exists())
 
     def test_loopback_creates_host_route_no_prefix(self):
         """Loopback (no destination) should create /32 IP without a prefix."""

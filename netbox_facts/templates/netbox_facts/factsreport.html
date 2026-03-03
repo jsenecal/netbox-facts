@@ -36,6 +36,12 @@
                             <span class="badge bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
                         </td>
                     </tr>
+                    {% if object.error_message %}
+                    <tr>
+                        <th scope="row">{% trans "Error" %}</th>
+                        <td><code class="text-danger">{{ object.error_message }}</code></td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <th scope="row">{% trans "Job" %}</th>
                         <td>{{ object.job|default:"—" }}</td>

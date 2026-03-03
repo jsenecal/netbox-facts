@@ -50,6 +50,11 @@ class FactsReport(NetBoxModel):
         blank=True,
         help_text=_("Cached entry counts by action: {new, changed, confirmed, stale}"),
     )
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text=_("Error details when the collection failed."),
+    )
     comments = models.TextField(blank=True)
 
     class Meta:

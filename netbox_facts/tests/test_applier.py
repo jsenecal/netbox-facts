@@ -17,6 +17,7 @@ from netbox_facts.choices import (
     EntryStatusChoices,
     ReportStatusChoices,
 )
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.applier import apply_entries, skip_entries
 from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
 from netbox_facts.models.mac import MACAddress
@@ -339,6 +340,8 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
         ip = IPAddress.objects.get(address="10.0.5.1/24")
         self.assertEqual(ip.assigned_object, li)
         self.assertTrue(Prefix.objects.filter(prefix="10.0.5.0/24").exists())
+        nb_prefix = Prefix.objects.get(prefix="10.0.5.0/24")
+        self.assertTrue(nb_prefix.tags.filter(name=AUTO_D_TAG).exists())
 
     def test_apply_ip_with_vrf(self):
         """Applying an IP entry with VRF should link both IP and prefix to VRF."""

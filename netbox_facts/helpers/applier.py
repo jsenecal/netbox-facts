@@ -260,13 +260,15 @@ def _apply_interfaces_ip(entry, dv, now):
     if prefix_str:
         net = ipaddress.ip_network(prefix_str, strict=False)
         if net.num_addresses > 1:
-            Prefix.objects.get_or_create(
+            nb_prefix, prefix_created = Prefix.objects.get_or_create(
                 prefix=prefix_str,
                 vrf=vrf,
                 defaults={
                     "description": f"Discovered on {entry.device} ({now.date()})",
                 },
             )
+            if prefix_created:
+                nb_prefix.tags.add(AUTO_D_TAG)
 
     # Create/get IPAddress
     nb_ip, created = IPAddress.objects.get_or_create(
