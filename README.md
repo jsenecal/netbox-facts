@@ -71,7 +71,35 @@ PLUGINS_CONFIG = {
 | `napalm_username` | str | `""` | Default NAPALM username for device connections |
 | `napalm_password` | str | `""` | Default NAPALM password for device connections |
 | `global_napalm_args` | dict | `{}` | Additional arguments passed to all NAPALM driver instances |
-| `valid_interfaces_re` | str | *(Junos-centric regex)* | Regex to filter which interfaces are processed |
+| `valid_interfaces_re` | str | `".*"` | Regex to filter which interfaces are processed |
+| `job_timeout` | int | `1800` | Maximum RQ job runtime in seconds (30 min default) |
+| `napalm_timeout` | int | `60` | NAPALM connection timeout in seconds |
+
+### Per-Plan Credentials
+
+Each Collection Plan has a **NAPALM arguments** JSON field that is merged on top of `global_napalm_args`. You can override the username and password for a specific plan by including `username` and `password` keys:
+
+```json
+{
+    "username": "collector-user",
+    "password": "collector-pass"
+}
+```
+
+These keys are extracted before the remaining args are passed through to NAPALM's `optional_args`, so they won't interfere with driver options.
+
+### Connection Target
+
+Each Collection Plan has a **Connection target** setting that controls which device IP address is used to connect:
+
+| Option | Behavior |
+|--------|----------|
+| **Primary IP** *(default)* | Connect using the device's primary IP address |
+| **OOB IP** | Connect using the device's out-of-band management IP |
+| **Primary IP, then OOB** | Try primary IP first; on connection failure, fall back to OOB IP |
+| **OOB IP, then Primary** | Try OOB IP first; on connection failure, fall back to primary IP |
+
+The "both" options are useful when devices are reachable via either path depending on network conditions. Each connection attempt is logged with the IP address and type being used.
 
 ## Developing
 
