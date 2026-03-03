@@ -64,7 +64,10 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
         else:
             physical.get()
 
-        for iface, iface_data in dict(physical).items():
+        for iface_entry in physical.items():
+            iface = iface_entry[0]
+            iface_data = {elem[0]: elem[1] for elem in iface_entry[1]}
+
             mac_raw = iface_data.get("mac_address")
             mac = napalm.base.helpers.convert(
                 napalm.base.helpers.mac, mac_raw, ""
@@ -99,7 +102,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
             }
 
             # Parse nested logical interfaces
-            logical_raw = iface_data.get("logical_interfaces") or {}
+            logical_raw = iface_data.get("logical_interfaces")
             if logical_raw:
                 entry["logical_interfaces"] = self._parse_logical_interfaces(logical_raw)
 
@@ -109,9 +112,17 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
 
     @staticmethod
     def _parse_logical_interfaces(logical_raw):
-        """Parse logical interface table data into a dict."""
+        """Parse logical interface table data into a dict.
+
+        *logical_raw* is a PyEZ nested Table instance.  We iterate via
+        ``table.items()`` which yields ``(key, [(field, val), ...])``
+        tuples — the same pattern used by the ARP / NDP getters.
+        """
         logical = {}
-        for liface, liface_data in dict(logical_raw).items():
+        for li_entry in logical_raw.items():
+            liface = li_entry[0]
+            liface_data = {elem[0]: elem[1] for elem in li_entry[1]}
+
             lentry = {
                 "description": liface_data.get("description") or "",
                 "encapsulation": liface_data.get("encapsulation") or "",
@@ -121,18 +132,22 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
             }
 
             # Parse address families
-            family_raw = liface_data.get("family") or {}
+            family_raw = liface_data.get("family")
             if family_raw:
                 families = {}
-                for fname, fdata in dict(family_raw).items():
+                for fam_entry_raw in family_raw.items():
+                    fname = fam_entry_raw[0]
+                    fdata = {elem[0]: elem[1] for elem in fam_entry_raw[1]}
                     fam_entry = {
                         "mtu": fdata.get("mtu"),
                         "ae_bundle": fdata.get("ae_bundle") or "",
                     }
-                    addr_raw = fdata.get("addresses") or {}
+                    addr_raw = fdata.get("addresses")
                     if addr_raw:
                         addresses = {}
-                        for adest, adata in dict(addr_raw).items():
+                        for addr_entry_raw in addr_raw.items():
+                            adest = addr_entry_raw[0]
+                            adata = {elem[0]: elem[1] for elem in addr_entry_raw[1]}
                             addresses[adest] = {
                                 "local": adata.get("local") or "",
                                 "broadcast": adata.get("broadcast") or "",
