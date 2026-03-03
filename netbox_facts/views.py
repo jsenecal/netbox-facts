@@ -3,6 +3,7 @@
 import logging
 
 from core.choices import JobStatusChoices
+from extras.choices import LogLevelChoices
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from django.contrib import messages
@@ -339,10 +340,13 @@ class CollectorResultsView(ScriptResultView):
         if job.completed:
             table = self.get_table(job, request, bulk_actions=False)
 
+        log_threshold = request.GET.get("log_threshold", LogLevelChoices.LOG_INFO)
         context = {
             "collection_plan": job.object,
             "job": job,
             "table": table,
+            "log_levels": dict(LogLevelChoices),
+            "log_threshold": log_threshold,
         }
 
         if job.data and "log" in job.data:
