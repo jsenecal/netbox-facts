@@ -515,7 +515,13 @@ class NapalmCollector:
 
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
-        ifaces = driver.get_interfaces()
+        # Pass the interface regex to enhanced drivers that support server-side filtering
+        try:
+            ifaces = driver.get_interfaces(
+                interface_name=self._interfaces_re.pattern,
+            )
+        except TypeError:
+            ifaces = driver.get_interfaces()
         device = self._current_device
 
         for iface_name, iface_data in ifaces.items():
@@ -523,8 +529,8 @@ class NapalmCollector:
             if not self._interfaces_re.match(iface_name):
                 continue
 
-            mac_addr = iface_data.get("mac_address", "")
-            if not mac_addr:
+            mac_addr = iface_data.get("mac_address") or ""
+            if not mac_addr or mac_addr.lower() in ("none", "n/a", ""):
                 continue
 
             # Get the matching interface from NetBox or skip
@@ -536,7 +542,15 @@ class NapalmCollector:
                 )
                 continue
 
-            existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
+            # Validate MAC address format before querying
+            try:
+                existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
+            except (django.core.exceptions.ValidationError, ValueError):
+                self._log_warning(
+                    f"Invalid MAC address `{mac_addr}` on interface `{iface_name}`. Skipping."
+                )
+                continue
+
             action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
             detected = {
                 "interface": iface_name,
@@ -557,9 +571,16 @@ class NapalmCollector:
             )
 
             if self._should_apply():
-                netbox_mac, created = MACAddress.objects.get_or_create(
-                    mac_address=mac_addr
-                )
+                try:
+                    netbox_mac, created = MACAddress.objects.get_or_create(
+                        mac_address=mac_addr
+                    )
+                except (django.core.exceptions.ValidationError, ValueError) as exc:
+                    self._log_warning(
+                        f"Could not create MAC `{mac_addr}` for `{iface_name}`: {exc}"
+                    )
+                    continue
+
                 if created:
                     netbox_mac.tags.add(AUTO_D_TAG)
                     self._log_success(

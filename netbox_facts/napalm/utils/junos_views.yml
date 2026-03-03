@@ -21,10 +21,23 @@ junos_iface_view:
     #mode: logical-interface/address-family/address-family-name
     speed: speed
     mac_address: current-physical-address
+    mtu: mtu
+    link_mode: link-mode
+    source_filtering: source-filtering
+    esi_value: esi-value
+    esi_mode: esi-mode
+    logical_interfaces: _junos_logical_iface_table
 
 junos_logical_iface_table:
   rpc: get-interface-information
+  args:
+    routing_instance: all
+  args_key: interface_name
   item: physical-interface/logical-interface
+  view: junos_logical_iface_view
+
+_junos_logical_iface_table:
+  item: logical-interface
   view: junos_logical_iface_view
 
 junos_logical_iface_view:
@@ -36,6 +49,39 @@ junos_logical_iface_view:
     last_flapped: { ../interface-flapped/@seconds: int }
     speed: ../speed
     mac_address: ../current-physical-address
+    encapsulation: encapsulation
+    vrf: vrfname
+    esi_value: esi-value
+    esi_mode: esi-mode
+    family: _junos_address_family_table
+
+_junos_address_family_table:
+  item: address-family
+  key: address-family-name
+  view: _junos_address_family_view
+
+_junos_address_family_view:
+  fields:
+    name: address-family-name
+    mtu: mtu
+    ae_bundle: ae-bundle-name
+    addresses: _junos_interface_address_table
+
+_junos_interface_address_table:
+  item: interface-address
+  key: ifa-destination
+  view: _junos_interface_address_view
+
+_junos_interface_address_view:
+  groups:
+    flags: ifa-flags
+  fields:
+    destination: ifa-destination
+    local: ifa-local
+    broadcast: ifa-broadcast
+  fields_flags:
+    preferred: { ifaf-current-preferred: flag }
+    primary: { ifaf-current-primary: flag }
 
 ####
 #### BGP tables

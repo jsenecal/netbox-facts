@@ -1,5 +1,6 @@
 {% extends 'extras/script_result.html' %}
 {% load helpers %}
+{% load render_table from django_tables2 %}
 {% load buttons %}
 {% load perms %}
 {% load i18n %}
@@ -21,3 +22,77 @@
     </nav>
   </div>
 {% endblock page-header %}
+
+{% block content %}
+    <div class="tab-pane show active" id="results" role="tabpanel" aria-labelledby="results-tab">
+
+      <div class="d-flex align-items-center mb-3">
+        <div>{% trans "Log threshold" %}</div>
+
+        <div class="px-2 d-print-none">
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+              {{ log_levels|get_key:log_threshold }}
+            </button>
+            <div class="dropdown-menu">
+              {% for level, name in log_levels.items %}
+                <a class="dropdown-item d-flex justify-content-between" href="{% url 'plugins:netbox_facts:collectionplan_results' pk=collection_plan.pk %}?log_threshold={{ level }}">
+                  {{ name }}{% if forloop.counter == 1 %} ({% trans "All" %}){% elif forloop.counter == 2 %} ({% trans "Default" %}){% endif %}
+                  {% if level == log_threshold %}<span class="badge bg-green ms-auto"></span>{% endif %}
+                </a>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div class="ms-auto d-print-none">
+          {% if request.user.is_authenticated and job.completed %}
+            <div class="table-configure input-group">
+              <button type="button" data-bs-toggle="modal" title="{% trans "Configure Table" %}" data-bs-target="#ObjectTable_config"
+                class="btn">
+                <i class="mdi mdi-cog"></i> {% trans "Configure Table" %}
+              </button>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <form method="post" class="form form-horizontal">
+        {% csrf_token %}
+        {% if table.paginator.num_pages > 1 %}
+          <div id="select-all-box" class="d-none card d-print-none">
+            <div class="form col-md-12">
+              <div class="card-body">
+                <div class="form-check">
+                  <input type="checkbox" id="select-all" name="_all" class="form-check-input" />
+                  <label for="select-all" class="form-check-label">
+                    {% blocktrans trimmed with count=table.rows|length object_type_plural=table.data.verbose_name_plural %}
+                      Select <strong>all {{ count }} {{ object_type_plural }}</strong> matching query
+                    {% endblocktrans %}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+
+        <div class="form form-horizontal">
+          {% csrf_token %}
+          <input type="hidden" name="return_url" value="{% if return_url %}{{ return_url }}{% else %}{{ request.path }}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}{% endif %}" />
+
+          {# Objects table — use our plugin URL for HTMX polling #}
+            <div class="col col-md-12"{% if not job.completed %} hx-get="{% url 'plugins:netbox_facts:collectionplan_results' pk=collection_plan.pk %}" hx-trigger="load delay:0.5s, every 5s"{% endif %}>
+              {% include 'extras/htmx/script_result.html' %}
+            </div>
+
+        </div>
+      </form>
+    </div>
+
+{% endblock content %}
+
+{% block modals %}
+  {% if job.completed %}
+  {% table_config_form table table_name="ObjectTable" %}
+  {% endif %}
+{% endblock modals %}
