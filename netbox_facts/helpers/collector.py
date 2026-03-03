@@ -514,6 +514,47 @@ class NapalmCollector:
 
         self._log_success("Inventory collection completed")
 
+    @staticmethod
+    def _detect_interface_type(name):
+        """Detect NetBox interface type from interface name.
+
+        Returns 'lag' for ae* (no dot), 'virtual' for lo*/irb*/vlan* or
+        anything with a dot (logical unit), and 'other' for everything else.
+        """
+        if "." in name:
+            return "virtual"
+        lower = name.lower()
+        if lower.startswith("ae"):
+            return "lag"
+        if lower.startswith(("lo", "irb", "vlan")):
+            return "virtual"
+        return "other"
+
+    def _get_or_create_interface(self, device, name, iface_data=None):
+        """Look up an interface on a device, creating it if missing.
+
+        When created, the interface is tagged with AUTO_D_TAG and its type
+        is inferred from the name via _detect_interface_type().
+        """
+        try:
+            return device.vc_interfaces().get(name=name)
+        except Interface.DoesNotExist:
+            iface_type = self._detect_interface_type(name)
+            kwargs = {"device": device, "name": name, "type": iface_type}
+            if iface_data:
+                if iface_data.get("description"):
+                    kwargs["description"] = iface_data["description"]
+                if iface_data.get("is_enabled") is not None:
+                    kwargs["enabled"] = iface_data["is_enabled"]
+                if iface_data.get("mtu"):
+                    kwargs["mtu"] = iface_data["mtu"]
+            nb_iface = Interface.objects.create(**kwargs)
+            nb_iface.tags.add(AUTO_D_TAG)
+            self._log_success(
+                f"Auto-created interface `{name}` (type={iface_type}) on {device}."
+            )
+            return nb_iface
+
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
         # Pass the interface regex to enhanced drivers that support server-side filtering
@@ -534,14 +575,7 @@ class NapalmCollector:
             if not mac_addr or mac_addr.lower() in ("none", "n/a", ""):
                 continue
 
-            # Get the matching interface from NetBox or skip
-            try:
-                nb_iface = device.vc_interfaces().get(name=iface_name)
-            except Interface.DoesNotExist:
-                self._log_warning(
-                    f"Could not find interface `{iface_name}` in NetBox. Skipping."
-                )
-                continue
+            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
 
             # Validate MAC address format before querying
             try:
@@ -616,11 +650,7 @@ class NapalmCollector:
             if not logical_interfaces:
                 continue
 
-            # Look up the physical interface in NetBox
-            try:
-                nb_iface = device.vc_interfaces().get(name=iface_name)
-            except Interface.DoesNotExist:
-                continue
+            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
 
             # --- LAG membership ---
             # Check the first logical interface's first family for "aenet"
@@ -653,18 +683,13 @@ class NapalmCollector:
                             object_repr=f"LAG {iface_name} -> {ae_name}",
                         )
                         if self._should_apply():
-                            try:
-                                ae_iface = device.vc_interfaces().get(name=ae_name)
-                                nb_iface.lag = ae_iface
-                                nb_iface.save()
-                                self._mark_entry_applied(entry, nb_iface)
-                                self._log_success(
-                                    f"Set LAG membership: `{iface_name}` -> `{ae_name}`"
-                                )
-                            except Interface.DoesNotExist:
-                                self._log_warning(
-                                    f"LAG parent `{ae_name}` not found in NetBox."
-                                )
+                            ae_iface = self._get_or_create_interface(device, ae_name)
+                            nb_iface.lag = ae_iface
+                            nb_iface.save()
+                            self._mark_entry_applied(entry, nb_iface)
+                            self._log_success(
+                                f"Set LAG membership: `{iface_name}` -> `{ae_name}`"
+                            )
                 break  # Only check the first logical interface for LAG
 
             # LAG members don't have their own IPs; skip to next physical
@@ -688,11 +713,7 @@ class NapalmCollector:
                             f"IPs on `{li_name}` will be created without VRF."
                         )
 
-                # Look up the logical interface in NetBox
-                try:
-                    nb_li = device.vc_interfaces().get(name=li_name)
-                except Interface.DoesNotExist:
-                    continue
+                nb_li = self._get_or_create_interface(device, li_name, li_data)
 
                 for fam_name, fam_data in families.items():
                     if fam_name not in ("inet", "inet6"):
@@ -741,11 +762,7 @@ class NapalmCollector:
         network_instances = dict(self._get_network_instances(driver))
 
         for iface_name, family_data in interfaces_ip.items():
-            # Look up the interface in NetBox
-            try:
-                nb_li = device.vc_interfaces().get(name=iface_name)
-            except Interface.DoesNotExist:
-                continue
+            nb_li = self._get_or_create_interface(device, iface_name)
 
             # Resolve VRF from network instances
             ni_data = network_instances.get(iface_name, {})

@@ -356,6 +356,148 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
         self.assertEqual(MACAddress.objects.count(), 0)
 
 
+class InterfacesAutoCreateTest(CollectorTestMixin, TestCase):
+    """Tests for auto-creation of missing interfaces during collection."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_interfaces_creates_missing_physical(self):
+        """Missing physical interface should be auto-created with correct type and tag."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-autocreate-phys",
+        )
+        device = self._create_device("autocreate-dev1")
+        # No interfaces pre-created in NetBox
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "uplink",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:A1",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        # Interface should have been auto-created with type 'other'
+        nb_iface = Interface.objects.get(device=device, name="ge-0/0/0")
+        self.assertEqual(nb_iface.type, "other")
+        self.assertTrue(nb_iface.tags.filter(name=AUTO_D_TAG).exists())
+
+        # MAC should have been created and linked
+        mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:A1")
+        self.assertEqual(mac.device_interface, nb_iface)
+
+    def test_interfaces_creates_missing_logical_unit(self):
+        """Missing logical unit (.0) should be auto-created as virtual and process IPs."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-autocreate-unit",
+        )
+        device = self._create_device("autocreate-dev2")
+        # Physical exists, but logical unit does not
+        Interface.objects.create(device=device, name="ge-0/0/0", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:A2",
+                "logical_interfaces": {
+                    "ge-0/0/0.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500,
+                                "ae_bundle": "",
+                                "addresses": {
+                                    "10.99.0.0/24": {
+                                        "local": "10.99.0.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        # Logical unit should have been auto-created as virtual
+        nb_li = Interface.objects.get(device=device, name="ge-0/0/0.0")
+        self.assertEqual(nb_li.type, "virtual")
+        self.assertTrue(nb_li.tags.filter(name=AUTO_D_TAG).exists())
+
+        # IP should have been created and assigned
+        ip = IPAddress.objects.get(address="10.99.0.1/24")
+        self.assertEqual(ip.assigned_object, nb_li)
+
+    def test_interfaces_creates_missing_lag_parent(self):
+        """Missing ae0 should be auto-created as LAG when processing LAG membership."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-autocreate-lag",
+        )
+        device = self._create_device("autocreate-dev3")
+        Interface.objects.create(device=device, name="ge-0/0/0", type="1000base-t")
+        # ae0 does NOT exist
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:A3",
+                "logical_interfaces": {
+                    "ge-0/0/0.0": {
+                        "families": {
+                            "aenet": {"ae_bundle": "ae0.0", "mtu": None},
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        # ae0 should have been auto-created as LAG type
+        ae_iface = Interface.objects.get(device=device, name="ae0")
+        self.assertEqual(ae_iface.type, "lag")
+        self.assertTrue(ae_iface.tags.filter(name=AUTO_D_TAG).exists())
+
+        # ge-0/0/0 should now have lag set to ae0
+        ge_iface = Interface.objects.get(device=device, name="ge-0/0/0")
+        self.assertEqual(ge_iface.lag, ae_iface)
+
+
 class EthernetSwitchingCollectorTest(CollectorTestMixin, TestCase):
     """Tests for the ethernet_switching() collector method."""
 

@@ -286,8 +286,8 @@ class ApplyInterfaceLAGEntryTest(ApplierTestMixin, TestCase):
         ge_iface.refresh_from_db()
         self.assertEqual(ge_iface.lag, ae_iface)
 
-    def test_apply_lag_missing_parent_fails(self):
-        """Applying a LAG entry when ae parent doesn't exist should fail."""
+    def test_apply_lag_missing_parent_creates_it(self):
+        """Applying a LAG entry when ae parent doesn't exist should auto-create it."""
         Interface.objects.create(
             device=self.device, name="ge-0/0/1", type="1000base-t"
         )
@@ -303,11 +303,17 @@ class ApplyInterfaceLAGEntryTest(ApplierTestMixin, TestCase):
         )
 
         applied, failed = apply_entries(report, [entry.pk])
-        self.assertEqual(applied, 0)
-        self.assertEqual(failed, 1)
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
 
-        entry.refresh_from_db()
-        self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
+        # ae99 should have been auto-created as LAG type
+        ae_iface = Interface.objects.get(device=self.device, name="ae99")
+        self.assertEqual(ae_iface.type, "lag")
+        self.assertTrue(ae_iface.tags.filter(name=AUTO_D_TAG).exists())
+
+        # ge-0/0/1 should now point to ae99
+        ge_iface = Interface.objects.get(device=self.device, name="ge-0/0/1")
+        self.assertEqual(ge_iface.lag, ae_iface)
 
 
 class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
@@ -425,3 +431,67 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
 
         existing_ip.refresh_from_db()
         self.assertEqual(existing_ip.assigned_object, li)
+
+
+class ApplyInterfaceAutoCreateTest(ApplierTestMixin, TestCase):
+    """Tests for auto-creation of missing interfaces during apply."""
+
+    def test_apply_mac_creates_missing_interface(self):
+        """Applying a MAC entry should auto-create the missing interface."""
+        # No interface pre-created in NetBox
+        report = FactsReport.objects.create(
+            collection_plan=self.plan,
+            status=ReportStatusChoices.STATUS_COMPLETED,
+        )
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="Interface ge-0/0/5 MAC AA:BB:CC:DD:EE:B1",
+            detected_values={"interface": "ge-0/0/5", "mac_address": "AA:BB:CC:DD:EE:B1"},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        # Interface should have been auto-created with type 'other'
+        nb_iface = Interface.objects.get(device=self.device, name="ge-0/0/5")
+        self.assertEqual(nb_iface.type, "other")
+        self.assertTrue(nb_iface.tags.filter(name=AUTO_D_TAG).exists())
+
+        # MAC should be linked to the auto-created interface
+        mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:B1")
+        self.assertEqual(mac.device_interface, nb_iface)
+
+    def test_apply_ip_creates_missing_logical_interface(self):
+        """Applying an IP entry should auto-create the missing logical interface."""
+        # No interface pre-created in NetBox
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 10.0.7.1/24 on ge-0/0/6.0",
+            detected_values={
+                "logical_interface": "ge-0/0/6.0",
+                "ip_address": "10.0.7.1/24",
+                "vrf": None,
+                "prefix": "10.0.7.0/24",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        # Logical interface should have been auto-created as virtual
+        nb_li = Interface.objects.get(device=self.device, name="ge-0/0/6.0")
+        self.assertEqual(nb_li.type, "virtual")
+        self.assertTrue(nb_li.tags.filter(name=AUTO_D_TAG).exists())
+
+        # IP should be assigned to the auto-created interface
+        ip = IPAddress.objects.get(address="10.0.7.1/24")
+        self.assertEqual(ip.assigned_object, nb_li)
