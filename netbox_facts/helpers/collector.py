@@ -71,11 +71,14 @@ class NapalmCollector:
         self._collector_type = plan.collector_type
         self._napalm_args = plan.get_napalm_args()
         self._napalm_driver: Type[NetworkDriver] | None = None
-        self._napalm_username = get_plugin_config(
-            "netbox_facts", "napalm_username", "netbox"
+        # Per-plan username/password override global defaults
+        self._napalm_username = self._napalm_args.pop(
+            "username",
+            get_plugin_config("netbox_facts", "napalm_username", "netbox"),
         )
-        self._napalm_password = get_plugin_config(
-            "netbox_facts", "napalm_password", "netbox"
+        self._napalm_password = self._napalm_args.pop(
+            "password",
+            get_plugin_config("netbox_facts", "napalm_password", "netbox"),
         )
         self._interfaces_re = re.compile(
             get_plugin_config("netbox_facts", "valid_interfaces_re")
