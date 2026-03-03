@@ -44,7 +44,6 @@ from netbox_facts.helpers.netbox import (
     duplicate_object_warning,
     get_absolute_url_markdown,
     get_connection_ips,
-    get_or_create_interface,
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
 )
@@ -532,8 +531,8 @@ class NapalmCollector:
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
 
-        Delegates to the shared get_or_create_interface() helper and
-        optionally populates description/enabled/mtu from iface_data.
+        Uses detect_interface_type() to infer the type and optionally
+        populates description/enabled/mtu from iface_data.
         """
         try:
             return device.vc_interfaces().get(name=name)
