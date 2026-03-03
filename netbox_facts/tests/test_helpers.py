@@ -13,6 +13,8 @@ from dcim.models import (
 )
 from dcim.models.device_components import Interface
 from extras.models.models import JournalEntry
+from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 
 from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.helpers.collector import NapalmCollector
@@ -1075,3 +1077,657 @@ class DetectOnlyLLDPTest(CollectorTestMixin, TestCase):
         self.assertEqual(report.entries.count(), 1)
         self.assertEqual(report.entries.first().action, "new")
         self.assertEqual(report.entries.first().status, "pending")
+
+
+# ---------------------------------------------------------------------------
+# Enhanced-driver logical interface tests (LAG, IPs, VRFs)
+# ---------------------------------------------------------------------------
+
+
+class InterfacesLAGTest(CollectorTestMixin, TestCase):
+    """Tests for LAG membership detection via enhanced driver logical_interfaces."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_lag_membership_sets_lag_parent(self):
+        """Physical interface with aenet family should get lag set to AE parent."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-lag-set",
+        )
+        device = self._create_device("lag-dev1")
+        ge_iface = Interface.objects.create(device=device, name="ge-0/0/0", type="1000base-t")
+        ae_iface = Interface.objects.create(device=device, name="ae0", type="lag")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/0": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:01",
+                "logical_interfaces": {
+                    "ge-0/0/0.0": {
+                        "families": {
+                            "aenet": {"ae_bundle": "ae0.0", "mtu": None},
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        ge_iface.refresh_from_db()
+        self.assertEqual(ge_iface.lag, ae_iface)
+
+    def test_lag_member_skips_ip_processing(self):
+        """LAG member interfaces should not generate IP entries."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-lag-skip-ip",
+        )
+        device = self._create_device("lag-dev2")
+        Interface.objects.create(device=device, name="ge-0/0/1", type="1000base-t")
+        Interface.objects.create(device=device, name="ae1", type="lag")
+        Interface.objects.create(device=device, name="ge-0/0/1.0", type="virtual")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/1": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:02",
+                "logical_interfaces": {
+                    "ge-0/0/1.0": {
+                        "families": {
+                            "aenet": {"ae_bundle": "ae1.0", "mtu": None},
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        # Should have MAC entry + LAG entry, but no IP entries
+        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IP ")]
+        self.assertEqual(len(ip_entries), 0)
+
+
+class InterfacesIPTest(CollectorTestMixin, TestCase):
+    """Tests for IP address and prefix creation via enhanced driver logical_interfaces."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def _make_driver(self, ifaces):
+        driver = MagicMock()
+        driver.get_interfaces.return_value = ifaces
+        return driver
+
+    def test_creates_ip_and_prefix(self):
+        """IP address and prefix should be created from logical interface data."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip-create",
+        )
+        device = self._create_device("ip-dev1")
+        Interface.objects.create(device=device, name="ge-0/0/2", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/2.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "ge-0/0/2": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:10",
+                "logical_interfaces": {
+                    "ge-0/0/2.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "10.0.1.0/24": {
+                                        "local": "10.0.1.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="10.0.1.1/24")
+        self.assertEqual(ip.assigned_object, li)
+        self.assertTrue(Prefix.objects.filter(prefix="10.0.1.0/24").exists())
+
+    def test_loopback_creates_host_route_no_prefix(self):
+        """Loopback (no destination) should create /32 IP without a prefix."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip-lo",
+        )
+        device = self._create_device("ip-dev-lo")
+        Interface.objects.create(device=device, name="lo0", type="virtual")
+        li = Interface.objects.create(device=device, name="lo0.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "lo0": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 0, "mtu": 65535,
+                "mac_address": "",
+                "logical_interfaces": {
+                    "lo0.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 65535, "ae_bundle": "",
+                                "addresses": {
+                                    # destination is the dict key; empty string = no destination
+                                    "": {
+                                        "local": "192.0.2.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="192.0.2.1/32")
+        self.assertEqual(ip.assigned_object, li)
+        # Host route: no prefix should be created
+        self.assertFalse(Prefix.objects.filter(prefix="192.0.2.1/32").exists())
+
+    def test_vrrp_non_preferred_skipped(self):
+        """Non-preferred addresses should be skipped when multiple exist."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip-vrrp",
+        )
+        device = self._create_device("ip-dev-vrrp")
+        Interface.objects.create(device=device, name="ge-0/0/3", type="1000base-t")
+        Interface.objects.create(device=device, name="ge-0/0/3.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "ge-0/0/3": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:11",
+                "logical_interfaces": {
+                    "ge-0/0/3.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "10.0.2.0/24": {
+                                        "local": "10.0.2.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                    "10.0.2.0/24 ": {
+                                        "local": "10.0.2.254",
+                                        "broadcast": "",
+                                        "preferred": False,
+                                        "primary": False,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        # Only the preferred address should be created
+        self.assertTrue(IPAddress.objects.filter(address="10.0.2.1/24").exists())
+        self.assertFalse(IPAddress.objects.filter(address="10.0.2.254/24").exists())
+
+    def test_incomplete_inet_destination_three_octets(self):
+        """Incomplete 3-octet inet destination should be handled."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip-3oct",
+        )
+        device = self._create_device("ip-dev-3oct")
+        Interface.objects.create(device=device, name="ge-0/0/4", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/4.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "ge-0/0/4": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:12",
+                "logical_interfaces": {
+                    "ge-0/0/4.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "10.0.3/24": {
+                                        "local": "10.0.3.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="10.0.3.1/24")
+        self.assertEqual(ip.assigned_object, li)
+        self.assertTrue(Prefix.objects.filter(prefix="10.0.3.0/24").exists())
+
+    def test_ip_with_vrf(self):
+        """IP should be associated with VRF when logical interface has one."""
+        vrf = VRF.objects.create(name="CUST_A")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip-vrf",
+        )
+        device = self._create_device("ip-dev-vrf")
+        Interface.objects.create(device=device, name="ge-0/0/5", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/5.100", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "ge-0/0/5": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:13",
+                "logical_interfaces": {
+                    "ge-0/0/5.100": {
+                        "vrf": "CUST_A",
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "172.16.0.0/30": {
+                                        "local": "172.16.0.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="172.16.0.1/30")
+        self.assertEqual(ip.vrf, vrf)
+        self.assertEqual(ip.assigned_object, li)
+        prefix = Prefix.objects.get(prefix="172.16.0.0/30")
+        self.assertEqual(prefix.vrf, vrf)
+
+    def test_ipv6_address(self):
+        """IPv6 addresses from inet6 family should be created."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ip6",
+        )
+        device = self._create_device("ip-dev-v6")
+        Interface.objects.create(device=device, name="ge-0/0/6", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/6.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = self._make_driver({
+            "ge-0/0/6": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:14",
+                "logical_interfaces": {
+                    "ge-0/0/6.0": {
+                        "families": {
+                            "inet6": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "2001:db8::/64": {
+                                        "local": "2001:db8::1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="2001:db8::1/64")
+        self.assertEqual(ip.assigned_object, li)
+        self.assertTrue(Prefix.objects.filter(prefix="2001:db8::/64").exists())
+
+
+class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
+    """Tests for the generic IP collection path using standard NAPALM APIs."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_generic_path_creates_ip_from_get_interfaces_ip(self):
+        """Standard NAPALM get_interfaces_ip() should create IPs and prefixes."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-generic-ip",
+        )
+        device = self._create_device("generic-dev1")
+        li = Interface.objects.create(device=device, name="Ethernet1", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        # No logical_interfaces → triggers generic path
+        driver.get_interfaces.return_value = {
+            "Ethernet1": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:20",
+            },
+        }
+        # Standard NAPALM get_interfaces_ip() return format
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet1": {
+                "ipv4": {
+                    "10.1.0.1": {"prefix_length": 24},
+                },
+            },
+        }
+        # No VRFs
+        driver.get_network_instances.return_value = {
+            "default": {
+                "name": "default",
+                "type": "DEFAULT_INSTANCE",
+                "state": {"route_distinguisher": ""},
+                "interfaces": {"interface": {"Ethernet1": {}}},
+            },
+        }
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="10.1.0.1/24")
+        self.assertEqual(ip.assigned_object, li)
+        self.assertTrue(Prefix.objects.filter(prefix="10.1.0.0/24").exists())
+
+    def test_generic_path_with_vrf(self):
+        """Generic path should associate IPs with VRFs from network instances."""
+        vrf = VRF.objects.create(name="VRF_B")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-generic-vrf",
+        )
+        device = self._create_device("generic-dev2")
+        li = Interface.objects.create(device=device, name="Ethernet2", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet2": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:21",
+            },
+        }
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet2": {
+                "ipv4": {
+                    "172.16.1.1": {"prefix_length": 30},
+                },
+            },
+        }
+        driver.get_network_instances.return_value = {
+            "VRF_B": {
+                "name": "VRF_B",
+                "type": "L3VRF",
+                "state": {"route_distinguisher": "65000:200"},
+                "interfaces": {"interface": {"Ethernet2": {}}},
+            },
+        }
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="172.16.1.1/30")
+        self.assertEqual(ip.vrf, vrf)
+        self.assertEqual(ip.assigned_object, li)
+
+    def test_generic_path_ipv6(self):
+        """Generic path should handle IPv6 addresses."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-generic-v6",
+        )
+        device = self._create_device("generic-dev3")
+        li = Interface.objects.create(device=device, name="Ethernet3", type="1000base-t")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet3": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:22",
+            },
+        }
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet3": {
+                "ipv6": {
+                    "2001:db8:1::1": {"prefix_length": 64},
+                },
+            },
+        }
+        driver.get_network_instances.return_value = {
+            "default": {
+                "name": "default",
+                "type": "DEFAULT_INSTANCE",
+                "state": {"route_distinguisher": ""},
+                "interfaces": {"interface": {"Ethernet3": {}}},
+            },
+        }
+
+        collector.interfaces(driver)
+
+        ip = IPAddress.objects.get(address="2001:db8:1::1/64")
+        self.assertEqual(ip.assigned_object, li)
+
+    def test_generic_path_not_called_when_logical_interfaces_present(self):
+        """When logical_interfaces data exists, generic path should NOT be used."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-no-generic",
+        )
+        device = self._create_device("generic-dev4")
+        Interface.objects.create(device=device, name="ge-0/0/7", type="1000base-t")
+        Interface.objects.create(device=device, name="ge-0/0/7.0", type="virtual")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/7": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:23",
+                "logical_interfaces": {
+                    "ge-0/0/7.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "10.0.7.0/24": {
+                                        "local": "10.0.7.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        # get_interfaces_ip should NOT have been called
+        driver.get_interfaces_ip.assert_not_called()
+        # But the IP should still be created via the enhanced path
+        self.assertTrue(IPAddress.objects.filter(address="10.0.7.1/24").exists())
+
+
+class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
+    """Tests that detect_only=True prevents mutations for LAG/IP entries."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def test_detect_only_lag_no_mutation(self):
+        """With detect_only=True, LAG parent should NOT be set."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="DetectOnly-lag",
+            detect_only=True,
+        )
+        device = self._create_device("detect-lag-dev")
+        ge_iface = Interface.objects.create(device=device, name="ge-0/0/8", type="1000base-t")
+        Interface.objects.create(device=device, name="ae2", type="lag")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/8": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:30",
+                "logical_interfaces": {
+                    "ge-0/0/8.0": {
+                        "families": {
+                            "aenet": {"ae_bundle": "ae2.0", "mtu": None},
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        ge_iface.refresh_from_db()
+        self.assertIsNone(ge_iface.lag)
+        lag_entries = [e for e in report.entries.all() if e.object_repr.startswith("LAG ")]
+        self.assertEqual(len(lag_entries), 1)
+        self.assertEqual(lag_entries[0].status, "pending")
+
+    def test_detect_only_ip_no_creation(self):
+        """With detect_only=True, no IPAddress should be created."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="DetectOnly-ip",
+            detect_only=True,
+        )
+        device = self._create_device("detect-ip-dev")
+        Interface.objects.create(device=device, name="ge-0/0/9", type="1000base-t")
+        Interface.objects.create(device=device, name="ge-0/0/9.0", type="virtual")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/9": {
+                "is_up": True, "is_enabled": True, "description": "",
+                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:31",
+                "logical_interfaces": {
+                    "ge-0/0/9.0": {
+                        "families": {
+                            "inet": {
+                                "mtu": 1500, "ae_bundle": "",
+                                "addresses": {
+                                    "10.99.0.0/24": {
+                                        "local": "10.99.0.1",
+                                        "broadcast": "",
+                                        "preferred": True,
+                                        "primary": True,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        self.assertFalse(IPAddress.objects.filter(address="10.99.0.1/24").exists())
+        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IP ")]
+        self.assertEqual(len(ip_entries), 1)
+        self.assertEqual(ip_entries[0].status, "pending")

@@ -8,6 +8,8 @@ from dcim.models import (
     Site,
 )
 from dcim.models.device_components import Interface
+from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -252,3 +254,171 @@ class ReportStatusTransitionTest(ApplierTestMixin, TestCase):
         skip_entries(report, [entry.pk])
         report.refresh_from_db()
         self.assertEqual(report.status, ReportStatusChoices.STATUS_COMPLETED)
+
+
+class ApplyInterfaceLAGEntryTest(ApplierTestMixin, TestCase):
+    """Tests for applying LAG membership entries."""
+
+    def test_apply_lag_sets_parent(self):
+        """Applying a LAG entry should set the interface's lag field."""
+        ge_iface = Interface.objects.create(
+            device=self.device, name="ge-0/0/0", type="1000base-t"
+        )
+        ae_iface = Interface.objects.create(
+            device=self.device, name="ae0", type="lag"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="LAG ge-0/0/0 -> ae0",
+            detected_values={"interface": "ge-0/0/0", "lag_parent": "ae0"},
+            current_values={"lag_parent": None},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        ge_iface.refresh_from_db()
+        self.assertEqual(ge_iface.lag, ae_iface)
+
+    def test_apply_lag_missing_parent_fails(self):
+        """Applying a LAG entry when ae parent doesn't exist should fail."""
+        Interface.objects.create(
+            device=self.device, name="ge-0/0/1", type="1000base-t"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="LAG ge-0/0/1 -> ae99",
+            detected_values={"interface": "ge-0/0/1", "lag_parent": "ae99"},
+            current_values={"lag_parent": None},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 0)
+        self.assertEqual(failed, 1)
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
+
+
+class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
+    """Tests for applying IP address entries."""
+
+    def test_apply_ip_creates_address_and_prefix(self):
+        """Applying an IP entry should create IPAddress and Prefix."""
+        li = Interface.objects.create(
+            device=self.device, name="ge-0/0/2.0", type="virtual"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 10.0.5.1/24 on ge-0/0/2.0",
+            detected_values={
+                "logical_interface": "ge-0/0/2.0",
+                "ip_address": "10.0.5.1/24",
+                "vrf": None,
+                "prefix": "10.0.5.0/24",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        ip = IPAddress.objects.get(address="10.0.5.1/24")
+        self.assertEqual(ip.assigned_object, li)
+        self.assertTrue(Prefix.objects.filter(prefix="10.0.5.0/24").exists())
+
+    def test_apply_ip_with_vrf(self):
+        """Applying an IP entry with VRF should link both IP and prefix to VRF."""
+        vrf = VRF.objects.create(name="APPLY_VRF")
+        li = Interface.objects.create(
+            device=self.device, name="ge-0/0/3.100", type="virtual"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 172.16.5.1/30 on ge-0/0/3.100",
+            detected_values={
+                "logical_interface": "ge-0/0/3.100",
+                "ip_address": "172.16.5.1/30",
+                "vrf": "APPLY_VRF",
+                "prefix": "172.16.5.0/30",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+
+        ip = IPAddress.objects.get(address="172.16.5.1/30")
+        self.assertEqual(ip.vrf, vrf)
+        self.assertEqual(ip.assigned_object, li)
+        prefix = Prefix.objects.get(prefix="172.16.5.0/30")
+        self.assertEqual(prefix.vrf, vrf)
+
+    def test_apply_ip_host_route_no_prefix(self):
+        """Applying a /32 host route should not create a prefix."""
+        Interface.objects.create(
+            device=self.device, name="lo0.0", type="virtual"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 192.0.2.1/32 on lo0.0",
+            detected_values={
+                "logical_interface": "lo0.0",
+                "ip_address": "192.0.2.1/32",
+                "vrf": None,
+                "prefix": "192.0.2.1/32",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+
+        self.assertTrue(IPAddress.objects.filter(address="192.0.2.1/32").exists())
+        self.assertFalse(Prefix.objects.filter(prefix="192.0.2.1/32").exists())
+
+    def test_apply_ip_existing_unassigned_sets_interface(self):
+        """Applying IP entry when IP exists but has no assigned_object should assign it."""
+        li = Interface.objects.create(
+            device=self.device, name="ge-0/0/4.0", type="virtual"
+        )
+        existing_ip = IPAddress.objects.create(address="10.0.6.1/24")
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 10.0.6.1/24 on ge-0/0/4.0",
+            detected_values={
+                "logical_interface": "ge-0/0/4.0",
+                "ip_address": "10.0.6.1/24",
+                "vrf": None,
+                "prefix": "10.0.6.0/24",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+
+        existing_ip.refresh_from_db()
+        self.assertEqual(existing_ip.assigned_object, li)

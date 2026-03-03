@@ -19,6 +19,7 @@ from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 from napalm.base import NetworkDriver
 from napalm.base.exceptions import (
     CommandErrorException,
@@ -593,7 +594,238 @@ class NapalmCollector:
                 netbox_mac.save()
                 self._mark_entry_applied(iface_entry, netbox_mac)
 
+        # --- Process logical interfaces (LAG, IPs, VRFs) ---
+        has_logical = any(
+            iface_data.get("logical_interfaces")
+            for iface_data in ifaces.values()
+        )
+        if has_logical:
+            self._interfaces_logical(device, ifaces)
+        else:
+            self._interfaces_ip_generic(device, driver)
+
         self._log_success("Interface collection completed")
+
+    def _interfaces_logical(self, device, ifaces):
+        """Process logical interfaces from enhanced driver data (LAG, IPs, VRFs)."""
+        for iface_name, iface_data in ifaces.items():
+            if not self._interfaces_re.match(iface_name):
+                continue
+
+            logical_interfaces = iface_data.get("logical_interfaces", {})
+            if not logical_interfaces:
+                continue
+
+            # Look up the physical interface in NetBox
+            try:
+                nb_iface = device.vc_interfaces().get(name=iface_name)
+            except Interface.DoesNotExist:
+                continue
+
+            # --- LAG membership ---
+            # Check the first logical interface's first family for "aenet"
+            is_lag_member = False
+            for li_name, li_data in logical_interfaces.items():
+                families = li_data.get("families", {})
+                first_family_name = next(iter(families), None) if families else None
+                if first_family_name == "aenet":
+                    is_lag_member = True
+                    ae_bundle = families["aenet"].get("ae_bundle", "")
+                    if ae_bundle:
+                        ae_name = ae_bundle.split(".")[0]  # "ae0.0" -> "ae0"
+                        detected = {"interface": iface_name, "lag_parent": ae_name}
+                        current_lag = nb_iface.lag.name if nb_iface.lag else None
+                        if current_lag == ae_name:
+                            action = EntryActionChoices.ACTION_CONFIRMED
+                        else:
+                            action = (
+                                EntryActionChoices.ACTION_CHANGED
+                                if current_lag
+                                else EntryActionChoices.ACTION_NEW
+                            )
+                        entry = self._record_entry(
+                            action=action,
+                            collector_type=self._collector_type,
+                            device=device,
+                            detected_values=detected,
+                            current_values={"lag_parent": current_lag},
+                            object_instance=nb_iface,
+                            object_repr=f"LAG {iface_name} -> {ae_name}",
+                        )
+                        if self._should_apply():
+                            try:
+                                ae_iface = device.vc_interfaces().get(name=ae_name)
+                                nb_iface.lag = ae_iface
+                                nb_iface.save()
+                                self._mark_entry_applied(entry, nb_iface)
+                                self._log_success(
+                                    f"Set LAG membership: `{iface_name}` -> `{ae_name}`"
+                                )
+                            except Interface.DoesNotExist:
+                                self._log_warning(
+                                    f"LAG parent `{ae_name}` not found in NetBox."
+                                )
+                break  # Only check the first logical interface for LAG
+
+            # LAG members don't have their own IPs; skip to next physical
+            if is_lag_member:
+                continue
+
+            # --- IPs and VRFs ---
+            for li_name, li_data in logical_interfaces.items():
+                families = li_data.get("families", {})
+                if "aenet" in families:
+                    continue
+
+                vrf_name = li_data.get("vrf") or ""
+                netbox_vrf = None
+                if vrf_name and vrf_name != "default":
+                    try:
+                        netbox_vrf = VRF.objects.get(name=vrf_name)
+                    except VRF.DoesNotExist:
+                        self._log_warning(
+                            f"VRF `{vrf_name}` not found in NetBox, "
+                            f"IPs on `{li_name}` will be created without VRF."
+                        )
+
+                # Look up the logical interface in NetBox
+                try:
+                    nb_li = device.vc_interfaces().get(name=li_name)
+                except Interface.DoesNotExist:
+                    continue
+
+                for fam_name, fam_data in families.items():
+                    if fam_name not in ("inet", "inet6"):
+                        continue
+                    addresses = fam_data.get("addresses", {})
+                    for dest, addr_data in addresses.items():
+                        local_ip = addr_data.get("local")
+                        if not local_ip:
+                            continue
+                        # Skip non-preferred when multiple addresses (VRRP)
+                        if len(addresses) > 1 and not addr_data.get("preferred"):
+                            continue
+
+                        # Build CIDR
+                        try:
+                            if dest:
+                                # Handle incomplete inet destinations (3 octets)
+                                if fam_name == "inet" and dest.count(".") == 2:
+                                    net_part, prefix_len = dest.split("/")
+                                    net = ipaddress.ip_network(
+                                        f"{net_part}.0/{prefix_len}"
+                                    )
+                                else:
+                                    net = ipaddress.ip_network(dest, strict=False)
+                            else:
+                                # Loopback: no destination
+                                net = ipaddress.ip_network(local_ip, strict=False)
+                        except ValueError:
+                            ip_obj = ipaddress.ip_address(local_ip)
+                            net = ipaddress.ip_network(
+                                f"{local_ip}/{ip_obj.max_prefixlen}",
+                                strict=False,
+                            )
+                        cidr = f"{local_ip}/{net.prefixlen}"
+
+                        self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
+
+    def _interfaces_ip_generic(self, device, driver):
+        """Collect IPs/VRFs using standard NAPALM get_interfaces_ip()."""
+        try:
+            interfaces_ip = driver.get_interfaces_ip()
+        except (CommandErrorException, NotImplementedError):
+            self._log_info("Driver does not support get_interfaces_ip(), skipping IP collection.")
+            return
+
+        network_instances = dict(self._get_network_instances(driver))
+
+        for iface_name, family_data in interfaces_ip.items():
+            # Look up the interface in NetBox
+            try:
+                nb_li = device.vc_interfaces().get(name=iface_name)
+            except Interface.DoesNotExist:
+                continue
+
+            # Resolve VRF from network instances
+            ni_data = network_instances.get(iface_name, {})
+            netbox_vrf = ni_data.get("netbox_vrf")
+
+            for family_name, addresses in family_data.items():
+                if family_name not in ("ipv4", "ipv6"):
+                    continue
+                for ip_str, meta in addresses.items():
+                    prefix_len = meta.get("prefix_length", 32)
+                    cidr = f"{ip_str}/{prefix_len}"
+                    try:
+                        net = ipaddress.ip_network(cidr, strict=False)
+                    except ValueError:
+                        continue
+
+                    self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
+
+    def _record_ip_entry(self, device, nb_li, cidr, net, netbox_vrf):
+        """Record and optionally apply a single IP address entry."""
+        li_name = nb_li.name
+        vrf_name = netbox_vrf.name if netbox_vrf else None
+
+        existing_ip = IPAddress.objects.filter(
+            address=cidr, vrf=netbox_vrf
+        ).first()
+        action = (
+            EntryActionChoices.ACTION_CONFIRMED
+            if existing_ip
+            else EntryActionChoices.ACTION_NEW
+        )
+        detected = {
+            "logical_interface": li_name,
+            "ip_address": cidr,
+            "vrf": vrf_name,
+            "prefix": str(net),
+        }
+        entry = self._record_entry(
+            action=action,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values=detected,
+            object_instance=existing_ip or nb_li,
+            object_repr=f"IP {cidr} on {li_name}",
+        )
+
+        if self._should_apply():
+            # Create prefix (skip host routes)
+            if net.num_addresses > 1:
+                Prefix.objects.get_or_create(
+                    prefix=str(net),
+                    vrf=netbox_vrf,
+                    defaults={
+                        "description": (
+                            f"Discovered on {device} "
+                            f"({self._now.date()})"
+                        ),
+                    },
+                )
+            # Create/get IPAddress
+            nb_ip, created = IPAddress.objects.get_or_create(
+                address=cidr,
+                vrf=netbox_vrf,
+                defaults={
+                    "assigned_object": nb_li,
+                    "description": (
+                        f"Discovered on {device} "
+                        f"({self._now.date()})"
+                    ),
+                },
+            )
+            if created:
+                nb_ip.tags.add(AUTO_D_TAG)
+                self._log_success(
+                    f"Created IP `{cidr}` on `{li_name}`"
+                )
+            elif nb_ip.assigned_object is None:
+                nb_ip.assigned_object = nb_li
+                nb_ip.save()
+            self._mark_entry_applied(entry, nb_ip)
 
     def lldp(self, driver: NetworkDriver):
         """Collect LLDP data from a device using get_lldp_neighbors_detail()."""

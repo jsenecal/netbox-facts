@@ -11,7 +11,7 @@ from dcim.models.device_components import Interface
 from dcim.models.devices import Device
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
-from ipam.models.ip import IPAddress
+from ipam.models.ip import IPAddress, Prefix
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -190,8 +190,19 @@ def _apply_inventory_entry(entry, now):
 
 
 def _apply_interfaces_entry(entry, now):
-    """Apply an interface MAC entry."""
+    """Apply an interface entry (MAC, LAG membership, or IP address)."""
     dv = entry.detected_values
+
+    if entry.object_repr.startswith("LAG "):
+        _apply_interfaces_lag(entry, dv)
+    elif entry.object_repr.startswith("IP "):
+        _apply_interfaces_ip(entry, dv, now)
+    else:
+        _apply_interfaces_mac(entry, dv, now)
+
+
+def _apply_interfaces_mac(entry, dv, now):
+    """Apply an interface MAC entry."""
     mac_addr = dv.get("mac_address", "")
     iface_name = dv.get("interface", "")
 
@@ -214,6 +225,64 @@ def _apply_interfaces_entry(entry, now):
     netbox_mac.last_seen = now
     netbox_mac.save()
     _set_entry_object(entry, netbox_mac)
+
+
+def _apply_interfaces_lag(entry, dv):
+    """Apply a LAG membership entry."""
+    iface_name = dv["interface"]
+    ae_name = dv["lag_parent"]
+    nb_iface = entry.device.vc_interfaces().get(name=iface_name)
+    ae_iface = entry.device.vc_interfaces().get(name=ae_name)
+    nb_iface.lag = ae_iface
+    nb_iface.save()
+    _set_entry_object(entry, nb_iface)
+
+
+def _apply_interfaces_ip(entry, dv, now):
+    """Apply an IP address assignment entry."""
+    from ipam.models.vrfs import VRF
+
+    cidr = dv["ip_address"]
+    li_name = dv["logical_interface"]
+    vrf_name = dv.get("vrf")
+    prefix_str = dv.get("prefix")
+
+    vrf = None
+    if vrf_name:
+        try:
+            vrf = VRF.objects.get(name=vrf_name)
+        except VRF.DoesNotExist:
+            logger.warning("VRF %s not found for interfaces IP entry %s", vrf_name, entry.pk)
+
+    nb_li = entry.device.vc_interfaces().get(name=li_name)
+
+    # Create prefix if non-host-route
+    if prefix_str:
+        net = ipaddress.ip_network(prefix_str, strict=False)
+        if net.num_addresses > 1:
+            Prefix.objects.get_or_create(
+                prefix=prefix_str,
+                vrf=vrf,
+                defaults={
+                    "description": f"Discovered on {entry.device} ({now.date()})",
+                },
+            )
+
+    # Create/get IPAddress
+    nb_ip, created = IPAddress.objects.get_or_create(
+        address=cidr,
+        vrf=vrf,
+        defaults={
+            "assigned_object": nb_li,
+            "description": f"Discovered on {entry.device} ({now.date()})",
+        },
+    )
+    if created:
+        nb_ip.tags.add(AUTO_D_TAG)
+    elif nb_ip.assigned_object is None:
+        nb_ip.assigned_object = nb_li
+        nb_ip.save()
+    _set_entry_object(entry, nb_ip)
 
 
 def _apply_lldp_entry(entry, now):
