@@ -1142,7 +1142,8 @@ class NapalmCollector:
                 except AttributeError as exc:
                     raise NotImplementedError from exc
                 except ConnectionException as exc:
-                    self._log_failure(f"Connection error: {exc}")
+                    detail = exc.__cause__ or exc
+                    self._log_failure(f"Connection error: {detail}")
         except Exception:
             # Safety net: mark the report as failed on unhandled exceptions
             self._report.update_summary()
