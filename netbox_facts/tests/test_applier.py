@@ -113,7 +113,7 @@ class ApplyEthernetSwitchingEntryTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_L2,
             device=self.device,
-            object_repr="MAC AA:BB:CC:DD:EE:88 on Ethernet1",
+            object_repr="MACAddress AA:BB:CC:DD:EE:88 on Ethernet1",
             detected_values={"mac": "AA:BB:CC:DD:EE:88", "interface": "Ethernet1", "vlan": 100},
         )
 
@@ -330,7 +330,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 10.0.5.1/24 on ge-0/0/2.0",
+            object_repr="IPAddress 10.0.5.1/24 on ge-0/0/2.0",
             detected_values={
                 "logical_interface": "ge-0/0/2.0",
                 "ip_address": "10.0.5.1/24",
@@ -361,7 +361,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 172.16.5.1/30 on ge-0/0/3.100",
+            object_repr="IPAddress 172.16.5.1/30 on ge-0/0/3.100",
             detected_values={
                 "logical_interface": "ge-0/0/3.100",
                 "ip_address": "172.16.5.1/30",
@@ -390,7 +390,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 192.0.2.1/32 on lo0.0",
+            object_repr="IPAddress 192.0.2.1/32 on lo0.0",
             detected_values={
                 "logical_interface": "lo0.0",
                 "ip_address": "192.0.2.1/32",
@@ -417,7 +417,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 10.0.6.1/24 on ge-0/0/4.0",
+            object_repr="IPAddress 10.0.6.1/24 on ge-0/0/4.0",
             detected_values={
                 "logical_interface": "ge-0/0/4.0",
                 "ip_address": "10.0.6.1/24",
@@ -474,7 +474,7 @@ class ApplyInterfaceAutoCreateTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 10.0.7.1/24 on ge-0/0/6.0",
+            object_repr="IPAddress 10.0.7.1/24 on ge-0/0/6.0",
             detected_values={
                 "logical_interface": "ge-0/0/6.0",
                 "ip_address": "10.0.7.1/24",
@@ -514,7 +514,7 @@ class ApplyIPReassignTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_CHANGED,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr="IP 10.0.9.1/24 on ge-0/0/9.1",
+            object_repr="IPAddress 10.0.9.1/24 on ge-0/0/9.1",
             detected_values={
                 "logical_interface": "ge-0/0/9.1",
                 "ip_address": "10.0.9.1/24",
@@ -546,7 +546,7 @@ class ApplyIPReassignTest(ApplierTestMixin, TestCase):
             action=EntryActionChoices.ACTION_STALE,
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             device=self.device,
-            object_repr=f"IP 10.0.10.1/24 on {li}",
+            object_repr=f"IPAddress 10.0.10.1/24 on {li}",
             detected_values={},
             current_values={
                 "ip_address": "10.0.10.1/24",

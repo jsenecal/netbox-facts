@@ -1307,7 +1307,7 @@ class InterfacesLAGTest(CollectorTestMixin, TestCase):
         collector.interfaces(driver)
 
         # Should have MAC entry + LAG entry, but no IP entries
-        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IP ")]
+        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IPAddress ")]
         self.assertEqual(len(ip_entries), 0)
 
 
@@ -1877,7 +1877,7 @@ class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
         collector.interfaces(driver)
 
         self.assertFalse(IPAddress.objects.filter(address="10.99.0.1/24").exists())
-        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IP ")]
+        ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IPAddress ")]
         self.assertEqual(len(ip_entries), 1)
         self.assertEqual(ip_entries[0].status, "pending")
 
@@ -2034,7 +2034,7 @@ class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
         self.assertEqual(ip.assigned_object, new_li)
 
         # Verify CHANGED entry recorded
-        entries = report.entries.filter(object_repr__startswith="IP ")
+        entries = report.entries.filter(object_repr__startswith="IPAddress ")
         self.assertTrue(entries.filter(action=EntryActionChoices.ACTION_CHANGED).exists())
 
     def test_does_not_reassign_manual_ip(self):
@@ -2066,7 +2066,7 @@ class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
         ip.refresh_from_db()
         self.assertEqual(ip.assigned_object, old_li)
 
-        entries = report.entries.filter(object_repr__startswith="IP ")
+        entries = report.entries.filter(object_repr__startswith="IPAddress ")
         self.assertTrue(entries.filter(action=EntryActionChoices.ACTION_CONFIRMED).exists())
         self.assertFalse(entries.filter(action=EntryActionChoices.ACTION_CHANGED).exists())
 

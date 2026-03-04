@@ -113,6 +113,22 @@ class NapalmCollector:
         """Return True if mutations should be performed (detect_only is False)."""
         return not self._detect_only
 
+    @staticmethod
+    def _object_repr(*parts):
+        """Build an object_repr string from model instances and/or plain strings.
+
+        Model instances become "ModelName [str](url)", plain strings pass through.
+        Parts are joined with " on ".
+        """
+        rendered = []
+        for part in parts:
+            if hasattr(part, "get_absolute_url"):
+                name = type(part).__name__
+                rendered.append(f"{name} {get_absolute_url_markdown(part)}")
+            else:
+                rendered.append(str(part))
+        return " on ".join(rendered)
+
     def _record_entry(
         self,
         action: str,
@@ -334,7 +350,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_mac,
-                    object_repr=f"MAC {arp_entry['mac']}",
+                    object_repr=f"MACAddress {arp_entry['mac']}",
                 )
 
                 # Record IP entry
@@ -344,7 +360,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_ip,
-                    object_repr=f"IP {ip_interface_object}",
+                    object_repr=self._object_repr(existing_ip) if existing_ip else f"IPAddress {ip_interface_object}",
                 )
 
                 if self._should_apply():
@@ -448,7 +464,7 @@ class NapalmCollector:
                             "vrf": str(ip_obj.vrf) if ip_obj.vrf else None,
                         },
                         object_instance=ip_obj,
-                        object_repr=f"IP {ip_obj.address}",
+                        object_repr=self._object_repr(ip_obj),
                     )
                     self._log_info(
                         f"IP {ip_obj.address} not seen in current table — flagged as stale."
@@ -502,7 +518,7 @@ class NapalmCollector:
             detected_values=detected,
             current_values=current,
             object_instance=device,
-            object_repr=f"Device {device.name}",
+            object_repr=self._object_repr(device),
         )
 
         if self._should_apply():
@@ -602,7 +618,7 @@ class NapalmCollector:
                 device=device,
                 detected_values=detected,
                 object_instance=existing_mac or nb_iface,
-                object_repr=f"Interface {iface_name} MAC {mac_addr}",
+                object_repr=self._object_repr(existing_mac or nb_iface) + f" MAC {mac_addr}",
             )
 
             if self._should_apply():
@@ -686,7 +702,7 @@ class NapalmCollector:
                             detected_values=detected,
                             current_values={"lag_parent": current_lag},
                             object_instance=nb_iface,
-                            object_repr=f"LAG {iface_name} -> {ae_name}",
+                            object_repr=f"LAG {get_absolute_url_markdown(nb_iface)} -> {ae_name}",
                         )
                         if self._should_apply():
                             ae_iface = self._get_or_create_interface(device, ae_name)
@@ -818,7 +834,7 @@ class NapalmCollector:
                 detected_values={},
                 current_values=current_values,
                 object_instance=ip,
-                object_repr=f"IP {ip.address} on {ip.assigned_object}",
+                object_repr=self._object_repr(ip, ip.assigned_object),
             )
             if self._should_apply():
                 ip.assigned_object = None
@@ -861,7 +877,7 @@ class NapalmCollector:
             detected_values=detected,
             current_values=current_values,
             object_instance=existing_ip or nb_li,
-            object_repr=f"IP {cidr} on {li_name}",
+            object_repr=self._object_repr(existing_ip, nb_li) if existing_ip else f"IPAddress {cidr} on {get_absolute_url_markdown(nb_li)}",
         )
 
         vrf_id = netbox_vrf.pk if netbox_vrf else None
@@ -1009,7 +1025,7 @@ class NapalmCollector:
                     collector_type=self._collector_type,
                     device=device,
                     detected_values=detected,
-                    object_repr=f"Cable {local_iface_name} ↔ {remote_system_name}:{remote_port}",
+                    object_repr=f"Cable {get_absolute_url_markdown(local_iface)} ↔ {remote_system_name}:{remote_port}",
                 )
 
                 if self._should_apply():
@@ -1092,7 +1108,7 @@ class NapalmCollector:
                 device=device,
                 detected_values=detected,
                 object_instance=existing_mac,
-                object_repr=f"MAC {mac_addr} on {iface_name}",
+                object_repr=f"MACAddress {mac_addr} on {get_absolute_url_markdown(nb_iface)}",
             )
 
             if self._should_apply():
@@ -1170,7 +1186,7 @@ class NapalmCollector:
             collector_type=self._collector_type,
             device=self._current_device,
             detected_values=detected,
-            object_repr=f"L2 circuit data on {self._current_device}",
+            object_repr=f"L2 circuit data on {get_absolute_url_markdown(self._current_device)}",
         )
 
         if self._should_apply():
@@ -1216,7 +1232,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_mac,
-                    object_repr=f"EVPN MAC {mac_str}",
+                    object_repr=self._object_repr(existing_mac) if existing_mac else f"MACAddress {mac_str}",
                 )
 
                 if self._should_apply():
@@ -1306,7 +1322,7 @@ class NapalmCollector:
                         device=device,
                         detected_values=detected,
                         object_instance=existing_ip,
-                        object_repr=f"BGP peer {remote_address} AS{as_number}",
+                        object_repr=f"BGP peer {get_absolute_url_markdown(existing_ip) if existing_ip else remote_address} AS{as_number}",
                     )
 
                     if self._should_apply():
@@ -1438,7 +1454,7 @@ class NapalmCollector:
                 device=self._current_device,
                 detected_values=detected,
                 object_instance=existing_ip,
-                object_repr=f"OSPF neighbor {neighbor_ip} (RID: {router_id})",
+                object_repr=f"OSPF neighbor {get_absolute_url_markdown(existing_ip) if existing_ip else neighbor_ip} (RID: {router_id})",
             )
 
             if self._should_apply():

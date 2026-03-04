@@ -117,13 +117,13 @@ def _apply_arp_entry(entry, now):
     """Apply an ARP/NDP-discovered entry.
 
     The collector creates two entries per ARP/NDP hit: one for MAC (object_repr
-    starts with "MAC") and one for IP (starts with "IP"). Each entry should
-    only create/link to its respective object type.
+    starts with "MACAddress") and one for IP (starts with "IPAddress"). Each
+    entry should only create/link to its respective object type.
     """
     dv = entry.detected_values
     mac_addr = dv.get("mac", "")
     ip_str = dv.get("ip", "")
-    is_mac_entry = entry.object_repr.startswith("MAC")
+    is_mac_entry = entry.object_repr.startswith("MACAddress")
 
     if is_mac_entry:
         # MAC entry: create/update MAC and link to interface
@@ -198,7 +198,7 @@ def _apply_interfaces_entry(entry, now):
         _apply_stale_interfaces_ip(entry)
     elif entry.object_repr.startswith("LAG "):
         _apply_interfaces_lag(entry, dv)
-    elif entry.object_repr.startswith("IP "):
+    elif entry.object_repr.startswith("IPAddress "):
         _apply_interfaces_ip(entry, dv, now)
     else:
         _apply_interfaces_mac(entry, dv, now)

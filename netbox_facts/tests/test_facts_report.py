@@ -64,21 +64,21 @@ class FactsReportModelTest(TestCase):
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_ARP,
             device=self.device,
-            object_repr="MAC AA:BB:CC:DD:EE:01",
+            object_repr="MACAddress AA:BB:CC:DD:EE:01",
         )
         FactsReportEntry.objects.create(
             report=report,
             action=EntryActionChoices.ACTION_NEW,
             collector_type=CollectionTypeChoices.TYPE_ARP,
             device=self.device,
-            object_repr="MAC AA:BB:CC:DD:EE:02",
+            object_repr="MACAddress AA:BB:CC:DD:EE:02",
         )
         FactsReportEntry.objects.create(
             report=report,
             action=EntryActionChoices.ACTION_CHANGED,
             collector_type=CollectionTypeChoices.TYPE_ARP,
             device=self.device,
-            object_repr="MAC AA:BB:CC:DD:EE:03",
+            object_repr="MACAddress AA:BB:CC:DD:EE:03",
         )
         report.update_summary()
         report.refresh_from_db()
