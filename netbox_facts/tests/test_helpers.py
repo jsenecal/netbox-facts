@@ -19,6 +19,7 @@ from ipam.models.vrfs import VRF
 from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.collector import NapalmCollector
+from netbox_facts.napalm.junos import EnhancedJunOSDriver
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
@@ -1414,7 +1415,7 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         self.assertFalse(Prefix.objects.filter(prefix="192.0.2.1/32").exists())
 
     def test_vrrp_non_preferred_skipped(self):
-        """Non-preferred addresses should be skipped when multiple exist."""
+        """Non-preferred addresses should be skipped when multiple exist on same interface."""
         plan = self._create_plan(
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             name="Plan-ip-vrrp",
@@ -1425,6 +1426,8 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
+        # Post-driver data: two different subnets on same interface,
+        # one preferred, one not. The non-preferred should be skipped.
         driver = self._make_driver({
             "ge-0/0/3": {
                 "is_up": True, "is_enabled": True, "description": "",
@@ -1442,8 +1445,8 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
                                         "preferred": True,
                                         "primary": True,
                                     },
-                                    "10.0.2.0/24 ": {
-                                        "local": "10.0.2.254",
+                                    "10.0.3.0/24": {
+                                        "local": "10.0.3.1",
                                         "broadcast": "",
                                         "preferred": False,
                                         "primary": False,
@@ -1460,7 +1463,7 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
 
         # Only the preferred address should be created
         self.assertTrue(IPAddress.objects.filter(address="10.0.2.1/24").exists())
-        self.assertFalse(IPAddress.objects.filter(address="10.0.2.254/24").exists())
+        self.assertFalse(IPAddress.objects.filter(address="10.0.3.1/24").exists())
 
     def test_incomplete_inet_destination_three_octets(self):
         """Incomplete 3-octet inet destination should be handled."""
@@ -1876,3 +1879,80 @@ class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
         ip_entries = [e for e in report.entries.all() if e.object_repr.startswith("IP ")]
         self.assertEqual(len(ip_entries), 1)
         self.assertEqual(ip_entries[0].status, "pending")
+
+
+class ParseAddressFamiliesTest(TestCase):
+    """Tests for EnhancedJunOSDriver._parse_address_families VRRP handling."""
+
+    @staticmethod
+    def _mock_table(items_list):
+        """Create a mock PyEZ table-like object from a list of (key, value) tuples."""
+        mock = MagicMock()
+        mock.items.return_value = items_list
+        return mock
+
+    def test_vrrp_backup_keeps_preferred(self):
+        """Duplicate destination: preferred (real) comes first, non-preferred (VGA) is dropped."""
+        addr_table = self._mock_table([
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
+                ("preferred", True), ("primary", True),
+            ]),
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.254"), ("broadcast", ""),
+                ("preferred", False), ("primary", False),
+            ]),
+        ])
+        family_table = self._mock_table([
+            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+        ])
+
+        result = EnhancedJunOSDriver._parse_address_families(family_table)
+        addresses = result["inet"]["addresses"]
+
+        self.assertEqual(len(addresses), 1)
+        self.assertEqual(addresses["10.0.2.0/24"]["local"], "10.0.2.1")
+
+    def test_vrrp_master_keeps_first_preferred(self):
+        """Duplicate destination: both preferred (master), first entry wins."""
+        addr_table = self._mock_table([
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
+                ("preferred", True), ("primary", True),
+            ]),
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.254"), ("broadcast", ""),
+                ("preferred", True), ("primary", True),
+            ]),
+        ])
+        family_table = self._mock_table([
+            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+        ])
+
+        result = EnhancedJunOSDriver._parse_address_families(family_table)
+        addresses = result["inet"]["addresses"]
+
+        self.assertEqual(len(addresses), 1)
+        self.assertEqual(addresses["10.0.2.0/24"]["local"], "10.0.2.1")
+
+    def test_vrrp_vga_first_real_overwrites(self):
+        """Duplicate destination: VGA (non-preferred) comes first, preferred overwrites it."""
+        addr_table = self._mock_table([
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.254"), ("broadcast", ""),
+                ("preferred", False), ("primary", False),
+            ]),
+            ("10.0.2.0/24", [
+                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
+                ("preferred", True), ("primary", True),
+            ]),
+        ])
+        family_table = self._mock_table([
+            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+        ])
+
+        result = EnhancedJunOSDriver._parse_address_families(family_table)
+        addresses = result["inet"]["addresses"]
+
+        self.assertEqual(len(addresses), 1)
+        self.assertEqual(addresses["10.0.2.0/24"]["local"], "10.0.2.1")

@@ -153,12 +153,18 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
                 for addr_entry_raw in addr_raw.items():
                     adest = addr_entry_raw[0]
                     adata = {elem[0]: elem[1] for elem in addr_entry_raw[1]}
-                    addresses[adest] = {
+                    addr_info = {
                         "local": adata.get("local") or "",
                         "broadcast": adata.get("broadcast") or "",
                         "preferred": bool(adata.get("preferred")),
                         "primary": bool(adata.get("primary")),
                     }
+                    # Duplicate destination = VRRP virtual gateway address.
+                    # Keep the preferred entry; skip the VGA.
+                    if adest in addresses:
+                        if addresses[adest]["preferred"]:
+                            continue
+                    addresses[adest] = addr_info
                 fam_entry["addresses"] = addresses
             families[fname] = fam_entry
         return families
