@@ -342,6 +342,7 @@ class CollectorResultsView(ScriptResultView):
 
         log_threshold = request.GET.get("log_threshold", LogLevelChoices.LOG_INFO)
         context = {
+            "object": instance,
             "collection_plan": job.object,
             "job": job,
             "table": table,

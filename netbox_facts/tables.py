@@ -3,7 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 
 from netbox.tables import NetBoxTable
-from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, ToggleColumn
+from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, MarkdownColumn, ToggleColumn
 
 from .models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
 
@@ -146,7 +146,7 @@ class FactsReportEntryTable(NetBoxTable):
     action = ChoiceFieldColumn()
     status = ChoiceFieldColumn()
     device = tables.Column(linkify=True)
-    object_repr = tables.Column(verbose_name=_("Object"))
+    object_repr = MarkdownColumn(verbose_name=_("Object"))
     collector_type = ChoiceFieldColumn()
     actions = ActionsColumn(actions=())
 
