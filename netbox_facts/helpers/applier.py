@@ -191,10 +191,12 @@ def _apply_inventory_entry(entry, now):
 
 
 def _apply_interfaces_entry(entry, now):
-    """Apply an interface entry (MAC, LAG membership, or IP address)."""
+    """Apply an interface entry (MAC, LAG membership, IP address, or stale IP)."""
     dv = entry.detected_values
 
-    if entry.object_repr.startswith("LAG "):
+    if entry.action == EntryActionChoices.ACTION_STALE:
+        _apply_stale_interfaces_ip(entry)
+    elif entry.object_repr.startswith("LAG "):
         _apply_interfaces_lag(entry, dv)
     elif entry.object_repr.startswith("IP "):
         _apply_interfaces_ip(entry, dv, now)
@@ -281,6 +283,38 @@ def _apply_interfaces_ip(entry, dv, now):
     elif nb_ip.assigned_object is None:
         nb_ip.assigned_object = nb_li
         nb_ip.save()
+    elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
+        nb_ip.assigned_object = nb_li
+        nb_ip.save()
+    _set_entry_object(entry, nb_ip)
+
+
+def _apply_stale_interfaces_ip(entry):
+    """Unassign a stale auto-discovered IP address."""
+    from ipam.models.vrfs import VRF
+
+    cv = entry.current_values
+    cidr = cv.get("ip_address", "")
+    vrf_name = cv.get("vrf")
+
+    vrf = None
+    if vrf_name:
+        try:
+            vrf = VRF.objects.get(name=vrf_name)
+        except VRF.DoesNotExist:
+            logger.warning("VRF %s not found for stale IP entry %s", vrf_name, entry.pk)
+
+    try:
+        nb_ip = IPAddress.objects.get(address=cidr, vrf=vrf)
+    except IPAddress.DoesNotExist:
+        logger.warning("IP %s not found for stale entry %s", cidr, entry.pk)
+        return
+
+    if not nb_ip.tags.filter(name=AUTO_D_TAG).exists():
+        return
+
+    nb_ip.assigned_object = None
+    nb_ip.save()
     _set_entry_object(entry, nb_ip)
 
 

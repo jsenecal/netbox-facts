@@ -96,6 +96,7 @@ class NapalmCollector:
         self._now = timezone.now()
         self._report: FactsReport | None = None
         self._detect_only: bool = getattr(plan, "detect_only", False)
+        self._seen_ips: set = set()
 
         # Get the NAPALM driver
         try:
@@ -555,6 +556,7 @@ class NapalmCollector:
 
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
+        self._seen_ips = set()
         # Pass the interface regex to enhanced drivers that support server-side filtering
         try:
             ifaces = driver.get_interfaces(
@@ -641,6 +643,7 @@ class NapalmCollector:
         else:
             self._interfaces_ip_generic(device, driver)
 
+        self._detect_stale_ips(device)
         self._log_success("Interface collection completed")
 
     def _interfaces_logical(self, device, ifaces):
@@ -789,6 +792,39 @@ class NapalmCollector:
 
                     self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
 
+    def _detect_stale_ips(self, device):
+        """Detect auto-discovered IPs on a device that weren't seen in this run."""
+        iface_ct = ContentType.objects.get_for_model(Interface)
+        device_iface_ids = device.vc_interfaces().values_list("pk", flat=True)
+        stale_ips = IPAddress.objects.filter(
+            assigned_object_type=iface_ct,
+            assigned_object_id__in=device_iface_ids,
+            tags__name=AUTO_D_TAG,
+        )
+        for ip in stale_ips:
+            vrf_id = ip.vrf_id
+            key = (str(ip.address), vrf_id)
+            if key in self._seen_ips:
+                continue
+            current_values = {
+                "ip_address": str(ip.address),
+                "vrf": ip.vrf.name if ip.vrf else None,
+                "assigned_object": str(ip.assigned_object),
+            }
+            entry = self._record_entry(
+                action=EntryActionChoices.ACTION_STALE,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values={},
+                current_values=current_values,
+                object_instance=ip,
+                object_repr=f"IP {ip.address} on {ip.assigned_object}",
+            )
+            if self._should_apply():
+                ip.assigned_object = None
+                ip.save()
+                self._mark_entry_applied(entry, ip)
+
     def _record_ip_entry(self, device, nb_li, cidr, net, netbox_vrf):
         """Record and optionally apply a single IP address entry."""
         li_name = nb_li.name
@@ -797,25 +833,39 @@ class NapalmCollector:
         existing_ip = IPAddress.objects.filter(
             address=cidr, vrf=netbox_vrf
         ).first()
-        action = (
-            EntryActionChoices.ACTION_CONFIRMED
-            if existing_ip
-            else EntryActionChoices.ACTION_NEW
-        )
+        if not existing_ip:
+            action = EntryActionChoices.ACTION_NEW
+        elif (
+            existing_ip.assigned_object is not None
+            and existing_ip.assigned_object != nb_li
+            and existing_ip.tags.filter(name=AUTO_D_TAG).exists()
+        ):
+            action = EntryActionChoices.ACTION_CHANGED
+        else:
+            action = EntryActionChoices.ACTION_CONFIRMED
         detected = {
             "logical_interface": li_name,
             "ip_address": cidr,
             "vrf": vrf_name,
             "prefix": str(net),
         }
+        current_values = None
+        if action == EntryActionChoices.ACTION_CHANGED and existing_ip:
+            current_values = {
+                "assigned_object": str(existing_ip.assigned_object),
+            }
         entry = self._record_entry(
             action=action,
             collector_type=self._collector_type,
             device=device,
             detected_values=detected,
+            current_values=current_values,
             object_instance=existing_ip or nb_li,
             object_repr=f"IP {cidr} on {li_name}",
         )
+
+        vrf_id = netbox_vrf.pk if netbox_vrf else None
+        self._seen_ips.add((cidr, vrf_id))
 
         if self._should_apply():
             # Create prefix (skip host routes)
@@ -862,6 +912,9 @@ class NapalmCollector:
                     f"Created IP `{cidr}` on `{li_name}`"
                 )
             elif nb_ip.assigned_object is None:
+                nb_ip.assigned_object = nb_li
+                nb_ip.save()
+            elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
             self._mark_entry_applied(entry, nb_ip)

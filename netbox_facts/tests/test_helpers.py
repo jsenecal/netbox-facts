@@ -16,7 +16,7 @@ from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 
-from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.collector import NapalmCollector
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
@@ -182,6 +182,7 @@ class CollectorTestMixin:
         collector._now = timezone.now()
         collector._report = None
         collector._detect_only = getattr(plan, "detect_only", False)
+        collector._seen_ips = set()
         return collector
 
 
@@ -1956,3 +1957,261 @@ class ParseAddressFamiliesTest(TestCase):
 
         self.assertEqual(len(addresses), 1)
         self.assertEqual(addresses["10.0.2.0/24"]["local"], "10.0.2.1")
+
+
+def _iface_driver_data(physical, logical, ip, prefix_len=24, mac="AA:BB:CC:DD:EE:99"):
+    """Build minimal enhanced-driver iface dict with one IP."""
+    net_part = ip.rsplit(".", 1)[0]
+    return {
+        physical: {
+            "is_up": True, "is_enabled": True, "description": "",
+            "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+            "mac_address": mac,
+            "logical_interfaces": {
+                logical: {
+                    "families": {
+                        "inet": {
+                            "mtu": 1500, "ae_bundle": "",
+                            "addresses": {
+                                f"{net_part}.0/{prefix_len}": {
+                                    "local": ip,
+                                    "broadcast": "",
+                                    "preferred": True,
+                                    "primary": True,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
+
+class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
+    """Tests for reprocessing auto-discovered IPs that changed assignment."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def _make_driver(self, ifaces):
+        driver = MagicMock()
+        driver.get_interfaces.return_value = ifaces
+        return driver
+
+    def test_reassigns_auto_discovered_ip(self):
+        """IP with AUTO_D_TAG on wrong interface should be reassigned."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-reassign",
+        )
+        device = self._create_device("reassign-dev")
+        Interface.objects.create(device=device, name="ge-0/0/3", type="1000base-t")
+        old_li = Interface.objects.create(device=device, name="ge-0/0/3.0", type="virtual")
+        new_li = Interface.objects.create(device=device, name="ge-0/0/3.1", type="virtual")
+
+        # Pre-create IP assigned to old interface with AUTO_D_TAG
+        ip = IPAddress.objects.create(address="10.0.3.1/24", assigned_object=old_li)
+        ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        # Driver says the IP is on ge-0/0/3.1, not ge-0/0/3.0
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/3", "ge-0/0/3.1", "10.0.3.1",
+        ))
+        collector.interfaces(driver)
+
+        ip.refresh_from_db()
+        self.assertEqual(ip.assigned_object, new_li)
+
+        # Verify CHANGED entry recorded
+        entries = report.entries.filter(object_repr__startswith="IP ")
+        self.assertTrue(entries.filter(action=EntryActionChoices.ACTION_CHANGED).exists())
+
+    def test_does_not_reassign_manual_ip(self):
+        """IP without AUTO_D_TAG should be left alone (CONFIRMED, not reassigned)."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-manual",
+        )
+        device = self._create_device("manual-dev")
+        Interface.objects.create(device=device, name="ge-0/0/4", type="1000base-t")
+        old_li = Interface.objects.create(device=device, name="ge-0/0/4.0", type="virtual")
+        new_li = Interface.objects.create(device=device, name="ge-0/0/4.1", type="virtual")
+
+        # Pre-create IP on old interface WITHOUT AUTO_D_TAG
+        ip = IPAddress.objects.create(address="10.0.4.1/24", assigned_object=old_li)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/4", "ge-0/0/4.1", "10.0.4.1",
+        ))
+        collector.interfaces(driver)
+
+        ip.refresh_from_db()
+        self.assertEqual(ip.assigned_object, old_li)
+
+        entries = report.entries.filter(object_repr__startswith="IP ")
+        self.assertTrue(entries.filter(action=EntryActionChoices.ACTION_CONFIRMED).exists())
+        self.assertFalse(entries.filter(action=EntryActionChoices.ACTION_CHANGED).exists())
+
+
+class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
+    """Tests for detection and cleanup of stale auto-discovered IPs."""
+
+    def _make_collector(self, plan):
+        import re as _re
+        collector = super()._make_collector(plan)
+        collector._interfaces_re = _re.compile(r".*")
+        return collector
+
+    def _make_driver(self, ifaces):
+        driver = MagicMock()
+        driver.get_interfaces.return_value = ifaces
+        return driver
+
+    def test_stale_ip_unassigned_in_auto_apply(self):
+        """Auto-discovered IP not in driver data should be unassigned."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-apply",
+        )
+        device = self._create_device("stale-dev1")
+        Interface.objects.create(device=device, name="ge-0/0/5", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/5.0", type="virtual")
+
+        # Pre-create stale IP on the interface
+        stale_ip = IPAddress.objects.create(address="10.0.99.1/24", assigned_object=li)
+        stale_ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        # Driver returns a DIFFERENT IP, so the stale one is not seen
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/5", "ge-0/0/5.0", "10.0.5.1",
+        ))
+        collector.interfaces(driver)
+
+        stale_ip.refresh_from_db()
+        self.assertIsNone(stale_ip.assigned_object)
+
+        entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(entries.count(), 1)
+
+    def test_stale_ip_detected_in_detect_only(self):
+        """Detect-only mode should record STALE entry but not unassign."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-detect",
+            detect_only=True,
+        )
+        device = self._create_device("stale-dev2")
+        Interface.objects.create(device=device, name="ge-0/0/6", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/6.0", type="virtual")
+
+        stale_ip = IPAddress.objects.create(address="10.0.98.1/24", assigned_object=li)
+        stale_ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/6", "ge-0/0/6.0", "10.0.6.1",
+            mac="AA:BB:CC:DD:EE:A1",
+        ))
+        collector.interfaces(driver)
+
+        stale_ip.refresh_from_db()
+        # Still assigned (detect-only doesn't mutate)
+        self.assertEqual(stale_ip.assigned_object, li)
+
+        entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries[0].status, "pending")
+
+    def test_manual_ip_not_flagged_stale(self):
+        """IP without AUTO_D_TAG should not get a stale entry."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-manual",
+        )
+        device = self._create_device("stale-dev3")
+        Interface.objects.create(device=device, name="ge-0/0/7", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/7.0", type="virtual")
+
+        # Manual IP (no AUTO_D_TAG)
+        manual_ip = IPAddress.objects.create(address="10.0.97.1/24", assigned_object=li)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/7", "ge-0/0/7.0", "10.0.7.1",
+        ))
+        collector.interfaces(driver)
+
+        entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(entries.count(), 0)
+
+        manual_ip.refresh_from_db()
+        self.assertEqual(manual_ip.assigned_object, li)
+
+    def test_seen_ip_not_flagged_stale(self):
+        """IP present in driver data should not be flagged stale."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-seen",
+        )
+        device = self._create_device("stale-dev4")
+        Interface.objects.create(device=device, name="ge-0/0/8", type="1000base-t")
+        li = Interface.objects.create(device=device, name="ge-0/0/8.0", type="virtual")
+
+        # Pre-create auto-discovered IP that IS in the driver data
+        ip = IPAddress.objects.create(address="10.0.8.1/24", assigned_object=li)
+        ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = self._make_driver(_iface_driver_data(
+            "ge-0/0/8", "ge-0/0/8.0", "10.0.8.1",
+        ))
+        collector.interfaces(driver)
+
+        entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(entries.count(), 0)
+
+        ip.refresh_from_db()
+        self.assertEqual(ip.assigned_object, li)

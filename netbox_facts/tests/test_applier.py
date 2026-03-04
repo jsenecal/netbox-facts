@@ -495,3 +495,69 @@ class ApplyInterfaceAutoCreateTest(ApplierTestMixin, TestCase):
         # IP should be assigned to the auto-created interface
         ip = IPAddress.objects.get(address="10.0.7.1/24")
         self.assertEqual(ip.assigned_object, nb_li)
+
+
+class ApplyIPReassignTest(ApplierTestMixin, TestCase):
+    """Tests for applier handling of auto-discovered IP reassignment and stale cleanup."""
+
+    def test_apply_ip_reassigns_auto_discovered(self):
+        """Applier should update assignment on an AUTO_D_TAG IP with CHANGED action."""
+        old_li = Interface.objects.create(device=self.device, name="ge-0/0/9.0", type="virtual")
+        new_li = Interface.objects.create(device=self.device, name="ge-0/0/9.1", type="virtual")
+
+        ip = IPAddress.objects.create(address="10.0.9.1/24", assigned_object=old_li)
+        ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_CHANGED,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IP 10.0.9.1/24 on ge-0/0/9.1",
+            detected_values={
+                "logical_interface": "ge-0/0/9.1",
+                "ip_address": "10.0.9.1/24",
+                "vrf": None,
+                "prefix": "10.0.9.0/24",
+            },
+            current_values={
+                "assigned_object": str(old_li),
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        ip.refresh_from_db()
+        self.assertEqual(ip.assigned_object, new_li)
+
+    def test_apply_stale_entry_unassigns_ip(self):
+        """Applier should unassign a stale AUTO_D_TAG IP."""
+        li = Interface.objects.create(device=self.device, name="ge-0/0/10.0", type="virtual")
+
+        ip = IPAddress.objects.create(address="10.0.10.1/24", assigned_object=li)
+        ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_STALE,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr=f"IP 10.0.10.1/24 on {li}",
+            detected_values={},
+            current_values={
+                "ip_address": "10.0.10.1/24",
+                "vrf": None,
+                "assigned_object": str(li),
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        ip.refresh_from_db()
+        self.assertIsNone(ip.assigned_object)
