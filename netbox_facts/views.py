@@ -478,6 +478,42 @@ class FactsReportEntriesView(generic.ObjectChildrenView):
         return {"has_pending": has_pending}
 
 
+def _status_entries_view(status_value, status_label, weight):
+    """Factory for per-status entry tab views."""
+
+    @register_model_view(models.FactsReport, f"entries_{status_value}")
+    class _View(generic.ObjectChildrenView):
+        queryset = models.FactsReport.objects.all()
+        child_model = models.FactsReportEntry
+        table = tables.FactsReportEntryTable
+        filterset = filtersets.FactsReportEntryFilterSet
+        template_name = "netbox_facts/factsreport_entries.html"
+        tab = ViewTab(
+            label=_(status_label),
+            badge=lambda x, s=status_value: x.entries.filter(status=s).count(),
+            permission="netbox_facts.view_factsreport",
+            weight=weight,
+            hide_if_empty=True,
+        )
+
+        def get_children(self, request, parent):
+            return parent.entries.filter(status=status_value)
+
+        def get_extra_context(self, request, instance):
+            has_pending = status_value == EntryStatusChoices.STATUS_PENDING
+            return {"has_pending": has_pending}
+
+    _View.__name__ = f"FactsReport{status_label}EntriesView"
+    _View.__qualname__ = _View.__name__
+    return _View
+
+
+_status_entries_view(EntryStatusChoices.STATUS_PENDING, "Pending", 510)
+_status_entries_view(EntryStatusChoices.STATUS_APPLIED, "Applied", 520)
+_status_entries_view(EntryStatusChoices.STATUS_SKIPPED, "Skipped", 530)
+_status_entries_view(EntryStatusChoices.STATUS_FAILED, "Failed", 540)
+
+
 @register_model_view(models.FactsReport, "apply")
 class FactsReportApplyView(BaseObjectView):
     """POST-only view to apply selected entries."""
