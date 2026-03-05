@@ -12,7 +12,7 @@
     <input type="hidden" name="pk" value="{{ entry.pk }}">
     {% endif %}
     {% endfor %}
-    <button type="submit" class="btn btn-success">
+    <button type="submit" class="btn btn-green">
         <i class="mdi mdi-check-all" aria-hidden="true"></i> {% trans "Apply All Pending" %}
     </button>
 </form>
@@ -33,7 +33,7 @@
                     <tr>
                         <th scope="row">{% trans "Status" %}</th>
                         <td>
-                            <span class="badge bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
+                            <span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
                         </td>
                     </tr>
                     {% if object.error_message %}

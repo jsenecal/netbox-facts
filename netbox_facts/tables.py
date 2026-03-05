@@ -170,4 +170,5 @@ class FactsReportEntryTable(NetBoxTable):
             "collector_type",
             "device",
             "object_repr",
+            "error_message",
         )
