@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from netbox.tables import NetBoxTable
 from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, MarkdownColumn, ToggleColumn
 
+from .choices import EntryActionChoices
 from .models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
 
 __all__ = [
@@ -144,12 +145,28 @@ class FactsReportTable(NetBoxTable):
 class FactsReportEntryTable(NetBoxTable):
     """Table representation of the FactsReportEntry model."""
 
+    SKIP_FIELDS = {
+        "name", "component_name", "parent_name", "module_bay_id",
+        "module_type_id", "interface", "logical_interface", "raw_output",
+    }
+    LABEL_MAP = {
+        "serial_number": "serial",
+        "mac_address": "MAC",
+        "ip_address": "IP",
+        "lag_parent": "LAG",
+        "remote_device": "remote",
+        "remote_interface": "remote port",
+        "remote_address": "peer",
+        "remote_as": "AS",
+    }
+
     pk = ToggleColumn()
     action = ChoiceFieldColumn()
     status = ChoiceFieldColumn()
     device = tables.Column(linkify=True)
     object_repr = MarkdownColumn(verbose_name=_("Object"))
     collector_type = ChoiceFieldColumn()
+    details = MarkdownColumn(verbose_name=_("Details"), orderable=False, empty_values=())
     actions = ActionsColumn(actions=())
 
     class Meta(NetBoxTable.Meta):
@@ -161,6 +178,7 @@ class FactsReportEntryTable(NetBoxTable):
             "collector_type",
             "device",
             "object_repr",
+            "details",
             "created",
             "applied_at",
             "error_message",
@@ -172,5 +190,34 @@ class FactsReportEntryTable(NetBoxTable):
             "collector_type",
             "device",
             "object_repr",
+            "details",
             "error_message",
         )
+
+    def render_details(self, record):
+        detected = record.detected_values or {}
+        current = record.current_values or {}
+        lines = []
+
+        if record.action == EntryActionChoices.ACTION_CHANGED:
+            for key in sorted(set(detected) & set(current)):
+                if key in self.SKIP_FIELDS:
+                    continue
+                old, new = current[key], detected[key]
+                if str(old) != str(new):
+                    label = self.LABEL_MAP.get(key, key)
+                    lines.append(f"**{label}**: {old} → {new}")
+        elif record.action == EntryActionChoices.ACTION_NEW:
+            for key in sorted(detected):
+                if key in self.SKIP_FIELDS:
+                    continue
+                label = self.LABEL_MAP.get(key, key)
+                lines.append(f"**{label}**: {detected[key]}")
+        elif record.action == EntryActionChoices.ACTION_STALE:
+            for key in sorted(current):
+                if key in self.SKIP_FIELDS:
+                    continue
+                label = self.LABEL_MAP.get(key, key)
+                lines.append(f"**{label}**: {current[key]}")
+
+        return "  \n".join(lines)
