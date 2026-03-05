@@ -111,6 +111,7 @@ class FactsReportTable(NetBoxTable):
 
     class Meta(NetBoxTable.Meta):
         model = FactsReport
+        order_by = ("-created",)
         fields = (
             "pk",
             "id",
