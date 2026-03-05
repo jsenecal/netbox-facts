@@ -62,11 +62,12 @@ class MACVendorTable(DatedNetboxTable):
     manufacturer = tables.Column(linkify=True)
     vendor_name = tables.Column(verbose_name=_("Vendor Name"), linkify=True)
     mac_prefix = tables.Column(verbose_name=_("MAC Prefix"))
+    instance_count = tables.Column(verbose_name=_("Instances"), accessor="instance_count", orderable=True, default=0)
 
     class Meta(NetBoxTable.Meta):
         model = MACVendor
-        fields = ("pk", "id", "manufacturer", "mac_prefix", "actions")
-        default_columns = ("vendor_name", "mac_prefix")
+        fields = ("pk", "id", "manufacturer", "mac_prefix", "instance_count", "actions")
+        default_columns = ("vendor_name", "mac_prefix", "instance_count")
 
 
 class CollectorTable(NetBoxTable):

@@ -191,7 +191,9 @@ class MACVendorBulkDeleteView(generic.BulkDeleteView):
 class MACVendorListView(generic.ObjectListView):
     """List view for MACVendor instances."""
 
-    queryset = models.MACVendor.objects.all()
+    queryset = models.MACVendor.objects.all().annotate(
+        instance_count=Count("instances"),
+    )
     table = tables.MACVendorTable
     filterset = filtersets.MACVendorFilterSet
     filterset_form = forms.MACVendorFilterForm

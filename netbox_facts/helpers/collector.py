@@ -165,8 +165,8 @@ class NapalmCollector:
         )
         return entry
 
-    def _mark_entry_applied(self, entry, object_instance=None):
-        """Mark an entry as applied, optionally updating its GenericFK."""
+    def _mark_entry_applied(self, entry, object_instance=None, object_repr=None):
+        """Mark an entry as applied, optionally updating its GenericFK and repr."""
         if entry is None:
             return
         entry.status = EntryStatusChoices.STATUS_APPLIED
@@ -176,6 +176,9 @@ class NapalmCollector:
             entry.object_type = ContentType.objects.get_for_model(object_instance)
             entry.object_id = object_instance.pk
             update_fields.extend(["object_type", "object_id"])
+        if object_repr is not None:
+            entry.object_repr = object_repr
+            update_fields.append("object_repr")
         entry.save(update_fields=update_fields)
 
     def _get_network_instances(
@@ -437,17 +440,19 @@ class NapalmCollector:
                     )
 
                     # Mark entries as applied with correct object references
-                    self._mark_entry_applied(mac_entry, netbox_mac)
-                    self._mark_entry_applied(ip_entry, netbox_address)
+                    self._mark_entry_applied(mac_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
+                    self._mark_entry_applied(ip_entry, netbox_address, object_repr=self._object_repr(netbox_address))
         # Detect stale IPs: previously discovered IPs on this device
-        # that are no longer present in the current ARP/NDP table
+        # that are no longer present in the current ARP/NDP table.
+        # Filter by IP family so ARP only flags v4, NDP only flags v6.
         if self._current_device and seen_ips:
+            ip_family = 6 if self._collector_type == CollectionTypeChoices.TYPE_NDP else 4
             device_macs = MACAddress.objects.filter(
                 interfaces__in=self._current_device.vc_interfaces()
             ).distinct()
             known_ips = (
                 IPAddress.objects.filter(mac_addresses__in=device_macs)
-                .filter(tags__name=AUTO_D_TAG)
+                .filter(tags__name=AUTO_D_TAG, address__family=ip_family)
                 .select_related("vrf")
                 .distinct()
             )
@@ -647,7 +652,7 @@ class NapalmCollector:
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
-                self._mark_entry_applied(iface_entry, netbox_mac)
+                self._mark_entry_applied(iface_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
 
         # --- Process logical interfaces (LAG, IPs, VRFs) ---
         has_logical = any(
@@ -933,7 +938,7 @@ class NapalmCollector:
             elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
-            self._mark_entry_applied(entry, nb_ip)
+            self._mark_entry_applied(entry, nb_ip, object_repr=self._object_repr(nb_ip, nb_li))
 
     def lldp(self, driver: NetworkDriver):
         """Collect LLDP data from a device using get_lldp_neighbors_detail()."""
@@ -1052,7 +1057,7 @@ class NapalmCollector:
                         self._log_success(
                             f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
                         )
-                        self._mark_entry_applied(lldp_entry, cable)
+                        self._mark_entry_applied(lldp_entry, cable, object_repr=self._object_repr(cable))
                     except (Device.DoesNotExist, Interface.DoesNotExist, ValueError,
                             django.core.exceptions.ValidationError,
                             django.db.IntegrityError) as exc:
@@ -1131,7 +1136,7 @@ class NapalmCollector:
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
-                self._mark_entry_applied(l2_entry, netbox_mac)
+                self._mark_entry_applied(l2_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
 
         self._log_success("Ethernet switching collection completed")
 
@@ -1254,7 +1259,7 @@ class NapalmCollector:
                         self._log_success(
                             f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
                         )
-                    self._mark_entry_applied(evpn_entry, netbox_mac)
+                    self._mark_entry_applied(evpn_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
 
         if self._should_apply():
             JournalEntry.objects.create(
@@ -1375,7 +1380,7 @@ class NapalmCollector:
                             self._log_info(
                                 f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
                             )
-                        self._mark_entry_applied(bgp_entry, nb_ip)
+                        self._mark_entry_applied(bgp_entry, nb_ip, object_repr=f"BGP peer {get_absolute_url_markdown(nb_ip)} AS{as_number}")
 
         self._bgp_routing_integration()
         self._log_success("BGP collection completed")
@@ -1479,7 +1484,7 @@ class NapalmCollector:
                         f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
                         f"(Router ID: {router_id})."
                     )
-                self._mark_entry_applied(ospf_entry, ip_obj)
+                self._mark_entry_applied(ospf_entry, ip_obj, object_repr=f"OSPF neighbor {get_absolute_url_markdown(ip_obj)} (RID: {router_id})")
 
                 self._ospf_routing_integration(ip_obj, neighbors[-1])
 
