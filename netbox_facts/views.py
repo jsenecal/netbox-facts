@@ -452,31 +452,6 @@ class FactsReportBulkDeleteView(generic.BulkDeleteView):
     table = tables.FactsReportTable
 
 
-@register_model_view(models.FactsReport, "entries")
-class FactsReportEntriesView(generic.ObjectChildrenView):
-    """Entries tab for a FactsReport."""
-
-    queryset = models.FactsReport.objects.all()
-    child_model = models.FactsReportEntry
-    table = tables.FactsReportEntryTable
-    filterset = filtersets.FactsReportEntryFilterSet
-    template_name = "netbox_facts/factsreport_entries.html"
-    tab = ViewTab(
-        label=_("Entries"),
-        badge=lambda x: x.entries.count(),
-        permission="netbox_facts.view_factsreport",
-        weight=500,
-    )
-
-    def get_children(self, request, parent):
-        return parent.entries.all()
-
-    def get_extra_context(self, request, instance):
-        has_pending = instance.entries.filter(
-            status=EntryStatusChoices.STATUS_PENDING
-        ).exists()
-        return {"has_pending": has_pending}
-
 
 def _status_entries_view(status_value, status_label, weight):
     """Factory for per-status entry tab views."""
@@ -534,7 +509,7 @@ class FactsReportApplyView(BaseObjectView):
 
         if not entry_pks:
             messages.warning(request, _("No entries selected."))
-            return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+            return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
         applied, failed = apply_entries(report, entry_pks)
         if applied:
@@ -542,7 +517,7 @@ class FactsReportApplyView(BaseObjectView):
         if failed:
             messages.warning(request, _("{count} entries failed to apply.").format(count=failed))
 
-        return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+        return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
 
 @register_model_view(models.FactsReport, "skip")
@@ -565,12 +540,12 @@ class FactsReportSkipView(BaseObjectView):
 
         if not entry_pks:
             messages.warning(request, _("No entries selected."))
-            return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+            return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
         count = skip_entries(report, entry_pks)
         messages.success(request, _("Skipped {count} entries.").format(count=count))
 
-        return redirect("plugins:netbox_facts:factsreport_entries", pk=pk)
+        return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
 
 @register_model_view(models.CollectionPlan, "reports")
