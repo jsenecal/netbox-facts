@@ -175,6 +175,27 @@ def get_or_create_interface(device, name):
         return nb_iface
 
 
+def resolve_device_by_name(name):
+    """Resolve a device by name, progressively stripping domain parts.
+
+    Tries the full name first, then removes one trailing domain component at a
+    time (e.g. ``switch.dc1.example.com`` → ``switch.dc1.example`` →
+    ``switch.dc1`` → ``switch``) until a unique match is found.
+
+    Returns the Device or raises Device.DoesNotExist / Device.MultipleObjectsReturned.
+    """
+    parts = name.split(".")
+    for end in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:end])
+        try:
+            return Device.objects.get(name=candidate)
+        except Device.DoesNotExist:
+            continue
+        except Device.MultipleObjectsReturned:
+            raise
+    raise Device.DoesNotExist(f"No device matching '{name}' (tried progressive domain stripping)")
+
+
 def duplicate_object_warning(label, value):
     """Format a warning message for duplicate objects requiring manual cleanup."""
     return f"Duplicate {label} `{value}` objects in NetBox \u2014 manual cleanup required. Skipping."

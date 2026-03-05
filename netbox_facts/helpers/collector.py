@@ -46,6 +46,7 @@ from netbox_facts.helpers.netbox import (
     duplicate_object_warning,
     get_absolute_url_markdown,
     get_connection_ips,
+    resolve_device_by_name,
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
 )
@@ -1261,7 +1262,7 @@ class NapalmCollector:
 
                 # Look up the remote device in NetBox
                 try:
-                    remote_device = Device.objects.get(name=remote_system_name)
+                    remote_device = resolve_device_by_name(remote_system_name)
                 except Device.DoesNotExist:
                     self._log_info(
                         f"Remote device `{remote_system_name}` not found in NetBox. Skipping cable creation."

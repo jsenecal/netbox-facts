@@ -21,7 +21,7 @@ from netbox_facts.choices import (
     ReportStatusChoices,
 )
 from netbox_facts.constants import AUTO_D_TAG
-from netbox_facts.helpers.netbox import get_or_create_interface
+from netbox_facts.helpers.netbox import get_or_create_interface, resolve_device_by_name
 from netbox_facts.models.mac import MACAddress
 
 logger = logging.getLogger("netbox_facts")
@@ -451,7 +451,7 @@ def _apply_lldp_entry(entry, now):
         raise ValueError("Missing LLDP entry data")
 
     local_iface = entry.device.vc_interfaces().get(name=local_iface_name)
-    remote_device = Device.objects.get(name=remote_device_name)
+    remote_device = resolve_device_by_name(remote_device_name)
     remote_iface = remote_device.vc_interfaces().get(name=remote_iface_name)
 
     if local_iface.cable_id is not None or remote_iface.cable_id is not None:
