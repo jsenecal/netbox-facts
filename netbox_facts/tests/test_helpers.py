@@ -11,7 +11,7 @@ from dcim.models import (
     Manufacturer,
     Site,
 )
-from dcim.models.device_components import Interface
+from dcim.models.device_components import Interface, InventoryItem
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
@@ -2215,3 +2215,216 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
 
         ip.refresh_from_db()
         self.assertEqual(ip.assigned_object, li)
+
+
+class InventoryChassisTest(CollectorTestMixin, TestCase):
+    """Tests for chassis inventory collection via get_chassis_inventory."""
+
+    def _make_chassis_driver(self, modules):
+        """Create a mock driver with get_chassis_inventory returning modules."""
+        driver = MagicMock()
+        driver.get_facts.return_value = {
+            "serial_number": "CHASSIS_SN",
+            "os_version": "21.2R3",
+            "hostname": "router1",
+            "fqdn": "router1.example.com",
+        }
+        driver.get_chassis_inventory.return_value = iter(modules)
+        return driver
+
+    def test_new_inventory_items_created(self):
+        """NEW items should be created with correct fields."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-dev1", serial="CHASSIS_SN")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+            {
+                "name": "FPC 0/PIC 0",
+                "component_name": "PIC 0",
+                "parent_name": "FPC 0",
+                "serial": "PIC0_SN",
+                "part_id": "750-99999",
+                "description": "4x10GE PIC",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        self.assertTrue(InventoryItem.objects.filter(device=device, name="FPC 0").exists())
+        fpc = InventoryItem.objects.get(device=device, name="FPC 0")
+        self.assertEqual(fpc.serial, "FPC0_SN")
+        self.assertEqual(fpc.part_id, "750-12345")
+        self.assertEqual(fpc.description, "MPC 4e 3D")
+        self.assertTrue(fpc.discovered)
+        self.assertTrue(fpc.tags.filter(name=AUTO_D_TAG).exists())
+
+        self.assertTrue(InventoryItem.objects.filter(device=device, name="FPC 0/PIC 0").exists())
+
+    def test_existing_item_confirmed(self):
+        """Matching existing item should be CONFIRMED."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(detect_only=True)
+        device = self._create_device("chassis-dev2", serial="CHASSIS_SN")
+        InventoryItem.objects.create(
+            device=device, name="FPC 0", serial="FPC0_SN",
+            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        entries = report.entries.filter(
+            object_repr="InventoryItem FPC 0",
+            action=EntryActionChoices.ACTION_CONFIRMED,
+        )
+        self.assertEqual(entries.count(), 1)
+
+    def test_changed_serial_detected(self):
+        """Serial mismatch should produce CHANGED action and update item."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-dev3", serial="CHASSIS_SN")
+        item = InventoryItem.objects.create(
+            device=device, name="FPC 0", serial="OLD_SN",
+            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "NEW_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        item.refresh_from_db()
+        self.assertEqual(item.serial, "NEW_SN")
+
+        entries = report.entries.filter(
+            object_repr__startswith="InventoryItem",
+            action=EntryActionChoices.ACTION_CHANGED,
+        )
+        self.assertEqual(entries.count(), 1)
+
+    def test_builtin_modules_skipped(self):
+        """Modules with part_id=BUILTIN should not produce entries."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(detect_only=True)
+        device = self._create_device("chassis-dev4", serial="CHASSIS_SN")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0/PIC 0/Xcvr 0",
+                "component_name": "Xcvr 0",
+                "parent_name": "FPC 0/PIC 0",
+                "serial": None,
+                "part_id": "BUILTIN",
+                "description": "BUILTIN module",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        inv_entries = report.entries.filter(object_repr__startswith="InventoryItem")
+        self.assertEqual(inv_entries.count(), 0)
+
+    def test_stale_item_deleted(self):
+        """Discovered items not in driver data should be STALE and deleted."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-dev5", serial="CHASSIS_SN")
+        InventoryItem.objects.create(
+            device=device, name="FPC 1", serial="GONE_SN",
+            part_id="750-99999", description="Old card", discovered=True,
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        # Return empty chassis inventory — FPC 1 is stale
+        driver = self._make_chassis_driver([])
+
+        collector.inventory(driver)
+
+        self.assertFalse(InventoryItem.objects.filter(device=device, name="FPC 1").exists())
+
+        stale_entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(stale_entries.count(), 1)
+        self.assertEqual(stale_entries.first().object_repr, "InventoryItem FPC 1")
+
+    def test_detect_only_no_writes(self):
+        """Detect-only should create entries but not write InventoryItems."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(detect_only=True)
+        device = self._create_device("chassis-dev6", serial="CHASSIS_SN")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        # Entry should exist
+        inv_entries = report.entries.filter(object_repr="InventoryItem FPC 0")
+        self.assertEqual(inv_entries.count(), 1)
+
+        # But no InventoryItem created in DB
+        self.assertFalse(InventoryItem.objects.filter(device=device, name="FPC 0").exists())

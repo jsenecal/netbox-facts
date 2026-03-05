@@ -7,7 +7,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
-from dcim.models.device_components import Interface
+from dcim.models.device_components import Interface, InventoryItem
 from dcim.models.devices import Device
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
@@ -179,7 +179,15 @@ def _apply_ndp_entry(entry, now):
 
 
 def _apply_inventory_entry(entry, now):
-    """Apply an inventory entry (serial number update)."""
+    """Apply an inventory entry (serial number update or InventoryItem)."""
+    if entry.object_repr.startswith("InventoryItem "):
+        if entry.action == EntryActionChoices.ACTION_STALE:
+            _apply_stale_inventory_item(entry)
+        else:
+            _apply_inventory_item(entry)
+        return
+
+    # Legacy device serial update
     dv = entry.detected_values
     new_serial = dv.get("serial_number", "")
 
@@ -187,6 +195,49 @@ def _apply_inventory_entry(entry, now):
         Device.objects.filter(pk=entry.device.pk).update(serial=new_serial)
         entry.device.refresh_from_db()
 
+    _set_entry_object(entry, entry.device)
+
+
+def _apply_inventory_item(entry):
+    """Apply a chassis InventoryItem entry (NEW or CHANGED)."""
+    dv = entry.detected_values
+    name = dv.get("name", "")
+    serial = dv.get("serial", "")
+    part_id = dv.get("part_id", "")
+    description = dv.get("description", "")
+
+    item, created = InventoryItem.objects.get_or_create(
+        device=entry.device,
+        name=name,
+        defaults={
+            "serial": serial,
+            "part_id": part_id,
+            "description": description,
+            "discovered": True,
+        },
+    )
+    if created:
+        item.tags.add(AUTO_D_TAG)
+    elif entry.action == EntryActionChoices.ACTION_CHANGED:
+        item.serial = serial
+        item.part_id = part_id
+        item.description = description
+        item.save(update_fields=["serial", "part_id", "description"])
+
+    _set_entry_object(entry, item)
+
+
+def _apply_stale_inventory_item(entry):
+    """Delete a stale discovered InventoryItem."""
+    cv = entry.current_values
+    name = cv.get("name", "")
+    try:
+        item = InventoryItem.objects.get(
+            device=entry.device, name=name, discovered=True,
+        )
+        item.delete()
+    except InventoryItem.DoesNotExist:
+        logger.warning("InventoryItem %s not found for stale entry %s", name, entry.pk)
     _set_entry_object(entry, entry.device)
 
 

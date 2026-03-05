@@ -791,3 +791,51 @@ junos_nw_instances_view:
     instance_type: {instance-type: unicode}
     interfaces: {interface/name: unicode}
     route_distinguisher: {route-distinguisher/rd-type: unicode}
+
+###
+### Chassis Inventory
+###
+
+junos_chassis_inventory_table:
+  rpc: get-chassis-inventory
+  item: .//chassis-module
+  key:
+    - name
+  view: junos_chassis_inventory_view
+
+junos_chassis_inventory_view:
+  fields:
+    jname: name
+    sn: serial-number
+    pn: part-number
+    model: model-number
+    version: version
+    description: description
+    sub_modules: _junos_chassis_sub_module_table
+
+_junos_chassis_sub_module_table:
+  item: chassis-sub-module
+  view: _junos_chassis_sub_module_view
+
+_junos_chassis_sub_module_view:
+  fields:
+    jname: name
+    sn: serial-number
+    pn: part-number
+    model: model-number
+    version: version
+    description: description
+    sub_modules: _junos_chassis_sub_sub_module_table
+
+_junos_chassis_sub_sub_module_table:
+  item: chassis-sub-sub-module
+  view: _junos_chassis_sub_sub_module_view
+
+_junos_chassis_sub_sub_module_view:
+  fields:
+    jname: name
+    sn: serial-number
+    pn: part-number
+    model: model-number
+    version: version
+    description: description

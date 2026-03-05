@@ -7,7 +7,7 @@ from dcim.models import (
     Manufacturer,
     Site,
 )
-from dcim.models.device_components import Interface
+from dcim.models.device_components import Interface, InventoryItem
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 
@@ -561,3 +561,98 @@ class ApplyIPReassignTest(ApplierTestMixin, TestCase):
 
         ip.refresh_from_db()
         self.assertIsNone(ip.assigned_object)
+
+
+class ApplyInventoryItemTest(ApplierTestMixin, TestCase):
+    """Tests for applying chassis InventoryItem entries."""
+
+    def test_apply_new_inventory_item(self):
+        """Applying a NEW InventoryItem entry should create the item."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="InventoryItem FPC 0",
+            detected_values={
+                "name": "FPC 0",
+                "serial": "FPC_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        item = InventoryItem.objects.get(device=self.device, name="FPC 0")
+        self.assertEqual(item.serial, "FPC_SN")
+        self.assertEqual(item.part_id, "750-12345")
+        self.assertTrue(item.discovered)
+        self.assertTrue(item.tags.filter(name=AUTO_D_TAG).exists())
+
+    def test_apply_changed_inventory_item(self):
+        """Applying a CHANGED entry should update serial/part_id."""
+        item = InventoryItem.objects.create(
+            device=self.device, name="FPC 0", serial="OLD_SN",
+            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_CHANGED,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="InventoryItem FPC 0",
+            detected_values={
+                "name": "FPC 0",
+                "serial": "NEW_SN",
+                "part_id": "750-99999",
+                "description": "MPC 4e 3D",
+            },
+            current_values={
+                "serial": "OLD_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        item.refresh_from_db()
+        self.assertEqual(item.serial, "NEW_SN")
+        self.assertEqual(item.part_id, "750-99999")
+
+    def test_apply_stale_inventory_item(self):
+        """Applying a STALE entry should delete the discovered InventoryItem."""
+        InventoryItem.objects.create(
+            device=self.device, name="FPC 1", serial="GONE_SN",
+            part_id="750-99999", description="Old card", discovered=True,
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_STALE,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="InventoryItem FPC 1",
+            detected_values={},
+            current_values={
+                "name": "FPC 1",
+                "serial": "GONE_SN",
+                "part_id": "750-99999",
+                "description": "Old card",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        self.assertFalse(
+            InventoryItem.objects.filter(device=self.device, name="FPC 1").exists()
+        )

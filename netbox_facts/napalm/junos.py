@@ -10,6 +10,23 @@ from .helpers import ip_object
 __all__ = ("EnhancedJunOSDriver",)
 
 
+def _module_to_dict(module, parent_name=None):
+    """Extract fields from a PyEZ Table item and build a hierarchical name."""
+    data = {elem[0]: elem[1] for elem in module[1]}
+    jname = data.get("jname") or ""
+    name = f"{parent_name}/{jname}" if parent_name else jname
+    model = str(data.get("model") or "") if data.get("model") else None
+    pn = str(data.get("pn") or "") if data.get("pn") else None
+    return {
+        "name": name,
+        "component_name": jname,
+        "parent_name": parent_name,
+        "serial": str(data["sn"]) if data.get("sn") else None,
+        "part_id": model if model else pn,
+        "description": str(data.get("description") or ""),
+    }, data.get("sub_modules")
+
+
 class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
     """Enhanced JunOSDriver with richer interface data and regex filtering."""
 
@@ -135,6 +152,29 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
                 result[parent].setdefault("logical_interfaces", {})[liface] = lentry
 
         return result
+
+    def get_chassis_inventory(self) -> Generator[Dict[str, Any], None, None]:
+        """Walk the 3-level chassis module tree and yield flat dicts."""
+        table = junos_views.junos_chassis_inventory_table(self.device)
+        table.get()
+
+        for module_entry in table.items():
+            mod_dict, sub_modules = _module_to_dict(module_entry)
+            yield mod_dict
+
+            if sub_modules:
+                for sub_entry in sub_modules.items():
+                    sub_dict, sub_sub_modules = _module_to_dict(
+                        sub_entry, parent_name=mod_dict["name"]
+                    )
+                    yield sub_dict
+
+                    if sub_sub_modules:
+                        for sub_sub_entry in sub_sub_modules.items():
+                            sub_sub_dict, _ = _module_to_dict(
+                                sub_sub_entry, parent_name=sub_dict["name"]
+                            )
+                            yield sub_sub_dict
 
     @staticmethod
     def _parse_address_families(family_raw):

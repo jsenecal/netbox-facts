@@ -14,6 +14,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import CharField, Func
 from django.utils import timezone
 from dcim.models.device_components import Interface
+from dcim.models.device_components import InventoryItem
 from dcim.models.devices import Device
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
@@ -548,7 +549,128 @@ class NapalmCollector:
                 comments=f"Inventory facts collected:\n" + "\n".join(f"- {c}" for c in changes),
             )
 
+        # Chassis module inventory (Junos-specific)
+        if hasattr(driver, "get_chassis_inventory"):
+            self._collect_chassis_inventory(driver, device)
+
         self._log_success("Inventory collection completed")
+
+    def _collect_chassis_inventory(self, driver, device):
+        """Collect chassis hardware modules and reconcile with InventoryItems."""
+        try:
+            modules = list(driver.get_chassis_inventory())
+        except Exception as exc:
+            self._log_warning(f"Chassis inventory collection failed: {exc}")
+            return
+
+        # Pre-fetch existing discovered InventoryItems for this device
+        existing_items = {
+            item.name: item
+            for item in InventoryItem.objects.filter(device=device)
+        }
+        seen_names = set()
+
+        for mod in modules:
+            name = mod["name"]
+            part_id = mod.get("part_id") or ""
+            serial = mod.get("serial") or ""
+            description = mod.get("description") or ""
+
+            # Skip BUILTIN modules and modules with no part_id
+            if part_id == "BUILTIN" or not part_id:
+                continue
+
+            # Skip Routing Engine modules — serial handled by get_facts
+            if name.startswith("Routing Engine"):
+                continue
+
+            seen_names.add(name)
+            existing = existing_items.get(name)
+
+            detected = {
+                "name": name,
+                "serial": serial,
+                "part_id": part_id,
+                "description": description,
+            }
+
+            if existing is None:
+                action = EntryActionChoices.ACTION_NEW
+                current = {}
+            elif (
+                existing.serial != serial
+                or existing.part_id != part_id
+                or existing.description != description
+            ):
+                action = EntryActionChoices.ACTION_CHANGED
+                current = {
+                    "serial": existing.serial,
+                    "part_id": existing.part_id,
+                    "description": existing.description,
+                }
+            else:
+                action = EntryActionChoices.ACTION_CONFIRMED
+                current = {
+                    "serial": existing.serial,
+                    "part_id": existing.part_id,
+                    "description": existing.description,
+                }
+
+            object_repr = f"InventoryItem {name}"
+            entry = self._record_entry(
+                action=action,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values=detected,
+                current_values=current,
+                object_instance=existing,
+                object_repr=object_repr,
+            )
+
+            if self._should_apply():
+                if action == EntryActionChoices.ACTION_NEW:
+                    item = InventoryItem.objects.create(
+                        device=device,
+                        name=name,
+                        serial=serial,
+                        part_id=part_id,
+                        description=description,
+                        discovered=True,
+                    )
+                    item.tags.add(AUTO_D_TAG)
+                    self._mark_entry_applied(entry, item, object_repr=self._object_repr(item))
+                elif action == EntryActionChoices.ACTION_CHANGED:
+                    existing.serial = serial
+                    existing.part_id = part_id
+                    existing.description = description
+                    existing.save(update_fields=["serial", "part_id", "description"])
+                    self._mark_entry_applied(entry, existing, object_repr=self._object_repr(existing))
+                else:
+                    self._mark_entry_applied(entry, existing)
+
+        # Detect stale discovered items (hardware no longer present)
+        stale_items = InventoryItem.objects.filter(
+            device=device, discovered=True,
+        ).exclude(name__in=seen_names)
+
+        for stale_item in stale_items:
+            stale_entry = self._record_entry(
+                action=EntryActionChoices.ACTION_STALE,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values={},
+                current_values={
+                    "name": stale_item.name,
+                    "serial": stale_item.serial,
+                    "part_id": stale_item.part_id,
+                    "description": stale_item.description,
+                },
+                object_instance=stale_item,
+                object_repr=f"InventoryItem {stale_item.name}",
+            )
+            if self._should_apply():
+                stale_item.delete()
+                self._mark_entry_applied(stale_entry, device)
 
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
