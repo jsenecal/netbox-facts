@@ -7,8 +7,9 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.utils import timezone
 
-from dcim.models.device_components import Interface, InventoryItem
+from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.devices import Device
+from dcim.models.modules import Module, ModuleType
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
@@ -179,7 +180,14 @@ def _apply_ndp_entry(entry, now):
 
 
 def _apply_inventory_entry(entry, now):
-    """Apply an inventory entry (serial number update or InventoryItem)."""
+    """Apply an inventory entry (serial number update, InventoryItem, or Module)."""
+    if entry.object_repr.startswith("Module "):
+        if entry.action == EntryActionChoices.ACTION_STALE:
+            _apply_stale_module(entry)
+        else:
+            _apply_module(entry)
+        return
+
     if entry.object_repr.startswith("InventoryItem "):
         if entry.action == EntryActionChoices.ACTION_STALE:
             _apply_stale_inventory_item(entry)
@@ -202,14 +210,23 @@ def _apply_inventory_item(entry):
     """Apply a chassis InventoryItem entry (NEW or CHANGED)."""
     dv = entry.detected_values
     name = dv.get("name", "")
+    parent_name = dv.get("parent_name")
     serial = dv.get("serial", "")
     part_id = dv.get("part_id", "")
     description = dv.get("description", "")
+
+    # Resolve parent InventoryItem if this is a sub-module
+    parent = None
+    if parent_name:
+        parent = InventoryItem.objects.filter(
+            device=entry.device, name=parent_name,
+        ).first()
 
     item, created = InventoryItem.objects.get_or_create(
         device=entry.device,
         name=name,
         defaults={
+            "parent": parent,
             "serial": serial,
             "part_id": part_id,
             "description": description,
@@ -238,6 +255,57 @@ def _apply_stale_inventory_item(entry):
         item.delete()
     except InventoryItem.DoesNotExist:
         logger.warning("InventoryItem %s not found for stale entry %s", name, entry.pk)
+    _set_entry_object(entry, entry.device)
+
+
+def _apply_module(entry):
+    """Apply a chassis Module entry (NEW or CHANGED)."""
+    dv = entry.detected_values
+    module_bay_id = dv.get("module_bay_id")
+    module_type_id = dv.get("module_type_id")
+    serial = dv.get("serial", "")
+
+    bay = ModuleBay.objects.get(pk=module_bay_id)
+    mod_type = ModuleType.objects.get(pk=module_type_id)
+
+    if entry.action == EntryActionChoices.ACTION_NEW:
+        mod = Module(
+            device=entry.device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial=serial,
+        )
+        mod._adopt_components = True
+        mod._disable_replication = True
+        mod.save()
+        mod.tags.add(AUTO_D_TAG)
+    elif entry.action == EntryActionChoices.ACTION_CHANGED:
+        mod = getattr(bay, "installed_module", None)
+        if mod is not None:
+            mod.serial = serial
+            mod.save(update_fields=["serial"])
+        else:
+            raise ValueError(f"No installed module in bay {bay.name} to update")
+
+    _set_entry_object(entry, mod)
+
+
+def _apply_stale_module(entry):
+    """Delete a stale auto-discovered Module."""
+    cv = entry.current_values
+    module_bay_id = cv.get("module_bay_id")
+
+    try:
+        bay = ModuleBay.objects.get(pk=module_bay_id)
+        mod = getattr(bay, "installed_module", None)
+    except ModuleBay.DoesNotExist:
+        logger.warning("ModuleBay %s not found for stale module entry %s", module_bay_id, entry.pk)
+        _set_entry_object(entry, entry.device)
+        return
+
+    if mod is not None and mod.tags.filter(name=AUTO_D_TAG).exists():
+        mod.delete()
+
     _set_entry_object(entry, entry.device)
 
 

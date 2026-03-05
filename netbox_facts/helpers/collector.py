@@ -13,9 +13,10 @@ import django.db
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import CharField, Func
 from django.utils import timezone
-from dcim.models.device_components import Interface
+from dcim.models.device_components import Interface, ModuleBay
 from dcim.models.device_components import InventoryItem
 from dcim.models.devices import Device
+from dcim.models.modules import Module, ModuleType
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from netbox.plugins.utils import get_plugin_config
@@ -556,22 +557,32 @@ class NapalmCollector:
         self._log_success("Inventory collection completed")
 
     def _collect_chassis_inventory(self, driver, device):
-        """Collect chassis hardware modules and reconcile with InventoryItems."""
+        """Collect chassis hardware modules and reconcile with InventoryItems and Modules."""
         try:
             modules = list(driver.get_chassis_inventory())
         except Exception as exc:
             self._log_warning(f"Chassis inventory collection failed: {exc}")
             return
 
+        manufacturer = device.device_type.manufacturer
+
         # Pre-fetch existing discovered InventoryItems for this device
         existing_items = {
             item.name: item
             for item in InventoryItem.objects.filter(device=device)
         }
+        # Track newly created items so children can find their parent
+        created_items = {}
         seen_names = set()
+
+        # Track Modules by name for sub-module parent bay lookups
+        modules_by_name = {}
+        seen_module_bay_ids = set()
 
         for mod in modules:
             name = mod["name"]
+            component_name = mod.get("component_name") or name
+            parent_name = mod.get("parent_name")
             part_id = mod.get("part_id") or ""
             serial = mod.get("serial") or ""
             description = mod.get("description") or ""
@@ -589,6 +600,7 @@ class NapalmCollector:
 
             detected = {
                 "name": name,
+                "parent_name": parent_name,
                 "serial": serial,
                 "part_id": part_id,
                 "description": description,
@@ -628,16 +640,23 @@ class NapalmCollector:
             )
 
             if self._should_apply():
+                # Resolve parent from already-created or pre-existing items
+                parent_item = None
+                if parent_name:
+                    parent_item = created_items.get(parent_name) or existing_items.get(parent_name)
+
                 if action == EntryActionChoices.ACTION_NEW:
                     item = InventoryItem.objects.create(
                         device=device,
                         name=name,
+                        parent=parent_item,
                         serial=serial,
                         part_id=part_id,
                         description=description,
                         discovered=True,
                     )
                     item.tags.add(AUTO_D_TAG)
+                    created_items[name] = item
                     self._mark_entry_applied(entry, item, object_repr=self._object_repr(item))
                 elif action == EntryActionChoices.ACTION_CHANGED:
                     existing.serial = serial
@@ -647,6 +666,13 @@ class NapalmCollector:
                     self._mark_entry_applied(entry, existing, object_repr=self._object_repr(existing))
                 else:
                     self._mark_entry_applied(entry, existing)
+
+            # --- Module creation logic ---
+            self._collect_chassis_module(
+                device, manufacturer, name, component_name, parent_name,
+                serial, part_id, description,
+                modules_by_name, seen_module_bay_ids,
+            )
 
         # Detect stale discovered items (hardware no longer present)
         stale_items = InventoryItem.objects.filter(
@@ -672,17 +698,157 @@ class NapalmCollector:
                 stale_item.delete()
                 self._mark_entry_applied(stale_entry, device)
 
+        # Detect stale auto-discovered Modules
+        stale_modules = Module.objects.filter(
+            device=device, tags__name=AUTO_D_TAG,
+        ).exclude(module_bay_id__in=seen_module_bay_ids)
+
+        for stale_mod in stale_modules:
+            bay_name = stale_mod.module_bay.name
+            stale_entry = self._record_entry(
+                action=EntryActionChoices.ACTION_STALE,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values={},
+                current_values={
+                    "module_bay_id": stale_mod.module_bay_id,
+                    "module_type_id": stale_mod.module_type_id,
+                    "serial": stale_mod.serial,
+                },
+                object_instance=stale_mod,
+                object_repr=f"Module {bay_name}",
+            )
+            if self._should_apply():
+                stale_mod.delete()
+                self._mark_entry_applied(stale_entry, device)
+
+    def _collect_chassis_module(
+        self, device, manufacturer, name, component_name, parent_name,
+        serial, part_id, description, modules_by_name, seen_module_bay_ids,
+    ):
+        """Try to create/confirm a Module for a chassis hardware module.
+
+        Called after the InventoryItem entry for each module. Only creates a
+        Module when a matching ModuleBay and ModuleType exist in NetBox.
+        """
+        # Resolve parent Module for sub-module bay lookups
+        parent_module = None
+        if parent_name:
+            parent_module = modules_by_name.get(parent_name)
+            if parent_module is None:
+                # Try DB lookup for previously created modules
+                parent_bay = ModuleBay.objects.filter(
+                    device=device, name=parent_name.rsplit("/", 1)[-1] if "/" in parent_name else parent_name,
+                    module=None,
+                ).first()
+                if parent_bay:
+                    parent_module = getattr(parent_bay, "installed_module", None)
+
+        # Find ModuleBay
+        bay = ModuleBay.objects.filter(
+            device=device,
+            name=component_name,
+            module=parent_module,
+        ).first()
+
+        if bay is None:
+            self._log_warning(f"No ModuleBay found for {component_name}")
+            return
+
+        # Find ModuleType — part_number takes precedence over model
+        module_type = ModuleType.objects.filter(
+            manufacturer=manufacturer, part_number=part_id,
+        ).first()
+        if module_type is None:
+            module_type = ModuleType.objects.filter(
+                manufacturer=manufacturer, model=part_id,
+            ).first()
+
+        if module_type is None:
+            self._log_warning(f"No ModuleType found for part {part_id}")
+            return
+
+        seen_module_bay_ids.add(bay.pk)
+
+        # Check existing module in bay
+        installed = getattr(bay, "installed_module", None)
+
+        if installed is None:
+            action = EntryActionChoices.ACTION_NEW
+            current = {}
+        elif installed.serial == serial:
+            action = EntryActionChoices.ACTION_CONFIRMED
+            current = {"serial": installed.serial}
+        else:
+            action = EntryActionChoices.ACTION_CHANGED
+            current = {"serial": installed.serial}
+
+        mod_detected = {
+            "name": name,
+            "component_name": component_name,
+            "parent_name": parent_name,
+            "serial": serial,
+            "part_id": part_id,
+            "description": description,
+            "module_bay_id": bay.pk,
+            "module_type_id": module_type.pk,
+        }
+
+        mod_entry = self._record_entry(
+            action=action,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values=mod_detected,
+            current_values=current,
+            object_instance=installed,
+            object_repr=f"Module {component_name}",
+        )
+
+        if self._should_apply():
+            if action == EntryActionChoices.ACTION_NEW:
+                mod_obj = Module(
+                    device=device,
+                    module_bay=bay,
+                    module_type=module_type,
+                    serial=serial,
+                )
+                mod_obj._adopt_components = True
+                mod_obj._disable_replication = True
+                mod_obj.save()
+                mod_obj.tags.add(AUTO_D_TAG)
+                modules_by_name[name] = mod_obj
+                self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
+            elif action == EntryActionChoices.ACTION_CHANGED:
+                installed.serial = serial
+                installed.save(update_fields=["serial"])
+                modules_by_name[name] = installed
+                self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
+            else:
+                modules_by_name[name] = installed
+                self._mark_entry_applied(mod_entry, installed)
+        else:
+            # Track for stale detection even in detect-only mode
+            if installed is not None:
+                modules_by_name[name] = installed
+
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
 
         Uses detect_interface_type() to infer the type and optionally
         populates description/enabled/mtu from iface_data.
+        Sub-interfaces (containing '.') get their parent set to the physical interface.
         """
         try:
             return device.vc_interfaces().get(name=name)
         except Interface.DoesNotExist:
             iface_type = detect_interface_type(name)
             kwargs = {"device": device, "name": name, "type": iface_type}
+            if "." in name:
+                parent_name = name.rsplit(".", 1)[0]
+                try:
+                    kwargs["parent"] = device.vc_interfaces().get(name=parent_name)
+                except Interface.DoesNotExist:
+                    pass
             if iface_data:
                 if iface_data.get("description"):
                     kwargs["description"] = iface_data["description"]

@@ -414,6 +414,7 @@ class FactsReportListView(generic.ObjectListView):
     table = tables.FactsReportTable
     filterset = filtersets.FactsReportFilterSet
     filterset_form = forms.FactsReportFilterForm
+    actions = {"export"}
 
 
 @register_model_view(models.FactsReport)

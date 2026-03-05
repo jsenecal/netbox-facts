@@ -7,7 +7,8 @@ from dcim.models import (
     Manufacturer,
     Site,
 )
-from dcim.models.device_components import Interface, InventoryItem
+from dcim.models.device_components import Interface, InventoryItem, ModuleBay
+from dcim.models.modules import Module, ModuleType
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 
@@ -496,6 +497,54 @@ class ApplyInterfaceAutoCreateTest(ApplierTestMixin, TestCase):
         ip = IPAddress.objects.get(address="10.0.7.1/24")
         self.assertEqual(ip.assigned_object, nb_li)
 
+    def test_apply_ip_auto_created_logical_has_parent(self):
+        """Auto-created sub-interface should have parent set to existing physical."""
+        phys = Interface.objects.create(
+            device=self.device, name="ge-0/0/7", type="1000base-t"
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="IPAddress 10.0.8.1/24 on ge-0/0/7.0",
+            detected_values={
+                "logical_interface": "ge-0/0/7.0",
+                "ip_address": "10.0.8.1/24",
+                "vrf": None,
+                "prefix": "10.0.8.0/24",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        nb_li = Interface.objects.get(device=self.device, name="ge-0/0/7.0")
+        self.assertEqual(nb_li.parent, phys)
+
+    def test_apply_mac_auto_created_no_parent_when_physical(self):
+        """Auto-created physical interface should have no parent."""
+        report = FactsReport.objects.create(
+            collection_plan=self.plan,
+            status=ReportStatusChoices.STATUS_COMPLETED,
+        )
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=self.device,
+            object_repr="Interface ge-0/0/8 MAC AA:BB:CC:DD:EE:C1",
+            detected_values={"interface": "ge-0/0/8", "mac_address": "AA:BB:CC:DD:EE:C1"},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+
+        nb_iface = Interface.objects.get(device=self.device, name="ge-0/0/8")
+        self.assertIsNone(nb_iface.parent)
+
 
 class ApplyIPReassignTest(ApplierTestMixin, TestCase):
     """Tests for applier handling of auto-discovered IP reassignment and stale cleanup."""
@@ -656,3 +705,136 @@ class ApplyInventoryItemTest(ApplierTestMixin, TestCase):
         self.assertFalse(
             InventoryItem.objects.filter(device=self.device, name="FPC 1").exists()
         )
+
+    def test_apply_new_inventory_item_with_parent(self):
+        """Applying a sub-module entry should set parent to existing InventoryItem."""
+        fpc = InventoryItem.objects.create(
+            device=self.device, name="FPC 0", serial="FPC_SN",
+            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="InventoryItem FPC 0/PIC 0",
+            detected_values={
+                "name": "FPC 0/PIC 0",
+                "parent_name": "FPC 0",
+                "serial": "PIC_SN",
+                "part_id": "750-99999",
+                "description": "4x10GE PIC",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        pic = InventoryItem.objects.get(device=self.device, name="FPC 0/PIC 0")
+        self.assertEqual(pic.parent, fpc)
+
+
+class ApplyModuleTest(ApplierTestMixin, TestCase):
+    """Tests for applying Module entries."""
+
+    def test_apply_new_module(self):
+        """Applying a NEW Module entry should create a Module with adoption flags."""
+        bay = ModuleBay.objects.create(device=self.device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="Module FPC 0",
+            detected_values={
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "module_bay_id": bay.pk,
+                "module_type_id": mod_type.pk,
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        mod = Module.objects.get(device=self.device, module_bay=bay)
+        self.assertEqual(mod.serial, "FPC0_SN")
+        self.assertEqual(mod.module_type, mod_type)
+        self.assertTrue(mod.tags.filter(name=AUTO_D_TAG).exists())
+
+    def test_apply_changed_module_serial(self):
+        """Applying a CHANGED Module entry should update the serial."""
+        bay = ModuleBay.objects.create(device=self.device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        existing_mod = Module.objects.create(
+            device=self.device, module_bay=bay, module_type=mod_type, serial="OLD_SN",
+        )
+        existing_mod.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_CHANGED,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="Module FPC 0",
+            detected_values={
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "serial": "NEW_SN",
+                "part_id": "750-12345",
+                "module_bay_id": bay.pk,
+                "module_type_id": mod_type.pk,
+            },
+            current_values={"serial": "OLD_SN"},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        existing_mod.refresh_from_db()
+        self.assertEqual(existing_mod.serial, "NEW_SN")
+
+    def test_apply_stale_module(self):
+        """Applying a STALE Module entry should delete the auto-discovered Module."""
+        bay = ModuleBay.objects.create(device=self.device, name="FPC 1")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-99999",
+        )
+        stale_mod = Module.objects.create(
+            device=self.device, module_bay=bay, module_type=mod_type, serial="GONE_SN",
+        )
+        stale_mod.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_STALE,
+            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
+            device=self.device,
+            object_repr="Module FPC 1",
+            detected_values={},
+            current_values={
+                "module_bay_id": bay.pk,
+                "module_type_id": mod_type.pk,
+                "serial": "GONE_SN",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        self.assertFalse(Module.objects.filter(device=self.device, module_bay=bay).exists())

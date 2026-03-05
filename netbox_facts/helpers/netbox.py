@@ -157,14 +157,20 @@ def get_or_create_interface(device, name):
 
     When created, the interface is tagged with AUTO_D_TAG and its type
     is inferred from the name via detect_interface_type().
+    Sub-interfaces (containing '.') get their parent set to the physical interface.
     """
     try:
         return device.vc_interfaces().get(name=name)
     except Interface.DoesNotExist:
         iface_type = detect_interface_type(name)
-        nb_iface = Interface.objects.create(
-            device=device, name=name, type=iface_type
-        )
+        kwargs = {"device": device, "name": name, "type": iface_type}
+        if "." in name:
+            parent_name = name.rsplit(".", 1)[0]
+            try:
+                kwargs["parent"] = device.vc_interfaces().get(name=parent_name)
+            except Interface.DoesNotExist:
+                pass
+        nb_iface = Interface.objects.create(**kwargs)
         nb_iface.tags.add(AUTO_D_TAG)
         return nb_iface
 

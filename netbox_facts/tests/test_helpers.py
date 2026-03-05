@@ -11,7 +11,8 @@ from dcim.models import (
     Manufacturer,
     Site,
 )
-from dcim.models.device_components import Interface, InventoryItem
+from dcim.models.device_components import Interface, InventoryItem, ModuleBay
+from dcim.models.modules import Module, ModuleType
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
@@ -2428,3 +2429,298 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
 
         # But no InventoryItem created in DB
         self.assertFalse(InventoryItem.objects.filter(device=device, name="FPC 0").exists())
+
+    def test_new_sub_module_has_parent(self):
+        """Newly created sub-module InventoryItems should have parent set."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-dev7", serial="CHASSIS_SN")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+            {
+                "name": "FPC 0/PIC 0",
+                "component_name": "PIC 0",
+                "parent_name": "FPC 0",
+                "serial": "PIC0_SN",
+                "part_id": "750-99999",
+                "description": "4x10GE PIC",
+            },
+            {
+                "name": "FPC 0/PIC 0/Xcvr 0",
+                "component_name": "Xcvr 0",
+                "parent_name": "FPC 0/PIC 0",
+                "serial": "XCVR_SN",
+                "part_id": "740-11111",
+                "description": "SFP+-10G-SR",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        fpc = InventoryItem.objects.get(device=device, name="FPC 0")
+        pic = InventoryItem.objects.get(device=device, name="FPC 0/PIC 0")
+        xcvr = InventoryItem.objects.get(device=device, name="FPC 0/PIC 0/Xcvr 0")
+
+        self.assertIsNone(fpc.parent)
+        self.assertEqual(pic.parent, fpc)
+        self.assertEqual(xcvr.parent, pic)
+
+    def test_module_created_when_bay_and_type_exist(self):
+        """Module should be created when matching ModuleBay and ModuleType exist."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod1", serial="CHASSIS_SN")
+        bay = ModuleBay.objects.create(device=device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        mod = Module.objects.get(device=device, module_bay=bay)
+        self.assertEqual(mod.serial, "FPC0_SN")
+        self.assertEqual(mod.module_type, mod_type)
+        self.assertTrue(mod.tags.filter(name=AUTO_D_TAG).exists())
+
+        # Should also have a Module entry in the report (repr updated by _mark_entry_applied)
+        mod_entries = report.entries.filter(
+            object_repr__startswith="Module ",
+            action=EntryActionChoices.ACTION_NEW,
+        )
+        self.assertEqual(mod_entries.count(), 1)
+
+    def test_module_not_created_when_bay_missing(self):
+        """Without a matching ModuleBay, only InventoryItem should be created."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod2", serial="CHASSIS_SN")
+        ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        # InventoryItem should still be created
+        self.assertTrue(InventoryItem.objects.filter(device=device, name="FPC 0").exists())
+        # No Module created
+        self.assertFalse(Module.objects.filter(device=device).exists())
+        # No Module entry in report
+        self.assertEqual(report.entries.filter(object_repr__startswith="Module ").count(), 0)
+
+    def test_module_not_created_when_type_missing(self):
+        """Without a matching ModuleType, only InventoryItem should be created."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod3", serial="CHASSIS_SN")
+        ModuleBay.objects.create(device=device, name="FPC 0")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        self.assertTrue(InventoryItem.objects.filter(device=device, name="FPC 0").exists())
+        self.assertFalse(Module.objects.filter(device=device).exists())
+
+    def test_module_confirmed_when_serial_matches(self):
+        """Existing Module with matching serial should produce CONFIRMED."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(detect_only=True)
+        device = self._create_device("chassis-mod4", serial="CHASSIS_SN")
+        bay = ModuleBay.objects.create(device=device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        existing_mod = Module.objects.create(
+            device=device, module_bay=bay, module_type=mod_type, serial="FPC0_SN",
+        )
+        existing_mod.tags.add(AUTO_D_TAG)
+
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        mod_entries = report.entries.filter(
+            object_repr="Module FPC 0",
+            action=EntryActionChoices.ACTION_CONFIRMED,
+        )
+        self.assertEqual(mod_entries.count(), 1)
+
+    def test_module_serial_updated_when_changed(self):
+        """Serial mismatch should produce CHANGED and update serial."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod5", serial="CHASSIS_SN")
+        bay = ModuleBay.objects.create(device=device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+        )
+        existing_mod = Module.objects.create(
+            device=device, module_bay=bay, module_type=mod_type, serial="OLD_SN",
+        )
+        existing_mod.tags.add(AUTO_D_TAG)
+
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "NEW_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        existing_mod.refresh_from_db()
+        self.assertEqual(existing_mod.serial, "NEW_SN")
+
+        mod_entries = report.entries.filter(
+            object_repr__startswith="Module",
+            action=EntryActionChoices.ACTION_CHANGED,
+        )
+        self.assertEqual(mod_entries.count(), 1)
+
+    def test_stale_module_deleted(self):
+        """Auto-discovered Module not in chassis data should be deleted."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod6", serial="CHASSIS_SN")
+        bay = ModuleBay.objects.create(device=device, name="FPC 1")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-99999",
+        )
+        stale_mod = Module.objects.create(
+            device=device, module_bay=bay, module_type=mod_type, serial="GONE_SN",
+        )
+        stale_mod.tags.add(AUTO_D_TAG)
+
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        # Empty chassis inventory — the Module is stale
+        driver = self._make_chassis_driver([])
+
+        collector.inventory(driver)
+
+        self.assertFalse(Module.objects.filter(device=device).exists())
+
+        stale_entries = report.entries.filter(
+            action=EntryActionChoices.ACTION_STALE,
+            object_repr="Module FPC 1",
+        )
+        self.assertEqual(stale_entries.count(), 1)
+
+    def test_module_type_matched_by_model_fallback(self):
+        """ModuleType should be matched by model when part_number doesn't match."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan()
+        device = self._create_device("chassis-mod7", serial="CHASSIS_SN")
+        bay = ModuleBay.objects.create(device=device, name="FPC 0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="750-12345", part_number="",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector._report = report
+
+        driver = self._make_chassis_driver([
+            {
+                "name": "FPC 0",
+                "component_name": "FPC 0",
+                "parent_name": None,
+                "serial": "FPC0_SN",
+                "part_id": "750-12345",
+                "description": "MPC 4e 3D",
+            },
+        ])
+
+        collector.inventory(driver)
+
+        mod = Module.objects.get(device=device, module_bay=bay)
+        self.assertEqual(mod.module_type, mod_type)
