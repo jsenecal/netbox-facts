@@ -423,6 +423,7 @@ class FactsReportView(generic.ObjectView):
     """Detail view for FactsReport instances."""
 
     queryset = models.FactsReport.objects.all()
+    actions = (object_actions.DeleteObject,)
 
     def get_extra_context(self, request, instance):
         entries = instance.entries.all()
@@ -467,6 +468,7 @@ def _status_entries_view(status_value, status_label, weight):
         child_model = models.FactsReportEntry
         table = tables.FactsReportEntryTable
         filterset = filtersets.FactsReportEntryFilterSet
+        actions = ()
         template_name = "netbox_facts/factsreport_entries.html"
         tab = ViewTab(
             label=_(status_label),
