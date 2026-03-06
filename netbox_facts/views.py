@@ -15,6 +15,7 @@ from django.utils.translation import gettext as _
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
+from netbox import object_actions
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
 from extras.views import ScriptResultView
@@ -414,7 +415,7 @@ class FactsReportListView(generic.ObjectListView):
     table = tables.FactsReportTable
     filterset = filtersets.FactsReportFilterSet
     filterset_form = forms.FactsReportFilterForm
-    actions = {"export"}
+    actions = (object_actions.BulkExport,)
 
 
 @register_model_view(models.FactsReport)
