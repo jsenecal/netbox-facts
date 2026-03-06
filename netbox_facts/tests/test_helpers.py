@@ -868,6 +868,160 @@ class BGPCollectorTest(CollectorTestMixin, TestCase):
         peer_ip = IP.objects.get(address="172.16.0.1/32")
         self.assertEqual(peer_ip.vrf, vrf)
 
+    def test_bgp_routing_data_accumulated(self):
+        """_bgp_routing_data should be populated after bgp() runs."""
+        from ipam.models import RIR
+
+        RIR.objects.create(name="BGP-RIR-accum", slug="bgp-rir-accum")
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-accum",
+        )
+        device = self._create_device("bgp-dev-accum")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {
+            "global": {
+                "65001": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65001,
+                        "remote_address": "10.10.0.1",
+                        "local_address": "10.10.0.2",
+                    }
+                ],
+                "65002": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65002,
+                        "remote_address": "10.10.0.3",
+                        "local_address": "10.10.0.4",
+                    }
+                ],
+            }
+        }
+
+        collector.bgp(driver)
+
+        self.assertIsNotNone(getattr(collector, "_bgp_routing_data", None))
+        self.assertEqual(collector._bgp_routing_data["local_as"], 65000)
+        self.assertIn("global", collector._bgp_routing_data["vrfs"])
+        self.assertEqual(len(collector._bgp_routing_data["vrfs"]["global"]), 2)
+
+        peer_entries = collector._bgp_routing_data["vrfs"]["global"]
+        remote_addrs = {p["remote_address"] for p in peer_entries}
+        self.assertEqual(remote_addrs, {"10.10.0.1", "10.10.0.3"})
+        for entry in peer_entries:
+            self.assertIn("nb_ip", entry)
+            self.assertIn("nb_asn", entry)
+            self.assertIn("as_number", entry)
+
+    def test_bgp_routing_data_multi_vrf(self):
+        """_bgp_routing_data should contain entries for multiple VRFs."""
+        from ipam.models import RIR
+        from ipam.models.vrfs import VRF as VRFModel
+
+        RIR.objects.create(name="BGP-RIR-mvrf", slug="bgp-rir-mvrf")
+        VRFModel.objects.create(name="VRF_A", rd="65000:300")
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-mvrf",
+        )
+        device = self._create_device("bgp-dev-mvrf")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {
+            "global": {
+                "65001": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65001,
+                        "remote_address": "10.20.0.1",
+                        "local_address": "10.20.0.2",
+                    }
+                ]
+            },
+            "VRF_A": {
+                "65003": [
+                    {
+                        "up": True,
+                        "local_as": 65000,
+                        "remote_as": 65003,
+                        "remote_address": "10.20.1.1",
+                        "local_address": "10.20.1.2",
+                    }
+                ]
+            },
+        }
+
+        collector.bgp(driver)
+
+        data = collector._bgp_routing_data
+        self.assertEqual(data["local_as"], 65000)
+        self.assertIn("global", data["vrfs"])
+        self.assertIn("VRF_A", data["vrfs"])
+        self.assertEqual(len(data["vrfs"]["global"]), 1)
+        self.assertEqual(len(data["vrfs"]["VRF_A"]), 1)
+        self.assertIsNotNone(data["vrfs"]["VRF_A"][0]["nb_vrf"])
+
+    def test_bgp_routing_integration_skips_without_routing(self):
+        """_bgp_routing_integration() should return early when HAS_NETBOX_ROUTING is False."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-norouting",
+        )
+        device = self._create_device("bgp-dev-norouting")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._bgp_routing_data = {"local_as": 65000, "vrfs": {"global": []}}
+
+        with patch("netbox_facts.helpers.collector.HAS_NETBOX_ROUTING", False):
+            # Should return without error
+            collector._bgp_routing_integration()
+
+    def test_bgp_routing_integration_skips_no_local_as(self):
+        """_bgp_routing_integration() should skip when no local AS was found."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-nolas",
+        )
+        device = self._create_device("bgp-dev-nolas")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._bgp_routing_data = {"local_as": None, "vrfs": {}}
+
+        with patch("netbox_facts.helpers.collector.HAS_NETBOX_ROUTING", True):
+            # Should return without error (no local AS)
+            collector._bgp_routing_integration()
+
+    def test_bgp_routing_data_not_set_on_empty_bgp(self):
+        """_bgp_routing_data local_as should remain None when no peers found."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            name="Plan-bgp-empty",
+        )
+        device = self._create_device("bgp-dev-empty")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_bgp_neighbors_detail.return_value = {}
+
+        collector.bgp(driver)
+
+        self.assertIsNotNone(getattr(collector, "_bgp_routing_data", None))
+        self.assertIsNone(collector._bgp_routing_data["local_as"])
+        self.assertEqual(collector._bgp_routing_data["vrfs"], {})
+
 
 class VendorDispatchTest(TestCase):
     """Tests for the vendor-specific dispatch mechanism."""

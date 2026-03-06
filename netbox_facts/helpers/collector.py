@@ -1552,6 +1552,7 @@ class NapalmCollector:
         if bgp_data is None:
             return
         device = self._current_device
+        self._bgp_routing_data = {"local_as": None, "vrfs": {}}
 
         for vrf_name, peers_by_as in bgp_data.items():
             # Resolve VRF (empty string or "global" means no VRF)
@@ -1583,6 +1584,11 @@ class NapalmCollector:
                     remote_address = peer.get("remote_address", "")
                     if not remote_address:
                         continue
+
+                    if self._bgp_routing_data["local_as"] is None:
+                        local_as_val = peer.get("local_as")
+                        if local_as_val is not None:
+                            self._bgp_routing_data["local_as"] = int(local_as_val)
 
                     # Create IP address as /32 (IPv4) or /128 (IPv6)
                     try:
@@ -1660,33 +1666,150 @@ class NapalmCollector:
                                 f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
                             )
                         self._mark_entry_applied(bgp_entry, nb_ip, object_repr=f"BGP peer {get_absolute_url_markdown(nb_ip)} AS{as_number}")
+                        self._bgp_routing_data["vrfs"].setdefault(vrf_name, []).append({
+                            "remote_address": remote_address,
+                            "as_number": int(as_number),
+                            "nb_vrf": nb_vrf,
+                            "nb_ip": nb_ip,
+                            "nb_asn": nb_asn,
+                        })
 
         self._bgp_routing_integration()
         self._log_success("BGP collection completed")
 
     def _bgp_routing_integration(self):
-        """Create/update BGP session in netbox-routing if available."""
+        """Create BGPRouter/BGPScope/BGPPeer in netbox-routing if available."""
         if not HAS_NETBOX_ROUTING:
             return
 
+        data = getattr(self, "_bgp_routing_data", None)
+        if not data or data["local_as"] is None:
+            self._log_info("No local AS found in BGP data; skipping routing integration.")
+            return
+
         try:
-            from netbox_routing.models import BGPPeer, BGPRouter, BGPScope  # noqa: F401
+            from netbox_routing.models import BGPPeer, BGPRouter, BGPScope
+        except (ImportError, RuntimeError):
+            self._log_warning("netbox-routing models could not be loaded; skipping routing integration.")
+            return
 
-            router = BGPRouter.objects.filter(
-                assigned_object_id=self._current_device.pk,
-            ).first()
-            if not router:
-                self._log_info(
-                    f"No BGPRouter found for {self._current_device} in netbox-routing. "
-                    f"Skipping BGP session creation."
-                )
-                return
+        from django.contrib.contenttypes.models import ContentType
+        from ipam.models import ASN, RIR
 
-            self._log_info(
-                f"Found BGPRouter for {self._current_device} in netbox-routing."
+        device = self._current_device
+        device_ct = ContentType.objects.get_for_model(device)
+
+        # Get-or-create local ASN
+        try:
+            local_asn, _ = ASN.objects.get_or_create(
+                asn=data["local_as"],
+                defaults={"rir": RIR.objects.first()},
             )
-        except (NapalmException, django.db.IntegrityError, ValueError, AttributeError) as exc:
-            self._log_warning(f"netbox-routing BGP integration error: {exc}")
+        except (RIR.DoesNotExist, TypeError):
+            self._log_warning(f"No RIR in NetBox. Cannot create local ASN {data['local_as']}.")
+            return
+
+        # BGPRouter
+        if self._should_apply():
+            bgp_router, router_created = BGPRouter.objects.get_or_create(
+                assigned_object_type=device_ct,
+                assigned_object_id=device.pk,
+                asn=local_asn,
+            )
+            if router_created:
+                bgp_router.tags.add(AUTO_D_TAG)
+        else:
+            bgp_router = BGPRouter.objects.filter(
+                assigned_object_type=device_ct,
+                assigned_object_id=device.pk,
+                asn=local_asn,
+            ).first()
+            router_created = bgp_router is None
+
+        router_action = EntryActionChoices.ACTION_NEW if router_created else EntryActionChoices.ACTION_CONFIRMED
+        self._record_entry(
+            action=router_action,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values={"local_as": data["local_as"]},
+            object_instance=bgp_router,
+            object_repr=f"BGPRouter {device}",
+        )
+
+        if router_created and self._should_apply():
+            self._log_success(f"Created BGPRouter for {device} (AS{data['local_as']}).")
+        elif bgp_router:
+            self._log_info(f"Found existing BGPRouter for {device}.")
+
+        if not self._should_apply() and bgp_router is None:
+            # detect-only and router doesn't exist yet — can't create scope/peer
+            return
+
+        # Per-VRF scopes and peers
+        for vrf_name, peers in data["vrfs"].items():
+            nb_vrf = peers[0]["nb_vrf"] if peers else None
+
+            if self._should_apply():
+                bgp_scope, scope_created = BGPScope.objects.get_or_create(
+                    router=bgp_router,
+                    vrf=nb_vrf,
+                )
+                if scope_created:
+                    bgp_scope.tags.add(AUTO_D_TAG)
+            else:
+                bgp_scope = BGPScope.objects.filter(
+                    router=bgp_router, vrf=nb_vrf,
+                ).first()
+                scope_created = bgp_scope is None
+
+            scope_action = EntryActionChoices.ACTION_NEW if scope_created else EntryActionChoices.ACTION_CONFIRMED
+            scope_label = vrf_name if nb_vrf else "global"
+            self._record_entry(
+                action=scope_action,
+                collector_type=self._collector_type,
+                device=device,
+                detected_values={"local_as": data["local_as"], "vrf": vrf_name if nb_vrf else None},
+                object_instance=bgp_scope,
+                object_repr=f"BGPScope {device} {scope_label}",
+            )
+
+            if not self._should_apply() and bgp_scope is None:
+                continue
+
+            for peer_data in peers:
+                nb_ip = peer_data.get("nb_ip")
+                nb_asn = peer_data.get("nb_asn")
+                if nb_ip is None:
+                    continue
+
+                if self._should_apply():
+                    bgp_peer, peer_created = BGPPeer.objects.get_or_create(
+                        scope=bgp_scope,
+                        peer=nb_ip,
+                        defaults={"remote_as": nb_asn},
+                    )
+                    if peer_created:
+                        bgp_peer.tags.add(AUTO_D_TAG)
+                else:
+                    bgp_peer = BGPPeer.objects.filter(
+                        scope=bgp_scope, peer=nb_ip,
+                    ).first()
+                    peer_created = bgp_peer is None
+
+                peer_action = EntryActionChoices.ACTION_NEW if peer_created else EntryActionChoices.ACTION_CONFIRMED
+                self._record_entry(
+                    action=peer_action,
+                    collector_type=self._collector_type,
+                    device=device,
+                    detected_values={
+                        "remote_address": peer_data["remote_address"],
+                        "remote_as": peer_data["as_number"],
+                        "local_as": data["local_as"],
+                        "vrf": vrf_name if nb_vrf else None,
+                    },
+                    object_instance=bgp_peer,
+                    object_repr=f"BGPPeer {peer_data['remote_address']} AS{peer_data['as_number']}",
+                )
 
     def ospf(self, driver: NetworkDriver):
         """Collect OSPF data. Dispatches to vendor-specific implementation."""
