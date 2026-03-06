@@ -104,7 +104,7 @@ class FactsReportTable(NetBoxTable):
     pk = ToggleColumn()
     collection_plan = tables.Column(linkify=True)
     status = ChoiceFieldColumn()
-    actions = ActionsColumn(actions=("delete", "changelog"))
+    actions = ActionsColumn(actions=("delete",))
     entry_count = tables.Column(verbose_name=_("Entries"), accessor="entry_count", orderable=True, default=0)
     new_count = tables.Column(verbose_name=_("New"), accessor="new_count", orderable=True, default=0)
     changed_count = tables.Column(verbose_name=_("Changed"), accessor="changed_count", orderable=True, default=0)

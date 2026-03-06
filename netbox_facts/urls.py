@@ -119,10 +119,4 @@ urlpatterns = (
         "facts-report/<int:pk>/",
         include(get_model_urls("netbox_facts", "factsreport")),
     ),
-    path(
-        "facts-report/<int:pk>/changelog/",
-        ObjectChangeLogView.as_view(),
-        name="factsreport_changelog",
-        kwargs={"model": models.FactsReport},
-    ),
 )

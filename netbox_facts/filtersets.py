@@ -2,7 +2,7 @@ import django_filters
 
 from dcim.fields import MACAddressField
 from django.utils.translation import gettext_lazy as _
-from netbox.filtersets import ChangeLoggedModelFilterSet, NetBoxModelFilterSet
+from netbox.filtersets import NetBoxModelFilterSet
 
 from .choices import (
     CollectionTypeChoices,
@@ -97,7 +97,7 @@ class CollectorFilterSet(NetBoxModelFilterSet):
         return queryset.filter(name__icontains=value)
 
 
-class FactsReportFilterSet(ChangeLoggedModelFilterSet):
+class FactsReportFilterSet(django_filters.FilterSet):
     """Filter set for the FactsReport model."""
 
     q = django_filters.CharFilter(
