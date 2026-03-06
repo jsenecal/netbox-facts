@@ -492,6 +492,12 @@ def _apply_bgp_entry(entry, now):
 
     if entry.object_repr.startswith("VRF "):
         return _apply_vrf_entry(entry)
+    if entry.object_repr.startswith("BGPRouter "):
+        return _apply_bgp_router_entry(entry)
+    if entry.object_repr.startswith("BGPScope "):
+        return _apply_bgp_scope_entry(entry)
+    if entry.object_repr.startswith("BGPPeer "):
+        return _apply_bgp_peer_routing_entry(entry)
 
     dv = entry.detected_values
     remote_address = dv.get("remote_address", "")
@@ -577,6 +583,119 @@ def _apply_l2_circuits_entry(entry, now):
             comments=f"L2 circuit data collected:\n```\n{raw_output[:2000]}\n```",
         )
     _set_entry_object(entry, entry.device)
+
+
+def _apply_bgp_router_entry(entry):
+    """Create a BGPRouter from a detect-only report entry."""
+    from ipam.models import ASN, RIR
+    from netbox_routing.models import BGPRouter
+
+    local_as = entry.detected_values.get("local_as")
+    if local_as is None:
+        raise ValueError("BGPRouter entry has no local_as")
+
+    device = entry.device
+    device_ct = ContentType.objects.get_for_model(device)
+
+    asn_obj, _ = ASN.objects.get_or_create(
+        asn=int(local_as),
+        defaults={"rir": RIR.objects.first()},
+    )
+    router, created = BGPRouter.objects.get_or_create(
+        assigned_object_type=device_ct,
+        assigned_object_id=device.pk,
+        asn=asn_obj,
+    )
+    if created:
+        router.tags.add(AUTO_D_TAG)
+    _set_entry_object(entry, router)
+
+
+def _apply_bgp_scope_entry(entry):
+    """Create a BGPScope from a detect-only report entry."""
+    from ipam.models import ASN, RIR
+    from netbox_routing.models import BGPRouter, BGPScope
+
+    dv = entry.detected_values
+    local_as = dv.get("local_as")
+    vrf_name = dv.get("vrf")
+    device = entry.device
+    device_ct = ContentType.objects.get_for_model(device)
+
+    asn_obj, _ = ASN.objects.get_or_create(
+        asn=int(local_as),
+        defaults={"rir": RIR.objects.first()},
+    )
+    router, _ = BGPRouter.objects.get_or_create(
+        assigned_object_type=device_ct,
+        assigned_object_id=device.pk,
+        asn=asn_obj,
+    )
+
+    nb_vrf = None
+    if vrf_name:
+        nb_vrf = resolve_vrf(vrf_name)
+
+    scope, created = BGPScope.objects.get_or_create(
+        router=router, vrf=nb_vrf,
+    )
+    if created:
+        scope.tags.add(AUTO_D_TAG)
+    _set_entry_object(entry, scope)
+
+
+def _apply_bgp_peer_routing_entry(entry):
+    """Create a BGPPeer (netbox-routing) from a detect-only report entry."""
+    from ipam.models import ASN, RIR
+    from netbox_routing.models import BGPPeer, BGPRouter, BGPScope
+
+    dv = entry.detected_values
+    remote_address = dv.get("remote_address", "")
+    as_number = dv.get("remote_as")
+    local_as = dv.get("local_as")
+    vrf_name = dv.get("vrf")
+    device = entry.device
+    device_ct = ContentType.objects.get_for_model(device)
+
+    # Build chain: Router -> Scope
+    asn_obj, _ = ASN.objects.get_or_create(
+        asn=int(local_as),
+        defaults={"rir": RIR.objects.first()},
+    )
+    router, _ = BGPRouter.objects.get_or_create(
+        assigned_object_type=device_ct,
+        assigned_object_id=device.pk,
+        asn=asn_obj,
+    )
+
+    nb_vrf = None
+    if vrf_name:
+        nb_vrf = resolve_vrf(vrf_name)
+
+    scope, _ = BGPScope.objects.get_or_create(
+        router=router, vrf=nb_vrf,
+    )
+
+    # IP + remote ASN
+    ip_obj = ipaddress.ip_address(remote_address)
+    prefix_len = 32 if ip_obj.version == 4 else 128
+    ip_str = f"{remote_address}/{prefix_len}"
+    nb_ip, _ = get_or_create_ip(ip_str, vrf=nb_vrf)
+
+    nb_remote_asn = None
+    if as_number is not None:
+        nb_remote_asn, _ = ASN.objects.get_or_create(
+            asn=int(as_number),
+            defaults={"rir": RIR.objects.first()},
+        )
+
+    peer, created = BGPPeer.objects.get_or_create(
+        scope=scope, peer=nb_ip,
+        defaults={"remote_as": nb_remote_asn},
+    )
+    if created:
+        peer.tags.add(AUTO_D_TAG)
+    _set_entry_object(entry, peer)
 
 
 APPLY_HANDLERS = {

@@ -1,3 +1,5 @@
+import unittest
+
 from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
 from dcim.models import (
@@ -22,6 +24,12 @@ from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.applier import apply_entries, skip_entries
 from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
 from netbox_facts.models.mac import MACAddress
+
+try:
+    from netbox_routing.models import BGPPeer, BGPRouter, BGPScope
+    HAS_NETBOX_ROUTING = True
+except Exception:
+    HAS_NETBOX_ROUTING = False
 
 
 class ApplierTestMixin:
@@ -838,3 +846,291 @@ class ApplyModuleTest(ApplierTestMixin, TestCase):
         self.assertEqual(failed, 0)
 
         self.assertFalse(Module.objects.filter(device=self.device, module_bay=bay).exists())
+
+
+@unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+class ApplyBGPRouterEntryTest(ApplierTestMixin, TestCase):
+    """Tests for applying BGPRouter entries."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from ipam.models import RIR
+        RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
+
+    def test_apply_bgp_router_creates_router(self):
+        """Applying a BGPRouter entry should create a BGPRouter with the correct ASN."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr=f"BGPRouter {self.device}",
+            detected_values={"local_as": 65000},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        from django.contrib.contenttypes.models import ContentType
+        from ipam.models import ASN
+        device_ct = ContentType.objects.get_for_model(self.device)
+        asn = ASN.objects.get(asn=65000)
+        router = BGPRouter.objects.get(
+            assigned_object_type=device_ct,
+            assigned_object_id=self.device.pk,
+            asn=asn,
+        )
+        self.assertTrue(router.tags.filter(name=AUTO_D_TAG).exists())
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_APPLIED)
+        self.assertEqual(entry.object_id, router.pk)
+
+    def test_apply_bgp_router_missing_local_as_fails(self):
+        """BGPRouter entry without local_as should fail."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr=f"BGPRouter {self.device}",
+            detected_values={},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 0)
+        self.assertEqual(failed, 1)
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
+
+
+@unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+class ApplyBGPScopeEntryTest(ApplierTestMixin, TestCase):
+    """Tests for applying BGPScope entries."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from ipam.models import RIR
+        RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
+
+    def test_apply_bgp_scope_global(self):
+        """Applying a BGPScope entry with no VRF creates a global scope."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr=f"BGPScope {self.device} global",
+            detected_values={"local_as": 65000, "vrf": None},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        scope = BGPScope.objects.get(router__assigned_object_id=self.device.pk, vrf=None)
+        self.assertTrue(scope.tags.filter(name=AUTO_D_TAG).exists())
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.object_id, scope.pk)
+
+    def test_apply_bgp_scope_with_vrf(self):
+        """Applying a BGPScope entry with a VRF creates a VRF-scoped scope."""
+        vrf = VRF.objects.create(name="BGP_VRF")
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr=f"BGPScope {self.device} BGP_VRF",
+            detected_values={"local_as": 65000, "vrf": "BGP_VRF"},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        scope = BGPScope.objects.get(router__assigned_object_id=self.device.pk, vrf=vrf)
+        self.assertTrue(scope.tags.filter(name=AUTO_D_TAG).exists())
+
+
+@unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+class ApplyBGPPeerRoutingEntryTest(ApplierTestMixin, TestCase):
+    """Tests for applying BGPPeer (netbox-routing) entries."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from ipam.models import RIR
+        RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
+
+    def test_apply_bgp_peer_creates_full_chain(self):
+        """Applying a BGPPeer entry should create Router, Scope, IP, and Peer."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr="BGPPeer 10.0.0.1 AS65001",
+            detected_values={
+                "remote_address": "10.0.0.1",
+                "remote_as": 65001,
+                "local_as": 65000,
+                "vrf": None,
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        # Verify full chain
+        from ipam.models import ASN
+        ASN.objects.get(asn=65000)
+        ASN.objects.get(asn=65001)
+
+        router = BGPRouter.objects.get(assigned_object_id=self.device.pk)
+        scope = BGPScope.objects.get(router=router, vrf=None)
+        nb_ip = IPAddress.objects.get(address="10.0.0.1/32")
+        peer = BGPPeer.objects.get(scope=scope, peer=nb_ip)
+        self.assertTrue(peer.tags.filter(name=AUTO_D_TAG).exists())
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.object_id, peer.pk)
+
+    def test_apply_bgp_peer_with_vrf(self):
+        """Applying a BGPPeer entry with VRF should scope everything correctly."""
+        vrf = VRF.objects.create(name="PEER_VRF")
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr="BGPPeer 10.0.0.2 AS65002",
+            detected_values={
+                "remote_address": "10.0.0.2",
+                "remote_as": 65002,
+                "local_as": 65000,
+                "vrf": "PEER_VRF",
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        scope = BGPScope.objects.get(router__assigned_object_id=self.device.pk, vrf=vrf)
+        nb_ip = IPAddress.objects.get(address="10.0.0.2/32", vrf=vrf)
+        peer = BGPPeer.objects.get(scope=scope, peer=nb_ip)
+        self.assertTrue(peer.tags.filter(name=AUTO_D_TAG).exists())
+
+    def test_apply_bgp_peer_ipv6(self):
+        """Applying a BGPPeer entry with IPv6 should use /128 prefix length."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr="BGPPeer 2001:db8::1 AS65003",
+            detected_values={
+                "remote_address": "2001:db8::1",
+                "remote_as": 65003,
+                "local_as": 65000,
+                "vrf": None,
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        nb_ip = IPAddress.objects.get(address="2001:db8::1/128")
+        peer = BGPPeer.objects.get(peer=nb_ip)
+        self.assertIsNotNone(peer)
+
+    def test_apply_bgp_peer_no_remote_as(self):
+        """Applying a BGPPeer entry with no remote_as should still succeed."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr="BGPPeer 10.0.0.5 (no remote AS)",
+            detected_values={
+                "remote_address": "10.0.0.5",
+                "remote_as": None,
+                "local_as": 65000,
+                "vrf": None,
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        nb_ip = IPAddress.objects.get(address="10.0.0.5/32")
+        peer = BGPPeer.objects.get(peer=nb_ip)
+        self.assertIsNone(peer.remote_as)
+
+
+class ApplyBGPDispatchTest(ApplierTestMixin, TestCase):
+    """Tests for BGP entry dispatch logic (no netbox-routing dependency)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from ipam.models import RIR
+        RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
+
+    def test_regular_bgp_peer_entry_not_dispatched_to_routing(self):
+        """An entry with 'BGP peer' (lowercase) should use the regular IP handler."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr="BGP peer 10.0.0.3 AS65004",
+            detected_values={
+                "remote_address": "10.0.0.3",
+                "remote_as": 65004,
+            },
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+
+        # Should create an IP (regular BGP handler)
+        nb_ip = IPAddress.objects.get(address="10.0.0.3/32")
+        self.assertIsNotNone(nb_ip)
+
+    def test_bgp_router_entry_dispatches_correctly(self):
+        """Entry with 'BGPRouter' prefix should dispatch to routing handler, not IP logic."""
+        report = FactsReport.objects.create(collection_plan=self.plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_BGP,
+            device=self.device,
+            object_repr=f"BGPRouter {self.device}",
+            detected_values={"local_as": 65000},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+        # Either applied (if netbox_routing works) or failed (import error) — not silently skipped
+        self.assertEqual(applied + failed, 1)
+        # Importantly, no IPAddress should have been created by the regular BGP handler
+        self.assertFalse(IPAddress.objects.filter(address__startswith="65000").exists())
