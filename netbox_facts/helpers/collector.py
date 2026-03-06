@@ -1907,7 +1907,11 @@ class NapalmCollector:
 
         try:
             from netbox_routing.models import OSPFInstance  # noqa: F401
+        except (ImportError, RuntimeError):
+            self._log_warning("netbox-routing models could not be loaded; skipping OSPF integration.")
+            return
 
+        try:
             instance = OSPFInstance.objects.filter(
                 device=self._current_device,
             ).first()
