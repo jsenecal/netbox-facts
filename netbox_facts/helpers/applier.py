@@ -303,10 +303,12 @@ def _apply_stale_module(entry):
 
 
 def _apply_interfaces_entry(entry, now):
-    """Apply an interface entry (MAC, LAG membership, IP address, or stale IP)."""
+    """Apply an interface entry (MAC, LAG membership, IP address, VRF, or stale IP)."""
     dv = entry.detected_values
 
-    if entry.action == EntryActionChoices.ACTION_STALE:
+    if entry.object_repr.startswith("VRF "):
+        _apply_vrf_entry(entry)
+    elif entry.action == EntryActionChoices.ACTION_STALE:
         _apply_stale_interfaces_ip(entry)
     elif entry.object_repr.startswith("LAG "):
         _apply_interfaces_lag(entry, dv)
@@ -475,9 +477,21 @@ def _apply_ethernet_switching_entry(entry, now):
     _set_entry_object(entry, netbox_mac)
 
 
+def _apply_vrf_entry(entry):
+    """Apply a missing-VRF entry by creating the VRF."""
+    name = entry.detected_values.get("name", "")
+    if not name:
+        raise ValueError("VRF entry has no name")
+    vrf, created = VRF.objects.get_or_create(name=name)
+    _set_entry_object(entry, vrf)
+
+
 def _apply_bgp_entry(entry, now):
     """Apply a BGP peer IP/ASN entry."""
     from ipam.models import ASN, RIR
+
+    if entry.object_repr.startswith("VRF "):
+        return _apply_vrf_entry(entry)
 
     dv = entry.detected_values
     remote_address = dv.get("remote_address", "")

@@ -1016,14 +1016,23 @@ class NapalmCollector:
                     netbox_vrf = resolve_vrf(vrf_name)
                 except VRF.DoesNotExist:
                     self._log_warning(
-                        f"VRF `{vrf_name}` not found in NetBox, "
-                        f"IPs on `{li_name}` will be created without VRF."
+                        f"VRF `{vrf_name}` not found in NetBox. "
+                        f"Skipping IPs on `{li_name}`."
                     )
+                    self._record_entry(
+                        action=EntryActionChoices.ACTION_NEW,
+                        collector_type=self._collector_type,
+                        device=device,
+                        detected_values={"name": vrf_name},
+                        object_repr=f"VRF {vrf_name}",
+                    )
+                    continue
                 except VRF.MultipleObjectsReturned:
                     self._log_warning(
                         duplicate_object_warning("VRF", vrf_name)
-                        + f" IPs on `{li_name}` will be created without VRF."
+                        + f" Skipping IPs on `{li_name}`."
                     )
+                    continue
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
 
@@ -1552,13 +1561,22 @@ class NapalmCollector:
             except VRF.DoesNotExist:
                 self._log_warning(
                     f"Could not find VRF `{vrf_name}` in NetBox. "
-                    "Peers will be created in the global table."
+                    "Skipping peers in this VRF."
                 )
+                self._record_entry(
+                    action=EntryActionChoices.ACTION_NEW,
+                    collector_type=self._collector_type,
+                    device=device,
+                    detected_values={"name": vrf_name},
+                    object_repr=f"VRF {vrf_name}",
+                )
+                continue
             except VRF.MultipleObjectsReturned:
                 self._log_warning(
                     duplicate_object_warning("VRF", vrf_name)
-                    + " Peers will be created in the global table."
+                    + " Skipping peers in this VRF."
                 )
+                continue
 
             for as_number, peers in peers_by_as.items():
                 for peer in peers:
