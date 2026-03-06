@@ -475,21 +475,27 @@ class NapalmCollector:
 
     def arp(self, driver: NetworkDriver | EnhancedJunOSDriver):
         """Collect ARP table data from a device."""
-        arp_table = driver.get_arp_table()
+        arp_table = self._napalm_rpc(driver.get_arp_table, "ARP data")
+        if arp_table is None:
+            return
 
         self._ip_neighbors(driver, arp_table)  # type: ignore
         self._log_success("ARP collection completed")
 
     def ndp(self, driver: NetworkDriver | EnhancedJunOSDriver):
         """Collect NDP data from devices."""
-        ndp_table = driver.get_ipv6_neighbors_table()
+        ndp_table = self._napalm_rpc(driver.get_ipv6_neighbors_table, "NDP data")
+        if ndp_table is None:
+            return
 
         self._ip_neighbors(driver, ndp_table)  # type: ignore
         self._log_success("IPv6 Neighbor Discovery collection completed")
 
     def inventory(self, driver: NetworkDriver):
         """Collect inventory data from a device using get_facts()."""
-        facts = driver.get_facts()
+        facts = self._napalm_rpc(driver.get_facts, "inventory data")
+        if facts is None:
+            return
         device = self._current_device
         changes = []
         serial_changed = False
@@ -554,11 +560,10 @@ class NapalmCollector:
 
     def _collect_chassis_inventory(self, driver, device):
         """Collect chassis hardware modules and reconcile with InventoryItems and Modules."""
-        try:
-            modules = list(driver.get_chassis_inventory())
-        except Exception as exc:
-            self._log_warning(f"Chassis inventory collection failed: {exc}")
+        modules = self._napalm_rpc(driver.get_chassis_inventory, "chassis inventory")
+        if modules is None:
             return
+        modules = list(modules)
 
         manufacturer = device.device_type.manufacturer
 
@@ -855,11 +860,15 @@ class NapalmCollector:
         self._seen_ips = set()
         # Pass the interface regex to enhanced drivers that support server-side filtering
         try:
-            ifaces = driver.get_interfaces(
-                interface_name=self._interfaces_re.pattern,
-            )
-        except TypeError:
-            ifaces = driver.get_interfaces()
+            try:
+                ifaces = driver.get_interfaces(
+                    interface_name=self._interfaces_re.pattern,
+                )
+            except TypeError:
+                ifaces = driver.get_interfaces()
+        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
+            self._log_failure(f"Failed to retrieve interface data: {exc}")
+            return
         device = self._current_device
 
         for iface_name, iface_data in ifaces.items():
@@ -1056,10 +1065,8 @@ class NapalmCollector:
 
     def _interfaces_ip_generic(self, device, driver):
         """Collect IPs/VRFs using standard NAPALM get_interfaces_ip()."""
-        try:
-            interfaces_ip = driver.get_interfaces_ip()
-        except (CommandErrorException, NotImplementedError):
-            self._log_info("Driver does not support get_interfaces_ip(), skipping IP collection.")
+        interfaces_ip = self._napalm_rpc(driver.get_interfaces_ip, "interface IP data")
+        if interfaces_ip is None:
             return
 
         network_instances = dict(self._get_network_instances(driver))
@@ -1209,7 +1216,9 @@ class NapalmCollector:
         from dcim.choices import LinkStatusChoices
         from dcim.models.cables import Cable
 
-        lldp_data = driver.get_lldp_neighbors_detail()
+        lldp_data = self._napalm_rpc(driver.get_lldp_neighbors_detail, "LLDP data")
+        if lldp_data is None:
+            return
         device = self._current_device
 
         for local_iface_name, neighbors in lldp_data.items():
@@ -1334,7 +1343,9 @@ class NapalmCollector:
 
     def ethernet_switching(self, driver: NetworkDriver):
         """Collect ethernet switching data from a device using get_mac_address_table()."""
-        mac_table = driver.get_mac_address_table()
+        mac_table = self._napalm_rpc(driver.get_mac_address_table, "MAC address table")
+        if mac_table is None:
+            return
         device = self._current_device
 
         for entry in mac_table:
@@ -1435,12 +1446,10 @@ class NapalmCollector:
 
     def _l2_circuits_junos(self, driver):
         """Junos L2 circuit collection via CLI."""
-        try:
-            output = driver.cli(["show l2circuit connections"])
-            raw = output.get("show l2circuit connections", "")
-        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
-            self._log_failure(f"Failed to retrieve L2 circuit data: {exc}")
+        output = self._napalm_rpc(driver.cli, "L2 circuit data", ["show l2circuit connections"])
+        if output is None:
             return
+        raw = output.get("show l2circuit connections", "")
 
         if not raw.strip():
             self._log_info("No L2 circuit data found.")
@@ -1472,12 +1481,10 @@ class NapalmCollector:
 
     def _evpn_junos(self, driver):
         """Junos EVPN collection via CLI."""
-        try:
-            output = driver.cli(["show evpn mac-table"])
-            raw = output.get("show evpn mac-table", "")
-        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
-            self._log_failure(f"Failed to retrieve EVPN data: {exc}")
+        output = self._napalm_rpc(driver.cli, "EVPN data", ["show evpn mac-table"])
+        if output is None:
             return
+        raw = output.get("show evpn mac-table", "")
 
         if not raw.strip():
             self._log_info("No EVPN data found.")
@@ -1532,7 +1539,9 @@ class NapalmCollector:
         """Collect BGP data from a device using get_bgp_neighbors_detail()."""
         from ipam.models import ASN, RIR
 
-        bgp_data = driver.get_bgp_neighbors_detail()
+        bgp_data = self._napalm_rpc(driver.get_bgp_neighbors_detail, "BGP data")
+        if bgp_data is None:
+            return
         device = self._current_device
 
         for vrf_name, peers_by_as in bgp_data.items():
@@ -1668,12 +1677,10 @@ class NapalmCollector:
 
     def _ospf_junos(self, driver):
         """Junos OSPF collection via CLI."""
-        try:
-            output = driver.cli(["show ospf neighbor"])
-            raw = output.get("show ospf neighbor", "")
-        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
-            self._log_failure(f"Failed to retrieve OSPF data: {exc}")
+        output = self._napalm_rpc(driver.cli, "OSPF data", ["show ospf neighbor"])
+        if output is None:
             return
+        raw = output.get("show ospf neighbor", "")
 
         if not raw.strip():
             self._log_info("No OSPF neighbor data found.")
@@ -1848,6 +1855,20 @@ class NapalmCollector:
     def _log_debug(self, message):
         """Log a message at DEBUG level."""
         self.plan.log_debug(f"{self._log_prefix} {message}".strip())
+
+    def _napalm_rpc(self, call, label, *args, **kwargs):
+        """Execute a NAPALM RPC call with standard error handling.
+
+        Returns the call result, or None if the call failed.
+        """
+        try:
+            return call(*args, **kwargs)
+        except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
+            self._log_failure(f"Failed to retrieve {label}: {exc}")
+            return None
+        except NotImplementedError:
+            self._log_info(f"Driver does not support {label}, skipping.")
+            return None
 
     def _log_success(self, message):
         """Log a message at SUCCESS level."""
