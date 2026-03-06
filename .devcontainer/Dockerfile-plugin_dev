@@ -52,7 +52,7 @@ RUN curl "https://raw.githubusercontent.com/oh-my-fish/oh-my-fish/master/bin/ins
 # Add Claude Code to the devcontainer
 RUN mkdir -p ~/.npm && npm config set prefix ~/.npm && npm install -g @anthropic-ai/claude-code
 
-# Install plugin with dev dependencies
-RUN uv pip install --no-cache-dir -e "/opt/netbox-facts[dev]"
+# Install plugin with dev dependencies + optional peer plugins
+RUN uv pip install --no-cache-dir -e "/opt/netbox-facts[dev]" netbox-routing
 
 ENTRYPOINT ["/bin/entrypoint-dev.sh"]
