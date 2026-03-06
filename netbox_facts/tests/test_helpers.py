@@ -998,6 +998,34 @@ class NetboxRoutingIntegrationTest(TestCase):
         self.assertIsInstance(HAS_NETBOX_ROUTING, bool)
 
 
+class HideCollectorTypeTests(TestCase):
+    """Form should hide BGP/OSPF when netbox-routing is absent."""
+
+    @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", False)
+    def test_form_hides_bgp_ospf_when_no_routing(self):
+        from netbox_facts.forms import CollectorForm
+        form = CollectorForm()
+        choices = [c[0] for c in form.fields["collector_type"].choices]
+        self.assertNotIn("bgp", choices)
+        self.assertNotIn("ospf", choices)
+
+    @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", True)
+    def test_form_shows_bgp_ospf_when_routing_present(self):
+        from netbox_facts.forms import CollectorForm
+        form = CollectorForm()
+        choices = [c[0] for c in form.fields["collector_type"].choices]
+        self.assertIn("bgp", choices)
+        self.assertIn("ospf", choices)
+
+    @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", False)
+    def test_filter_form_hides_bgp_ospf_when_no_routing(self):
+        from netbox_facts.forms import CollectionPlanFilterForm
+        form = CollectionPlanFilterForm()
+        choices = [c[0] for c in form.fields["collector_type"].choices]
+        self.assertNotIn("bgp", choices)
+        self.assertNotIn("ospf", choices)
+
+
 class OSPFCollectorTest(CollectorTestMixin, TestCase):
     """Tests for the ospf() Junos collector."""
 

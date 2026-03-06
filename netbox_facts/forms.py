@@ -28,6 +28,7 @@ from .choices import (
     CollectorStatusChoices,
     ReportStatusChoices,
 )
+from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
 from .models import MACAddress, MACVendor, CollectionPlan, FactsReport
 
 
@@ -284,6 +285,15 @@ class CollectorForm(NetBoxModelForm):
 
     def __init__(self, *args, **kwargs):  # pylint: disable=no-member
         super().__init__(*args, **kwargs)
+        if not HAS_NETBOX_ROUTING:
+            routing_types = {
+                CollectionTypeChoices.TYPE_BGP,
+                CollectionTypeChoices.TYPE_OSPF,
+            }
+            self.fields["collector_type"].choices = [
+                c for c in self.fields["collector_type"].choices
+                if c[0] not in routing_types
+            ]
         now = local_now().strftime("%Y-%m-%d %H:%M:%S %Z")
         self.fields["scheduled_at"].help_text += _(
             " (current server time: <strong>{now}</strong>)"
@@ -357,6 +367,18 @@ class CollectionPlanFilterForm(NetBoxModelFilterSetForm):
         choices=CollectionTypeChoices, required=False, label=_("Collector Type")
     )
     enabled = forms.NullBooleanField(required=False, label=_("Enabled"))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not HAS_NETBOX_ROUTING:
+            routing_types = {
+                CollectionTypeChoices.TYPE_BGP,
+                CollectionTypeChoices.TYPE_OSPF,
+            }
+            self.fields["collector_type"].choices = [
+                c for c in self.fields["collector_type"].choices
+                if c[0] not in routing_types
+            ]
 
 
 class FactsReportFilterForm(NetBoxModelFilterSetForm):
