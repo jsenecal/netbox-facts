@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.devices import Device
-from dcim.models.modules import Module, ModuleType
+from dcim.models.modules import ModuleType
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
@@ -20,8 +20,16 @@ from netbox_facts.choices import (
     EntryStatusChoices,
     ReportStatusChoices,
 )
+from ipam.models.vrfs import VRF
 from netbox_facts.constants import AUTO_D_TAG
-from netbox_facts.helpers.netbox import get_or_create_interface, resolve_device_by_name
+from netbox_facts.helpers.netbox import (
+    create_module,
+    get_or_create_interface,
+    get_or_create_ip,
+    get_or_create_mac,
+    resolve_device_by_name,
+    resolve_vrf,
+)
 from netbox_facts.models.mac import MACAddress
 
 logger = logging.getLogger("netbox_facts")
@@ -130,9 +138,7 @@ def _apply_arp_entry(entry, now):
         # MAC entry: create/update MAC and link to interface
         if not mac_addr:
             return
-        netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
-        if created:
-            netbox_mac.tags.add(AUTO_D_TAG)
+        netbox_mac, created = get_or_create_mac(mac_addr)
         netbox_mac.last_seen = now
         netbox_mac.save()
 
@@ -150,22 +156,18 @@ def _apply_arp_entry(entry, now):
         if not ip_str:
             return
 
-        from ipam.models.vrfs import VRF
         vrf = None
         vrf_name = dv.get("vrf")
         if vrf_name:
             try:
-                vrf = VRF.objects.get(name=vrf_name)
+                vrf = resolve_vrf(vrf_name)
             except VRF.DoesNotExist:
                 logger.warning("VRF %s not found for ARP/NDP entry %s", vrf_name, entry.pk)
 
-        nb_ip, created = IPAddress.objects.get_or_create(
-            address=ip_str,
-            vrf=vrf,
-            defaults={"description": f"Automatically discovered on {now}"},
+        nb_ip, created = get_or_create_ip(
+            ip_str, vrf=vrf,
+            description=f"Automatically discovered on {now}",
         )
-        if created:
-            nb_ip.tags.add(AUTO_D_TAG)
 
         # Associate IP with MAC if both exist
         if mac_addr:
@@ -269,16 +271,7 @@ def _apply_module(entry):
     mod_type = ModuleType.objects.get(pk=module_type_id)
 
     if entry.action == EntryActionChoices.ACTION_NEW:
-        mod = Module(
-            device=entry.device,
-            module_bay=bay,
-            module_type=mod_type,
-            serial=serial,
-        )
-        mod._adopt_components = True
-        mod._disable_replication = True
-        mod.save()
-        mod.tags.add(AUTO_D_TAG)
+        mod = create_module(entry.device, bay, mod_type, serial)
     elif entry.action == EntryActionChoices.ACTION_CHANGED:
         mod = getattr(bay, "installed_module", None)
         if mod is not None:
@@ -331,9 +324,7 @@ def _apply_interfaces_mac(entry, dv, now):
     if not mac_addr:
         return
 
-    netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
-    if created:
-        netbox_mac.tags.add(AUTO_D_TAG)
+    netbox_mac, created = get_or_create_mac(mac_addr)
 
     if iface_name:
         nb_iface = get_or_create_interface(entry.device, iface_name)
@@ -358,8 +349,6 @@ def _apply_interfaces_lag(entry, dv):
 
 def _apply_interfaces_ip(entry, dv, now):
     """Apply an IP address assignment entry."""
-    from ipam.models.vrfs import VRF
-
     cidr = dv["ip_address"]
     li_name = dv["logical_interface"]
     vrf_name = dv.get("vrf")
@@ -368,7 +357,7 @@ def _apply_interfaces_ip(entry, dv, now):
     vrf = None
     if vrf_name:
         try:
-            vrf = VRF.objects.get(name=vrf_name)
+            vrf = resolve_vrf(vrf_name)
         except VRF.DoesNotExist:
             logger.warning("VRF %s not found for interfaces IP entry %s", vrf_name, entry.pk)
 
@@ -389,17 +378,12 @@ def _apply_interfaces_ip(entry, dv, now):
                 nb_prefix.tags.add(AUTO_D_TAG)
 
     # Create/get IPAddress
-    nb_ip, created = IPAddress.objects.get_or_create(
-        address=cidr,
-        vrf=vrf,
-        defaults={
-            "assigned_object": nb_li,
-            "description": f"Discovered on {entry.device} ({now.date()})",
-        },
+    nb_ip, created = get_or_create_ip(
+        cidr, vrf=vrf,
+        assigned_object=nb_li,
+        description=f"Discovered on {entry.device} ({now.date()})",
     )
-    if created:
-        nb_ip.tags.add(AUTO_D_TAG)
-    elif nb_ip.assigned_object is None:
+    if not created and nb_ip.assigned_object is None:
         nb_ip.assigned_object = nb_li
         nb_ip.save()
     elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
@@ -410,8 +394,6 @@ def _apply_interfaces_ip(entry, dv, now):
 
 def _apply_stale_interfaces_ip(entry):
     """Unassign a stale auto-discovered IP address."""
-    from ipam.models.vrfs import VRF
-
     cv = entry.current_values
     cidr = cv.get("ip_address", "")
     vrf_name = cv.get("vrf")
@@ -419,7 +401,7 @@ def _apply_stale_interfaces_ip(entry):
     vrf = None
     if vrf_name:
         try:
-            vrf = VRF.objects.get(name=vrf_name)
+            vrf = resolve_vrf(vrf_name)
         except VRF.DoesNotExist:
             logger.warning("VRF %s not found for stale IP entry %s", vrf_name, entry.pk)
 
@@ -477,9 +459,7 @@ def _apply_ethernet_switching_entry(entry, now):
     if not mac_addr:
         return
 
-    netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
-    if created:
-        netbox_mac.tags.add(AUTO_D_TAG)
+    netbox_mac, created = get_or_create_mac(mac_addr)
 
     if iface_name:
         try:
@@ -498,7 +478,6 @@ def _apply_ethernet_switching_entry(entry, now):
 def _apply_bgp_entry(entry, now):
     """Apply a BGP peer IP/ASN entry."""
     from ipam.models import ASN, RIR
-    from ipam.models.vrfs import VRF
 
     dv = entry.detected_values
     remote_address = dv.get("remote_address", "")
@@ -511,7 +490,7 @@ def _apply_bgp_entry(entry, now):
     nb_vrf = None
     if vrf_name:
         try:
-            nb_vrf = VRF.objects.get(name=vrf_name)
+            nb_vrf = resolve_vrf(vrf_name)
         except VRF.DoesNotExist:
             logger.warning("VRF %s not found for BGP entry %s", vrf_name, entry.pk)
 
@@ -522,13 +501,10 @@ def _apply_bgp_entry(entry, now):
     except ValueError as exc:
         raise ValueError(f"Invalid IP: {remote_address}") from exc
 
-    nb_ip, created = IPAddress.objects.get_or_create(
-        address=ip_str,
-        vrf=nb_vrf,
-        defaults={"description": f"BGP peer AS{as_number} discovered on {now}"},
+    nb_ip, created = get_or_create_ip(
+        ip_str, vrf=nb_vrf,
+        description=f"BGP peer AS{as_number} discovered on {now}",
     )
-    if created:
-        nb_ip.tags.add(AUTO_D_TAG)
 
     if as_number is not None:
         try:
@@ -550,17 +526,13 @@ def _apply_ospf_entry(entry, now):
     if not address:
         return
 
-    ip_obj, created = IPAddress.objects.get_or_create(
-        address=f"{address}/32",
-        defaults={
-            "description": (
-                f"OSPF neighbor (Router ID: {dv.get('router_id', '')}) "
-                f"discovered on {entry.device} ({now.date()})"
-            ),
-        },
+    ip_obj, created = get_or_create_ip(
+        f"{address}/32",
+        description=(
+            f"OSPF neighbor (Router ID: {dv.get('router_id', '')}) "
+            f"discovered on {entry.device} ({now.date()})"
+        ),
     )
-    if created:
-        ip_obj.tags.add(AUTO_D_TAG)
     _set_entry_object(entry, ip_obj)
 
 
@@ -572,9 +544,7 @@ def _apply_evpn_entry(entry, now):
     if not mac_addr:
         return
 
-    netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
-    if created:
-        netbox_mac.tags.add(AUTO_D_TAG)
+    netbox_mac, created = get_or_create_mac(mac_addr)
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
     netbox_mac.last_seen = now
     netbox_mac.save()

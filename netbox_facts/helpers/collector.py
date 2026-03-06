@@ -42,13 +42,17 @@ from netbox_facts.helpers.napalm import (
     parse_network_instances,
 )
 from netbox_facts.helpers.netbox import (
+    create_module,
     detect_interface_type,
     duplicate_object_warning,
     get_absolute_url_markdown,
     get_connection_ips,
+    get_or_create_ip,
+    get_or_create_mac,
     resolve_device_by_name,
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
+    resolve_vrf,
 )
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.constants import AUTO_D_TAG
@@ -371,16 +375,13 @@ class NapalmCollector:
 
                 if self._should_apply():
                     try:
-                        netbox_mac, created = MACAddress.objects.get_or_create(
-                            mac_address=arp_entry["mac"]
-                        )
+                        netbox_mac, created = get_or_create_mac(arp_entry["mac"])
                     except MACAddress.MultipleObjectsReturned:
                         self._log_warning(
                             duplicate_object_warning("MAC", arp_entry["mac"])
                         )
                         continue
                     if created:
-                        netbox_mac.tags.add(AUTO_D_TAG)
                         self._log_success(
                             f"Succesfully created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
                         )
@@ -393,16 +394,11 @@ class NapalmCollector:
 
                     # Get or create an IPAddress for this entry
                     try:
-                        (
-                            netbox_address,
-                            created,
-                        ) = IPAddress.objects.get_or_create(
+                        netbox_address, created = get_or_create_ip(
+                            str(ip_interface_object),
                             vrf=routing_instance,
-                            address=str(ip_interface_object),
-                            defaults={
-                                "description": f"Automatically discovered on {self._now}",
-                            },
-                        )  # pylint: disable=no-member
+                            description=f"Automatically discovered on {self._now}",
+                        )
                     except IPAddress.MultipleObjectsReturned:
                         self._log_warning(
                             duplicate_object_warning("IP", ip_interface_object)
@@ -420,7 +416,6 @@ class NapalmCollector:
                                 + f" {self.plan.get_collector_type_display()} collection."  # type: ignore
                             ),
                         )
-                        netbox_address.tags.add(AUTO_D_TAG)
                         self._log_success(
                             f"Succesfully created IP address {get_absolute_url_markdown(netbox_address, bold=True)}."
                         )
@@ -807,16 +802,7 @@ class NapalmCollector:
 
         if self._should_apply():
             if action == EntryActionChoices.ACTION_NEW:
-                mod_obj = Module(
-                    device=device,
-                    module_bay=bay,
-                    module_type=module_type,
-                    serial=serial,
-                )
-                mod_obj._adopt_components = True
-                mod_obj._disable_replication = True
-                mod_obj.save()
-                mod_obj.tags.add(AUTO_D_TAG)
+                mod_obj = create_module(device, bay, module_type, serial)
                 modules_by_name[name] = mod_obj
                 self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
             elif action == EntryActionChoices.ACTION_CHANGED:
@@ -917,9 +903,7 @@ class NapalmCollector:
 
             if self._should_apply():
                 try:
-                    netbox_mac, created = MACAddress.objects.get_or_create(
-                        mac_address=mac_addr
-                    )
+                    netbox_mac, created = get_or_create_mac(mac_addr)
                 except MACAddress.MultipleObjectsReturned:
                     self._log_warning(
                         duplicate_object_warning("MAC", mac_addr)
@@ -932,7 +916,6 @@ class NapalmCollector:
                     continue
 
                 if created:
-                    netbox_mac.tags.add(AUTO_D_TAG)
                     self._log_success(
                         f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
                     )
@@ -1020,19 +1003,18 @@ class NapalmCollector:
 
                 vrf_name = li_data.get("vrf") or ""
                 netbox_vrf = None
-                if vrf_name and vrf_name != "default":
-                    try:
-                        netbox_vrf = VRF.objects.get(name=vrf_name)
-                    except VRF.DoesNotExist:
-                        self._log_warning(
-                            f"VRF `{vrf_name}` not found in NetBox, "
-                            f"IPs on `{li_name}` will be created without VRF."
-                        )
-                    except VRF.MultipleObjectsReturned:
-                        self._log_warning(
-                            duplicate_object_warning("VRF", vrf_name)
-                            + f" IPs on `{li_name}` will be created without VRF."
-                        )
+                try:
+                    netbox_vrf = resolve_vrf(vrf_name)
+                except VRF.DoesNotExist:
+                    self._log_warning(
+                        f"VRF `{vrf_name}` not found in NetBox, "
+                        f"IPs on `{li_name}` will be created without VRF."
+                    )
+                except VRF.MultipleObjectsReturned:
+                    self._log_warning(
+                        duplicate_object_warning("VRF", vrf_name)
+                        + f" IPs on `{li_name}` will be created without VRF."
+                    )
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
 
@@ -1200,16 +1182,10 @@ class NapalmCollector:
                     nb_prefix.tags.add(AUTO_D_TAG)
             # Create/get IPAddress
             try:
-                nb_ip, created = IPAddress.objects.get_or_create(
-                    address=cidr,
-                    vrf=netbox_vrf,
-                    defaults={
-                        "assigned_object": nb_li,
-                        "description": (
-                            f"Discovered on {device} "
-                            f"({self._now.date()})"
-                        ),
-                    },
+                nb_ip, created = get_or_create_ip(
+                    cidr, vrf=netbox_vrf,
+                    assigned_object=nb_li,
+                    description=f"Discovered on {device} ({self._now.date()})",
                 )
             except IPAddress.MultipleObjectsReturned:
                 self._log_warning(
@@ -1217,7 +1193,6 @@ class NapalmCollector:
                 )
                 return
             if created:
-                nb_ip.tags.add(AUTO_D_TAG)
                 self._log_success(
                     f"Created IP `{cidr}` on `{li_name}`"
                 )
@@ -1407,16 +1382,13 @@ class NapalmCollector:
 
             if self._should_apply():
                 try:
-                    netbox_mac, created = MACAddress.objects.get_or_create(
-                        mac_address=mac_addr
-                    )
+                    netbox_mac, created = get_or_create_mac(mac_addr)
                 except MACAddress.MultipleObjectsReturned:
                     self._log_warning(
                         duplicate_object_warning("MAC", mac_addr)
                     )
                     continue
                 if created:
-                    netbox_mac.tags.add(AUTO_D_TAG)
                     self._log_success(
                         f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
                     )
@@ -1531,9 +1503,7 @@ class NapalmCollector:
 
                 if self._should_apply():
                     try:
-                        netbox_mac, created = MACAddress.objects.get_or_create(
-                            mac_address=mac_str
-                        )
+                        netbox_mac, created = get_or_create_mac(mac_str)
                     except MACAddress.MultipleObjectsReturned:
                         self._log_warning(
                             duplicate_object_warning("MAC", mac_str)
@@ -1544,7 +1514,6 @@ class NapalmCollector:
                     netbox_mac.save()
 
                     if created:
-                        netbox_mac.tags.add(AUTO_D_TAG)
                         self._log_success(
                             f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
                         )
@@ -1562,7 +1531,6 @@ class NapalmCollector:
     def bgp(self, driver: NetworkDriver):
         """Collect BGP data from a device using get_bgp_neighbors_detail()."""
         from ipam.models import ASN, RIR
-        from ipam.models.vrfs import VRF
 
         bgp_data = driver.get_bgp_neighbors_detail()
         device = self._current_device
@@ -1570,19 +1538,18 @@ class NapalmCollector:
         for vrf_name, peers_by_as in bgp_data.items():
             # Resolve VRF (empty string or "global" means no VRF)
             nb_vrf = None
-            if vrf_name and vrf_name.lower() not in ("global", "default"):
-                try:
-                    nb_vrf = VRF.objects.get(name=vrf_name)
-                except VRF.DoesNotExist:
-                    self._log_warning(
-                        f"Could not find VRF `{vrf_name}` in NetBox. "
-                        "Peers will be created in the global table."
-                    )
-                except VRF.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("VRF", vrf_name)
-                        + " Peers will be created in the global table."
-                    )
+            try:
+                nb_vrf = resolve_vrf(vrf_name)
+            except VRF.DoesNotExist:
+                self._log_warning(
+                    f"Could not find VRF `{vrf_name}` in NetBox. "
+                    "Peers will be created in the global table."
+                )
+            except VRF.MultipleObjectsReturned:
+                self._log_warning(
+                    duplicate_object_warning("VRF", vrf_name)
+                    + " Peers will be created in the global table."
+                )
 
             for as_number, peers in peers_by_as.items():
                 for peer in peers:
@@ -1637,12 +1604,9 @@ class NapalmCollector:
                             )
 
                         try:
-                            nb_ip, created = IPAddress.objects.get_or_create(
-                                address=ip_str,
-                                vrf=nb_vrf,
-                                defaults={
-                                    "description": f"BGP peer AS{as_number} discovered on {self._now}",
-                                },
+                            nb_ip, created = get_or_create_ip(
+                                ip_str, vrf=nb_vrf,
+                                description=f"BGP peer AS{as_number} discovered on {self._now}",
                             )
                         except IPAddress.MultipleObjectsReturned:
                             self._log_warning(
@@ -1650,7 +1614,6 @@ class NapalmCollector:
                             )
                             continue
                         if created:
-                            nb_ip.tags.add(AUTO_D_TAG)
                             JournalEntry.objects.create(
                                 created=self._now,
                                 assigned_object=nb_ip,
@@ -1753,14 +1716,12 @@ class NapalmCollector:
 
             if self._should_apply():
                 try:
-                    ip_obj, created = IPAddress.objects.get_or_create(
-                        address=f"{neighbor_ip}/32",
-                        defaults={
-                            "description": (
-                                f"OSPF neighbor (Router ID: {router_id}) discovered on "
-                                f"{self._current_device} ({self._now.date()})"
-                            ),
-                        },
+                    ip_obj, created = get_or_create_ip(
+                        f"{neighbor_ip}/32",
+                        description=(
+                            f"OSPF neighbor (Router ID: {router_id}) discovered on "
+                            f"{self._current_device} ({self._now.date()})"
+                        ),
                     )
                 except IPAddress.MultipleObjectsReturned:
                     self._log_warning(
@@ -1768,7 +1729,6 @@ class NapalmCollector:
                     )
                     continue
                 if created:
-                    ip_obj.tags.add(AUTO_D_TAG)
                     self._log_success(
                         f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
                         f"(Router ID: {router_id})."

@@ -199,3 +199,56 @@ def resolve_device_by_name(name):
 def duplicate_object_warning(label, value):
     """Format a warning message for duplicate objects requiring manual cleanup."""
     return f"Duplicate {label} `{value}` objects in NetBox \u2014 manual cleanup required. Skipping."
+
+
+def get_or_create_mac(mac_addr):
+    """Get or create a MACAddress, tagging with AUTO_D_TAG if created.
+
+    Returns (MACAddress, bool). Lets MultipleObjectsReturned propagate.
+    """
+    from netbox_facts.models.mac import MACAddress
+
+    netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
+    if created:
+        netbox_mac.tags.add(AUTO_D_TAG)
+    return netbox_mac, created
+
+
+def get_or_create_ip(address, vrf=None, **defaults):
+    """Get or create an IPAddress, tagging with AUTO_D_TAG if created.
+
+    Returns (IPAddress, bool). Lets MultipleObjectsReturned propagate.
+    """
+    nb_ip, created = IPAddress.objects.get_or_create(
+        address=address, vrf=vrf, defaults=defaults,
+    )
+    if created:
+        nb_ip.tags.add(AUTO_D_TAG)
+    return nb_ip, created
+
+
+def resolve_vrf(name):
+    """Resolve a VRF by name, returning None for empty/global/default.
+
+    Returns VRF or None. Lets DoesNotExist and MultipleObjectsReturned propagate.
+    """
+    if not name or name.lower() in ("global", "default"):
+        return None
+    return VRF.objects.get(name=name)
+
+
+def create_module(device, module_bay, module_type, serial):
+    """Create a Module with adopt/disable-replication flags, tagged with AUTO_D_TAG."""
+    from dcim.models.modules import Module
+
+    mod = Module(
+        device=device,
+        module_bay=module_bay,
+        module_type=module_type,
+        serial=serial,
+    )
+    mod._adopt_components = True
+    mod._disable_replication = True
+    mod.save()
+    mod.tags.add(AUTO_D_TAG)
+    return mod

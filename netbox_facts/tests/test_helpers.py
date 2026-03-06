@@ -25,7 +25,14 @@ from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
 )
-from netbox_facts.helpers.netbox import get_absolute_url_markdown, get_primary_ip
+from netbox_facts.helpers.netbox import (
+    create_module,
+    get_absolute_url_markdown,
+    get_or_create_ip,
+    get_or_create_mac,
+    get_primary_ip,
+    resolve_vrf,
+)
 from netbox_facts.models import CollectionPlan
 from netbox_facts.models.mac import MACAddress
 
@@ -2724,3 +2731,83 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
 
         mod = Module.objects.get(device=device, module_bay=bay)
         self.assertEqual(mod.module_type, mod_type)
+
+
+class GetOrCreateMacTest(CollectorTestMixin, TestCase):
+    """Tests for get_or_create_mac helper."""
+
+    def test_creates_and_tags(self):
+        mac, created = get_or_create_mac("AA:BB:CC:DD:EE:01")
+        self.assertTrue(created)
+        self.assertTrue(mac.tags.filter(name=AUTO_D_TAG).exists())
+
+    def test_returns_existing(self):
+        mac1, _ = get_or_create_mac("AA:BB:CC:DD:EE:02")
+        mac2, created = get_or_create_mac("AA:BB:CC:DD:EE:02")
+        self.assertFalse(created)
+        self.assertEqual(mac1.pk, mac2.pk)
+
+
+class GetOrCreateIpTest(CollectorTestMixin, TestCase):
+    """Tests for get_or_create_ip helper."""
+
+    def test_creates_and_tags(self):
+        ip, created = get_or_create_ip("10.0.0.1/32", description="test")
+        self.assertTrue(created)
+        self.assertTrue(ip.tags.filter(name=AUTO_D_TAG).exists())
+        self.assertEqual(ip.description, "test")
+
+    def test_returns_existing(self):
+        ip1, _ = get_or_create_ip("10.0.0.2/32")
+        ip2, created = get_or_create_ip("10.0.0.2/32")
+        self.assertFalse(created)
+        self.assertEqual(ip1.pk, ip2.pk)
+
+    def test_with_vrf(self):
+        vrf = VRF.objects.create(name="TestVRF-ip", rd="65000:1")
+        ip, created = get_or_create_ip("10.0.0.3/32", vrf=vrf)
+        self.assertTrue(created)
+        self.assertEqual(ip.vrf, vrf)
+
+
+class ResolveVrfTest(TestCase):
+    """Tests for resolve_vrf helper."""
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(resolve_vrf(""))
+
+    def test_none_returns_none(self):
+        self.assertIsNone(resolve_vrf(None))
+
+    def test_global_returns_none(self):
+        self.assertIsNone(resolve_vrf("global"))
+        self.assertIsNone(resolve_vrf("Global"))
+        self.assertIsNone(resolve_vrf("GLOBAL"))
+
+    def test_default_returns_none(self):
+        self.assertIsNone(resolve_vrf("default"))
+        self.assertIsNone(resolve_vrf("Default"))
+
+    def test_resolves_existing(self):
+        vrf = VRF.objects.create(name="TestVRF-resolve", rd="65000:2")
+        self.assertEqual(resolve_vrf("TestVRF-resolve"), vrf)
+
+    def test_raises_does_not_exist(self):
+        with self.assertRaises(VRF.DoesNotExist):
+            resolve_vrf("NonExistentVRF")
+
+
+class CreateModuleTest(CollectorTestMixin, TestCase):
+    """Tests for create_module helper."""
+
+    def test_creates_and_tags(self):
+        device = self._create_device("mod-helper-dev")
+        bay = ModuleBay.objects.create(device=device, name="slot0")
+        mod_type = ModuleType.objects.create(
+            manufacturer=self.manufacturer, model="HelperMod",
+        )
+        mod = create_module(device, bay, mod_type, "SN123")
+        self.assertEqual(mod.device, device)
+        self.assertEqual(mod.module_bay, bay)
+        self.assertEqual(mod.serial, "SN123")
+        self.assertTrue(mod.tags.filter(name=AUTO_D_TAG).exists())
