@@ -876,11 +876,32 @@ class NapalmCollector:
             if not self._interfaces_re.match(iface_name):
                 continue
 
-            mac_addr = iface_data.get("mac_address") or ""
-            if not mac_addr or mac_addr.lower() in ("none", "n/a", ""):
-                continue
-
             nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+
+            mac_addr = iface_data.get("mac_address") or ""
+            if mac_addr.lower() in ("none", "n/a"):
+                mac_addr = ""
+
+            detected = {
+                "interface": iface_name,
+                "mac_address": mac_addr,
+                "is_enabled": iface_data.get("is_enabled"),
+                "speed": iface_data.get("speed"),
+                "mtu": iface_data.get("mtu"),
+                "is_up": iface_data.get("is_up"),
+            }
+
+            if not mac_addr:
+                # Record the interface even without a MAC address
+                self._record_entry(
+                    action=EntryActionChoices.ACTION_CONFIRMED,
+                    collector_type=self._collector_type,
+                    device=device,
+                    detected_values=detected,
+                    object_instance=nb_iface,
+                    object_repr=self._object_repr(nb_iface),
+                )
+                continue
 
             # Validate MAC address format before querying
             try:
@@ -892,14 +913,6 @@ class NapalmCollector:
                 continue
 
             action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
-            detected = {
-                "interface": iface_name,
-                "mac_address": mac_addr,
-                "is_enabled": iface_data.get("is_enabled"),
-                "speed": iface_data.get("speed"),
-                "mtu": iface_data.get("mtu"),
-                "is_up": iface_data.get("is_up"),
-            }
 
             iface_entry = self._record_entry(
                 action=action,

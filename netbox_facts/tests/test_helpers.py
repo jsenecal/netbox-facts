@@ -338,7 +338,7 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
         self.assertFalse(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:02").exists())
 
     def test_interfaces_skips_empty_mac(self):
-        """Interfaces with empty mac_address should be skipped."""
+        """Interfaces with empty mac_address should not create a MAC."""
         plan = self._create_plan(
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             name="Plan-ifaces-empty",
@@ -363,6 +363,74 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
 
         collector.interfaces(driver)
 
+        self.assertEqual(MACAddress.objects.count(), 0)
+
+    def test_interfaces_collects_interface_without_mac(self):
+        """Interfaces without MAC should still be collected and get a report entry."""
+        from netbox_facts.models.facts_report import FactsReport
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ifaces-nomac",
+        )
+        device = self._create_device("iface-dev-nomac")
+        Interface.objects.create(device=device, name="Loopback0", type="virtual")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Loopback0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 0.0,
+                "mtu": 65535,
+                "mac_address": "",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        self.assertEqual(MACAddress.objects.count(), 0)
+        # Interface should still get a report entry even without a MAC
+        self.assertEqual(report.entries.count(), 1)
+        entry = report.entries.first()
+        self.assertEqual(entry.detected_values["interface"], "Loopback0")
+        self.assertEqual(entry.detected_values["mac_address"], "")
+
+    def test_interfaces_auto_creates_interface_without_mac(self):
+        """Interfaces without MAC should still be auto-created in NetBox."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-ifaces-autocreate-nomac",
+        )
+        device = self._create_device("iface-dev-autocreate-nomac")
+        # No interface pre-created
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Loopback0": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "router-id",
+                "last_flapped": -1.0,
+                "speed": 0.0,
+                "mtu": 65535,
+                "mac_address": "",
+            }
+        }
+
+        collector.interfaces(driver)
+
+        # Interface should be auto-created even without a MAC
+        nb_iface = Interface.objects.get(device=device, name="Loopback0")
+        self.assertEqual(nb_iface.description, "router-id")
         self.assertEqual(MACAddress.objects.count(), 0)
 
 
