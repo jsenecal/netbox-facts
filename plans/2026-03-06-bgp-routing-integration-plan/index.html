@@ -1,0 +1,1256 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://jsenecal.github.io/netbox-facts/plans/2026-03-06-bgp-routing-integration-plan/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>2026 03 06 bgp routing integration plan - NetBox Facts Plugin</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#bgp-netbox-routing-integration--implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="NetBox Facts Plugin" class="md-header__button md-logo" aria-label="NetBox Facts Plugin" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            NetBox Facts Plugin
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              2026 03 06 bgp routing integration plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 7H7a5 5 0 0 0-5 5 5 5 0 0 0 5 5h10a5 5 0 0 0 5-5 5 5 0 0 0-5-5m0 8a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17 6H7c-3.31 0-6 2.69-6 6s2.69 6 6 6h10c3.31 0 6-2.69 6-6s-2.69-6-6-6m0 10H7c-2.21 0-4-1.79-4-4s1.79-4 4-4h10c2.21 0 4 1.79 4 4s-1.79 4-4 4M7 9c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jsenecal/netbox-facts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jsenecal/netbox-facts
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="NetBox Facts Plugin" class="md-nav__button md-logo" aria-label="NetBox Facts Plugin" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    NetBox Facts Plugin
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jsenecal/netbox-facts" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jsenecal/netbox-facts
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bgp-netbox-routing-integration--implementation-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BGP netbox-routing Integration — Implementation Plan
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="BGP netbox-routing Integration — Implementation Plan">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#task-1-hide-bgpospf-collector-types-when-netbox-routing-is-absent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Hide BGP/OSPF collector types when netbox-routing is absent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-2-store-bgp-data-for-routing-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Store BGP data for routing integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-3-implement-_bgp_routing_integration--bgprouter-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Implement _bgp_routing_integration() — BGPRouter creation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-4-test-bgpscope-and-bgppeer-creation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Test BGPScope and BGPPeer creation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-5-applier--handle-bgprouterbgpscopebgppeer-entries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Applier — handle BGPRouter/BGPScope/BGPPeer entries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-6-full-integration-test--end-to-end-bgp-collection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: Full integration test — end-to-end BGP collection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-7-run-full-test-suite-and-fix-regressions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: Run full test suite and fix regressions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#summary-of-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary of Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-changing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not Changing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+  <h1>2026 03 06 bgp routing integration plan</h1>
+
+<h2 id="bgp-netbox-routing-integration--implementation-plan">BGP netbox-routing Integration — Implementation Plan<a class="headerlink" href="#bgp-netbox-routing-integration--implementation-plan" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>For Claude:</strong> REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.</p>
+</blockquote>
+<p><strong>Goal:</strong> Make the BGP collector populate netbox-routing's BGPRouter, BGPScope, and BGPPeer models from NAPALM data.</p>
+<p><strong>Architecture:</strong> The existing <code>_bgp_routing_integration()</code> stub in the collector gets fleshed out to create the full BGPRouter -&gt; BGPScope -&gt; BGPPeer chain. The collector stores <code>bgp_data</code> during the main BGP loop so the integration method can iterate it. Report entries are created for each new routing object. The applier dispatches on <code>object_repr</code> prefix (<code>BGPRouter</code>, <code>BGPScope</code>, <code>BGPPeer</code>). The form hides BGP/OSPF collector types when netbox-routing is absent.</p>
+<p><strong>Tech Stack:</strong> Django ORM, netbox-routing 0.4.1, NAPALM, NetBox plugin API</p>
+<p><strong>Design doc:</strong> <code>docs/plans/2026-03-06-bgp-routing-integration-design.md</code></p>
+<hr />
+<h4 id="task-1-hide-bgpospf-collector-types-when-netbox-routing-is-absent">Task 1: Hide BGP/OSPF collector types when netbox-routing is absent<a class="headerlink" href="#task-1-hide-bgpospf-collector-types-when-netbox-routing-is-absent" title="Permanent link">&para;</a></h4>
+<p><strong>Files:</strong>
+- Modify: <code>netbox_facts/forms.py:285-291</code> (CollectionPlanForm <code>__init__</code>)
+- Modify: <code>netbox_facts/forms.py:356-358</code> (CollectionPlanFilterForm <code>collector_type</code>)
+- Test: <code>netbox_facts/tests/test_forms.py</code> (new file or add to existing)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<p>In <code>netbox_facts/tests/test_helpers.py</code> (where <code>HAS_NETBOX_ROUTING</code> tests already live), add:</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">HideCollectorTypeTests</span><span class="p">(</span><span class="n">TestCase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Form should hide BGP/OSPF when netbox-routing is absent.&quot;&quot;&quot;</span>
+
+    <span class="nd">@patch</span><span class="p">(</span><span class="s2">&quot;netbox_facts.forms.HAS_NETBOX_ROUTING&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_form_hides_bgp_ospf_when_no_routing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_facts.forms</span><span class="w"> </span><span class="kn">import</span> <span class="n">CollectionPlanForm</span>
+        <span class="n">form</span> <span class="o">=</span> <span class="n">CollectionPlanForm</span><span class="p">()</span>
+        <span class="n">choices</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">form</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="s2">&quot;bgp&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="s2">&quot;ospf&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="p">)</span>
+
+    <span class="nd">@patch</span><span class="p">(</span><span class="s2">&quot;netbox_facts.forms.HAS_NETBOX_ROUTING&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_form_shows_bgp_ospf_when_routing_present</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_facts.forms</span><span class="w"> </span><span class="kn">import</span> <span class="n">CollectionPlanForm</span>
+        <span class="n">form</span> <span class="o">=</span> <span class="n">CollectionPlanForm</span><span class="p">()</span>
+        <span class="n">choices</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">form</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s2">&quot;bgp&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s2">&quot;ospf&quot;</span><span class="p">,</span> <span class="n">choices</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k HideCollectorType"</code>
+Expected: FAIL — <code>HAS_NETBOX_ROUTING</code> not yet imported in forms.py</p>
+<p><strong>Step 3: Write minimal implementation</strong></p>
+<p>In <code>netbox_facts/forms.py</code>, add the import near the top:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">netbox_facts.helpers.collector</span><span class="w"> </span><span class="kn">import</span> <span class="n">HAS_NETBOX_ROUTING</span>
+</code></pre></div>
+<p>In <code>CollectionPlanForm.__init__</code>, after <code>super().__init__()</code>, add:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="ow">not</span> <span class="n">HAS_NETBOX_ROUTING</span><span class="p">:</span>
+    <span class="n">routing_types</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">,</span>
+        <span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_OSPF</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span>
+        <span class="k">if</span> <span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">routing_types</span>
+    <span class="p">]</span>
+</code></pre></div>
+<p>Do the same for <code>CollectionPlanFilterForm.__init__</code> (create one if it doesn't exist):</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">HAS_NETBOX_ROUTING</span><span class="p">:</span>
+        <span class="n">routing_types</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">,</span>
+            <span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_OSPF</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">c</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fields</span><span class="p">[</span><span class="s2">&quot;collector_type&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">choices</span>
+            <span class="k">if</span> <span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">routing_types</span>
+        <span class="p">]</span>
+</code></pre></div>
+<p><strong>Step 4: Run test to verify it passes</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k HideCollectorType"</code>
+Expected: PASS</p>
+<p><strong>Step 5: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/forms.py<span class="w"> </span>netbox_facts/tests/test_helpers.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Hide BGP/OSPF collector types when netbox-routing is absent&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-2-store-bgp-data-for-routing-integration">Task 2: Store BGP data for routing integration<a class="headerlink" href="#task-2-store-bgp-data-for-routing-integration" title="Permanent link">&para;</a></h4>
+<p>The main <code>bgp()</code> method needs to accumulate <code>local_as</code> and per-VRF peer data so <code>_bgp_routing_integration()</code> can use it. Currently, data flows through the loop but isn't stored.</p>
+<p><strong>Files:</strong>
+- Modify: <code>netbox_facts/helpers/collector.py:1547-1665</code> (bgp method)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">BGPRoutingDataAccumulationTest</span><span class="p">(</span><span class="n">CollectorTestBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;bgp() should store _bgp_routing_data for the integration method.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_bgp_stores_routing_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">plan</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_plan</span><span class="p">(</span><span class="n">collector_type</span><span class="o">=</span><span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">)</span>
+        <span class="n">collector</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_collector</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>
+        <span class="n">collector</span><span class="o">.</span><span class="n">_current_device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span>
+
+        <span class="n">mock_driver</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">()</span>
+        <span class="n">mock_driver</span><span class="o">.</span><span class="n">get_bgp_neighbors_detail</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;global&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="mi">65001</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.1&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">}],</span>
+            <span class="p">}</span>
+        <span class="p">}</span>
+
+        <span class="n">collector</span><span class="o">.</span><span class="n">bgp</span><span class="p">(</span><span class="n">mock_driver</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">collector</span><span class="p">,</span> <span class="s2">&quot;_bgp_routing_data&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">],</span> <span class="mi">65000</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_bgp_stores_routing_data"</code>
+Expected: FAIL — <code>_bgp_routing_data</code> doesn't exist</p>
+<p><strong>Step 3: Write minimal implementation</strong></p>
+<p>At the start of <code>bgp()</code>, after <code>device = self._current_device</code>, add:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Accumulate data for netbox-routing integration</span>
+<span class="bp">self</span><span class="o">.</span><span class="n">_bgp_routing_data</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="s2">&quot;vrfs&quot;</span><span class="p">:</span> <span class="p">{},</span>  <span class="c1"># vrf_name -&gt; list of (remote_address, as_number, nb_vrf, nb_ip, nb_asn)</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Inside the peer loop (after <code>remote_address = peer.get("remote_address", "")</code>), capture <code>local_as</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bgp_routing_data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">local_as</span> <span class="o">=</span> <span class="n">peer</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;local_as&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">local_as</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bgp_routing_data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">local_as</span><span class="p">)</span>
+</code></pre></div>
+<p>At the end of each peer's apply block (after <code>_mark_entry_applied</code> for the IP), record the peer data:</p>
+<div class="highlight"><pre><span></span><code><span class="bp">self</span><span class="o">.</span><span class="n">_bgp_routing_data</span><span class="p">[</span><span class="s2">&quot;vrfs&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">vrf_name</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">({</span>
+    <span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="n">remote_address</span><span class="p">,</span>
+    <span class="s2">&quot;as_number&quot;</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">as_number</span><span class="p">),</span>
+    <span class="s2">&quot;nb_vrf&quot;</span><span class="p">:</span> <span class="n">nb_vrf</span><span class="p">,</span>
+    <span class="s2">&quot;nb_ip&quot;</span><span class="p">:</span> <span class="n">nb_ip</span><span class="p">,</span>
+    <span class="s2">&quot;nb_asn&quot;</span><span class="p">:</span> <span class="n">nb_asn</span><span class="p">,</span>
+<span class="p">})</span>
+</code></pre></div>
+<p><strong>Step 4: Run test to verify it passes</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_bgp_stores_routing_data"</code>
+Expected: PASS</p>
+<p><strong>Step 5: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/helpers/collector.py<span class="w"> </span>netbox_facts/tests/test_helpers.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Accumulate BGP peer data for netbox-routing integration&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-3-implement-_bgp_routing_integration--bgprouter-creation">Task 3: Implement <code>_bgp_routing_integration()</code> — BGPRouter creation<a class="headerlink" href="#task-3-implement-_bgp_routing_integration--bgprouter-creation" title="Permanent link">&para;</a></h4>
+<p><strong>Files:</strong>
+- Modify: <code>netbox_facts/helpers/collector.py:1667-1690</code> (_bgp_routing_integration)
+- Test: <code>netbox_facts/tests/test_helpers.py</code></p>
+<p><strong>Key model details:</strong>
+- <code>BGPRouter</code> uses a GFK: <code>assigned_object_type</code> (FK to ContentType) + <code>assigned_object_id</code>
+- Unique constraint: <code>(assigned_object_type, assigned_object_id, asn)</code>
+- Required: <code>asn</code> (FK to <code>ipam.ASN</code>)</p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib.contenttypes.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContentType</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">BGPRoutingIntegrationTest</span><span class="p">(</span><span class="n">CollectorTestBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;_bgp_routing_integration creates BGPRouter/BGPScope/BGPPeer.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_creates_bgp_router</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span>
+
+        <span class="n">plan</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_plan</span><span class="p">(</span><span class="n">collector_type</span><span class="o">=</span><span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">)</span>
+        <span class="n">collector</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_collector</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>
+        <span class="n">collector</span><span class="o">.</span><span class="n">_current_device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span>
+
+        <span class="n">rir</span> <span class="o">=</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()</span> <span class="ow">or</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test RIR&quot;</span><span class="p">,</span> <span class="n">slug</span><span class="o">=</span><span class="s2">&quot;test-rir&quot;</span><span class="p">)</span>
+        <span class="n">local_asn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span><span class="n">asn</span><span class="o">=</span><span class="mi">65000</span><span class="p">,</span> <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">rir</span><span class="p">})</span>
+
+        <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_data</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">,</span>
+            <span class="s2">&quot;vrfs&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;global&quot;</span><span class="p">:</span> <span class="p">[{</span>
+                    <span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.1&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;as_number&quot;</span><span class="p">:</span> <span class="mi">65001</span><span class="p">,</span>
+                    <span class="s2">&quot;nb_vrf&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                    <span class="s2">&quot;nb_ip&quot;</span><span class="p">:</span> <span class="n">IPAddress</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">address</span><span class="o">=</span><span class="s2">&quot;10.0.0.1/32&quot;</span><span class="p">),</span>
+                    <span class="s2">&quot;nb_asn&quot;</span><span class="p">:</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span><span class="n">asn</span><span class="o">=</span><span class="mi">65001</span><span class="p">,</span> <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">rir</span><span class="p">})[</span><span class="mi">0</span><span class="p">],</span>
+                <span class="p">}],</span>
+            <span class="p">},</span>
+        <span class="p">}</span>
+
+        <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+
+        <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">router</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+            <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+            <span class="n">assigned_object_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+            <span class="n">asn</span><span class="o">=</span><span class="n">local_asn</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="n">router</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">router</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Automatically Discovered&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_creates_bgp_router"</code>
+Expected: FAIL — stub doesn't create anything</p>
+<p><strong>Step 3: Write minimal implementation</strong></p>
+<p>Replace the <code>_bgp_routing_integration</code> body:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_bgp_routing_integration</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create BGPRouter/BGPScope/BGPPeer in netbox-routing if available.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">HAS_NETBOX_ROUTING</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="n">data</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;_bgp_routing_data&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span> <span class="ow">or</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_info</span><span class="p">(</span><span class="s2">&quot;No local AS found in BGP data; skipping netbox-routing integration.&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib.contenttypes.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContentType</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPPeer</span><span class="p">,</span> <span class="n">BGPRouter</span><span class="p">,</span> <span class="n">BGPScope</span>
+
+    <span class="n">device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_device</span>
+    <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="c1"># Get-or-create local ASN</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">local_asn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+            <span class="n">asn</span><span class="o">=</span><span class="n">data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">],</span>
+            <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()},</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="n">RIR</span><span class="o">.</span><span class="n">DoesNotExist</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;No RIR in NetBox. Cannot create local ASN </span><span class="si">{</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;local_as&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="c1"># Get-or-create BGPRouter</span>
+    <span class="n">bgp_router</span><span class="p">,</span> <span class="n">router_created</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+        <span class="n">assigned_object_id</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="n">asn</span><span class="o">=</span><span class="n">local_asn</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">router_created</span><span class="p">:</span>
+        <span class="n">bgp_router</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+
+    <span class="n">router_action</span> <span class="o">=</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_NEW</span> <span class="k">if</span> <span class="n">router_created</span> <span class="k">else</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_CONFIRMED</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">_record_entry</span><span class="p">(</span>
+        <span class="n">action</span><span class="o">=</span><span class="n">router_action</span><span class="p">,</span>
+        <span class="n">collector_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_collector_type</span><span class="p">,</span>
+        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+        <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">]},</span>
+        <span class="n">object_instance</span><span class="o">=</span><span class="n">bgp_router</span><span class="p">,</span>
+        <span class="n">object_repr</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BGPRouter </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">router_created</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_success</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Created BGPRouter for </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2"> (AS</span><span class="si">{</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;local_as&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">).&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found existing BGPRouter for </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">.&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Per-VRF scopes and peers</span>
+    <span class="k">for</span> <span class="n">vrf_name</span><span class="p">,</span> <span class="n">peers</span> <span class="ow">in</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;vrfs&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">nb_vrf</span> <span class="o">=</span> <span class="n">peers</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">&quot;nb_vrf&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">peers</span> <span class="k">else</span> <span class="kc">None</span>
+
+        <span class="n">bgp_scope</span><span class="p">,</span> <span class="n">scope_created</span> <span class="o">=</span> <span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+            <span class="n">router</span><span class="o">=</span><span class="n">bgp_router</span><span class="p">,</span>
+            <span class="n">vrf</span><span class="o">=</span><span class="n">nb_vrf</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">scope_created</span><span class="p">:</span>
+            <span class="n">bgp_scope</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+
+        <span class="n">scope_action</span> <span class="o">=</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_NEW</span> <span class="k">if</span> <span class="n">scope_created</span> <span class="k">else</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_CONFIRMED</span>
+        <span class="n">scope_label</span> <span class="o">=</span> <span class="n">vrf_name</span> <span class="k">if</span> <span class="n">nb_vrf</span> <span class="k">else</span> <span class="s2">&quot;global&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_record_entry</span><span class="p">(</span>
+            <span class="n">action</span><span class="o">=</span><span class="n">scope_action</span><span class="p">,</span>
+            <span class="n">collector_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_collector_type</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;vrf&quot;</span><span class="p">:</span> <span class="n">vrf_name</span> <span class="k">if</span> <span class="n">nb_vrf</span> <span class="k">else</span> <span class="kc">None</span><span class="p">},</span>
+            <span class="n">object_instance</span><span class="o">=</span><span class="n">bgp_scope</span><span class="p">,</span>
+            <span class="n">object_repr</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BGPScope </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">scope_label</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">peer_data</span> <span class="ow">in</span> <span class="n">peers</span><span class="p">:</span>
+            <span class="n">nb_ip</span> <span class="o">=</span> <span class="n">peer_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nb_ip&quot;</span><span class="p">)</span>
+            <span class="n">nb_asn</span> <span class="o">=</span> <span class="n">peer_data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;nb_asn&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">nb_ip</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="n">bgp_peer</span><span class="p">,</span> <span class="n">peer_created</span> <span class="o">=</span> <span class="n">BGPPeer</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+                <span class="n">scope</span><span class="o">=</span><span class="n">bgp_scope</span><span class="p">,</span>
+                <span class="n">peer</span><span class="o">=</span><span class="n">nb_ip</span><span class="p">,</span>
+                <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;remote_as&quot;</span><span class="p">:</span> <span class="n">nb_asn</span><span class="p">},</span>
+            <span class="p">)</span>
+            <span class="k">if</span> <span class="n">peer_created</span><span class="p">:</span>
+                <span class="n">bgp_peer</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+
+            <span class="n">peer_action</span> <span class="o">=</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_NEW</span> <span class="k">if</span> <span class="n">peer_created</span> <span class="k">else</span> <span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_CONFIRMED</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_record_entry</span><span class="p">(</span>
+                <span class="n">action</span><span class="o">=</span><span class="n">peer_action</span><span class="p">,</span>
+                <span class="n">collector_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_collector_type</span><span class="p">,</span>
+                <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+                <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span>
+                    <span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="n">peer_data</span><span class="p">[</span><span class="s2">&quot;remote_address&quot;</span><span class="p">],</span>
+                    <span class="s2">&quot;remote_as&quot;</span><span class="p">:</span> <span class="n">peer_data</span><span class="p">[</span><span class="s2">&quot;as_number&quot;</span><span class="p">],</span>
+                <span class="p">},</span>
+                <span class="n">object_instance</span><span class="o">=</span><span class="n">bgp_peer</span><span class="p">,</span>
+                <span class="n">object_repr</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BGPPeer </span><span class="si">{</span><span class="n">peer_data</span><span class="p">[</span><span class="s1">&#39;remote_address&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> AS</span><span class="si">{</span><span class="n">peer_data</span><span class="p">[</span><span class="s1">&#39;as_number&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+</code></pre></div>
+<p><strong>Important:</strong> The <code>get_or_create</code> + <code>tags.add(AUTO_D_TAG)</code> calls should only execute when <code>self._should_apply()</code>. When detect-only, only create report entries. Wrap the ORM calls:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_should_apply</span><span class="p">():</span>
+    <span class="n">bgp_router</span><span class="p">,</span> <span class="n">router_created</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">router_created</span><span class="p">:</span>
+        <span class="n">bgp_router</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">bgp_router</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+    <span class="n">router_created</span> <span class="o">=</span> <span class="n">bgp_router</span> <span class="ow">is</span> <span class="kc">None</span>
+</code></pre></div>
+<p>Apply this pattern to BGPScope and BGPPeer creation as well. When detect-only and objects don't exist, set <code>object_instance=None</code> in <code>_record_entry</code>.</p>
+<p><strong>Step 4: Run test to verify it passes</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_creates_bgp_router"</code>
+Expected: PASS</p>
+<p><strong>Step 5: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/helpers/collector.py<span class="w"> </span>netbox_facts/tests/test_helpers.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Implement BGPRouter creation in _bgp_routing_integration&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-4-test-bgpscope-and-bgppeer-creation">Task 4: Test BGPScope and BGPPeer creation<a class="headerlink" href="#task-4-test-bgpscope-and-bgppeer-creation" title="Permanent link">&para;</a></h4>
+<p><strong>Files:</strong>
+- Test: <code>netbox_facts/tests/test_helpers.py</code></p>
+<p><strong>Step 1: Write tests for scope and peer creation</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">test_creates_bgp_scope_per_vrf</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Integration should create a BGPScope per VRF.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPScope</span>
+    <span class="c1"># ... setup similar to test_creates_bgp_router ...</span>
+    <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+    <span class="n">scope</span> <span class="o">=</span> <span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">router__asn__asn</span><span class="o">=</span><span class="mi">65000</span><span class="p">,</span> <span class="n">vrf</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="n">scope</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_creates_bgp_peer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Integration should create a BGPPeer for each neighbor.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPPeer</span>
+    <span class="c1"># ... setup similar to test_creates_bgp_router ...</span>
+    <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+    <span class="n">peer</span> <span class="o">=</span> <span class="n">BGPPeer</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">peer__address</span><span class="o">=</span><span class="s2">&quot;10.0.0.1/32&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="n">peer</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">peer</span><span class="o">.</span><span class="n">remote_as</span><span class="o">.</span><span class="n">asn</span><span class="p">,</span> <span class="mi">65001</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_detect_only_does_not_create_routing_objects</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;When detect_only=True, no BGPRouter/Scope/Peer should be created.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span>
+    <span class="n">plan</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_plan</span><span class="p">(</span><span class="n">collector_type</span><span class="o">=</span><span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">)</span>
+    <span class="n">plan</span><span class="o">.</span><span class="n">detect_only</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">plan</span><span class="o">.</span><span class="n">save</span><span class="p">()</span>
+    <span class="n">collector</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_collector</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>
+    <span class="c1"># ... setup _bgp_routing_data ...</span>
+    <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+    <span class="c1"># But report entries should still be created</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">FactsReportEntry</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">object_repr__startswith</span><span class="o">=</span><span class="s2">&quot;BGPRouter&quot;</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">entries</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_idempotent_does_not_duplicate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Running integration twice should not duplicate objects.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span>
+    <span class="c1"># ... setup ...</span>
+    <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+    <span class="n">collector</span><span class="o">.</span><span class="n">_bgp_routing_integration</span><span class="p">()</span>
+    <span class="n">ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+        <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+            <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">ct</span><span class="p">,</span>
+            <span class="n">assigned_object_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">(),</span>
+        <span class="mi">1</span><span class="p">,</span>
+    <span class="p">)</span>
+</code></pre></div>
+<p><strong>Step 2: Run tests</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k BGPRoutingIntegration"</code>
+Expected: PASS (implementation was done in Task 3)</p>
+<p><strong>Step 3: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/tests/test_helpers.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add tests for BGPScope/BGPPeer creation and detect-only mode&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-5-applier--handle-bgprouterbgpscopebgppeer-entries">Task 5: Applier — handle BGPRouter/BGPScope/BGPPeer entries<a class="headerlink" href="#task-5-applier--handle-bgprouterbgpscopebgppeer-entries" title="Permanent link">&para;</a></h4>
+<p>When a user clicks "Apply" on a detect-only report, the applier needs to create the netbox-routing objects.</p>
+<p><strong>Files:</strong>
+- Modify: <code>netbox_facts/helpers/applier.py:489-532</code> (_apply_bgp_entry)
+- Test: <code>netbox_facts/tests/test_applier.py</code></p>
+<p><strong>Step 1: Write the failing test</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">ApplyBGPRoutingEntryTest</span><span class="p">(</span><span class="n">TestCase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Applier should create BGPRouter/BGPScope/BGPPeer from entries.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_apply_bgp_router_entry</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span>
+        <span class="c1"># Create a report entry with object_repr=&quot;BGPRouter {device}&quot;</span>
+        <span class="c1"># and detected_values={&quot;local_as&quot;: 65000}</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">FactsReportEntry</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="n">report</span><span class="o">=</span><span class="n">report</span><span class="p">,</span>
+            <span class="n">collector_type</span><span class="o">=</span><span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">,</span>
+            <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">action</span><span class="o">=</span><span class="n">EntryActionChoices</span><span class="o">.</span><span class="n">ACTION_NEW</span><span class="p">,</span>
+            <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">},</span>
+            <span class="n">object_repr</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BGPRouter </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">_apply_bgp_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">now</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">asn__asn</span><span class="o">=</span><span class="mi">65000</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_apply_bgp_scope_entry</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPScope</span>
+        <span class="c1"># ... create BGPRouter first, then entry with &quot;BGPScope {device} global&quot;</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">FactsReportEntry</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="o">...</span><span class="p">,</span>
+            <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">,</span> <span class="s2">&quot;vrf&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+            <span class="n">object_repr</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;BGPScope </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2"> global&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">_apply_bgp_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">now</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_apply_bgp_peer_entry</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPPeer</span>
+        <span class="c1"># ... create BGPRouter + BGPScope first, then entry with &quot;BGPPeer 10.0.0.1 AS65001&quot;</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">FactsReportEntry</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+            <span class="o">...</span><span class="p">,</span>
+            <span class="n">detected_values</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.1&quot;</span><span class="p">,</span> <span class="s2">&quot;remote_as&quot;</span><span class="p">:</span> <span class="mi">65001</span><span class="p">,</span> <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">,</span> <span class="s2">&quot;vrf&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">},</span>
+            <span class="n">object_repr</span><span class="o">=</span><span class="s2">&quot;BGPPeer 10.0.0.1 AS65001&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">_apply_bgp_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">now</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">BGPPeer</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">peer__address</span><span class="o">=</span><span class="s2">&quot;10.0.0.1/32&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">())</span>
+</code></pre></div>
+<p><strong>Step 2: Run test to verify it fails</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_apply_bgp_router_entry"</code>
+Expected: FAIL — no dispatch for <code>BGPRouter</code> prefix</p>
+<p><strong>Step 3: Write minimal implementation</strong></p>
+<p>In <code>_apply_bgp_entry</code>, add dispatches at the top (before the existing VRF dispatch):</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_apply_bgp_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">now</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply a BGP peer IP/ASN entry, or a routing-model entry.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+
+    <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">object_repr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;VRF &quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_apply_vrf_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">object_repr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;BGPRouter &quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_apply_bgp_router_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">object_repr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;BGPScope &quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_apply_bgp_scope_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">object_repr</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;BGPPeer &quot;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_apply_bgp_peer_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="c1"># ... existing IP/ASN logic below ...</span>
+</code></pre></div>
+<p>Then add the three helper functions:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_apply_bgp_router_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a BGPRouter from a report entry.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib.contenttypes.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContentType</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span>
+
+    <span class="n">local_as</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">detected_values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;local_as&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">local_as</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;BGPRouter entry has no local_as&quot;</span><span class="p">)</span>
+
+    <span class="n">device</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">device</span>
+    <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="n">asn_obj</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">asn</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">local_as</span><span class="p">),</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()},</span>
+    <span class="p">)</span>
+    <span class="n">router</span><span class="p">,</span> <span class="n">created</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+        <span class="n">assigned_object_id</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="n">asn</span><span class="o">=</span><span class="n">asn_obj</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">created</span><span class="p">:</span>
+        <span class="n">router</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+    <span class="n">_set_entry_object</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">router</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_bgp_scope_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a BGPScope from a report entry.&quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib.contenttypes.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContentType</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPRouter</span><span class="p">,</span> <span class="n">BGPScope</span>
+
+    <span class="n">local_as</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">detected_values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;local_as&quot;</span><span class="p">)</span>
+    <span class="n">vrf_name</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">detected_values</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;vrf&quot;</span><span class="p">)</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">device</span>
+    <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="c1"># Find or create the router first</span>
+    <span class="n">asn_obj</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">asn</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">local_as</span><span class="p">),</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()},</span>
+    <span class="p">)</span>
+    <span class="n">router</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+        <span class="n">assigned_object_id</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="n">asn</span><span class="o">=</span><span class="n">asn_obj</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">nb_vrf</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">vrf_name</span><span class="p">:</span>
+        <span class="n">nb_vrf</span> <span class="o">=</span> <span class="n">resolve_vrf</span><span class="p">(</span><span class="n">vrf_name</span><span class="p">)</span>
+
+    <span class="n">scope</span><span class="p">,</span> <span class="n">created</span> <span class="o">=</span> <span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">router</span><span class="o">=</span><span class="n">router</span><span class="p">,</span>
+        <span class="n">vrf</span><span class="o">=</span><span class="n">nb_vrf</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">created</span><span class="p">:</span>
+        <span class="n">scope</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+    <span class="n">_set_entry_object</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">scope</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_apply_bgp_peer_entry</span><span class="p">(</span><span class="n">entry</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a BGPPeer from a report entry.&quot;&quot;&quot;</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">ipaddress</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ipaddress_mod</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">django.contrib.contenttypes.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContentType</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPPeer</span><span class="p">,</span> <span class="n">BGPRouter</span><span class="p">,</span> <span class="n">BGPScope</span>
+
+    <span class="n">dv</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">detected_values</span>
+    <span class="n">remote_address</span> <span class="o">=</span> <span class="n">dv</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;remote_address&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">as_number</span> <span class="o">=</span> <span class="n">dv</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;remote_as&quot;</span><span class="p">)</span>
+    <span class="n">local_as</span> <span class="o">=</span> <span class="n">dv</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;local_as&quot;</span><span class="p">)</span>
+    <span class="n">vrf_name</span> <span class="o">=</span> <span class="n">dv</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;vrf&quot;</span><span class="p">)</span>
+    <span class="n">device</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">device</span>
+    <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
+
+    <span class="c1"># Build the chain: Router -&gt; Scope</span>
+    <span class="n">asn_obj</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">asn</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">local_as</span><span class="p">),</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()},</span>
+    <span class="p">)</span>
+    <span class="n">router</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+        <span class="n">assigned_object_id</span><span class="o">=</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="n">asn</span><span class="o">=</span><span class="n">asn_obj</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">nb_vrf</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">vrf_name</span><span class="p">:</span>
+        <span class="n">nb_vrf</span> <span class="o">=</span> <span class="n">resolve_vrf</span><span class="p">(</span><span class="n">vrf_name</span><span class="p">)</span>
+
+    <span class="n">scope</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">router</span><span class="o">=</span><span class="n">router</span><span class="p">,</span>
+        <span class="n">vrf</span><span class="o">=</span><span class="n">nb_vrf</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="c1"># IP + remote ASN</span>
+    <span class="n">ip_obj</span> <span class="o">=</span> <span class="n">ipaddress_mod</span><span class="o">.</span><span class="n">ip_address</span><span class="p">(</span><span class="n">remote_address</span><span class="p">)</span>
+    <span class="n">prefix_len</span> <span class="o">=</span> <span class="mi">32</span> <span class="k">if</span> <span class="n">ip_obj</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">4</span> <span class="k">else</span> <span class="mi">128</span>
+    <span class="n">ip_str</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">remote_address</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">prefix_len</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="n">nb_ip</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">get_or_create_ip</span><span class="p">(</span><span class="n">ip_str</span><span class="p">,</span> <span class="n">vrf</span><span class="o">=</span><span class="n">nb_vrf</span><span class="p">)</span>
+
+    <span class="n">nb_remote_asn</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">as_number</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">nb_remote_asn</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">ASN</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+            <span class="n">asn</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">as_number</span><span class="p">),</span>
+            <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;rir&quot;</span><span class="p">:</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()},</span>
+        <span class="p">)</span>
+
+    <span class="n">peer</span><span class="p">,</span> <span class="n">created</span> <span class="o">=</span> <span class="n">BGPPeer</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_or_create</span><span class="p">(</span>
+        <span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">,</span>
+        <span class="n">peer</span><span class="o">=</span><span class="n">nb_ip</span><span class="p">,</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;remote_as&quot;</span><span class="p">:</span> <span class="n">nb_remote_asn</span><span class="p">},</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">created</span><span class="p">:</span>
+        <span class="n">peer</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">AUTO_D_TAG</span><span class="p">)</span>
+    <span class="n">_set_entry_object</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="n">peer</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Important:</strong> The applier must also store <code>local_as</code> in <code>detected_values</code> for BGPPeer entries (needed to reconstruct the Router chain). The collector already stores <code>remote_as</code> and <code>remote_address</code>. We need to add <code>local_as</code> to the BGPPeer detected_values in the collector's <code>_bgp_routing_integration</code> method (Task 3 code):</p>
+<div class="highlight"><pre><span></span><code><span class="n">detected_values</span><span class="o">=</span><span class="p">{</span>
+    <span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="n">peer_data</span><span class="p">[</span><span class="s2">&quot;remote_address&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;remote_as&quot;</span><span class="p">:</span> <span class="n">peer_data</span><span class="p">[</span><span class="s2">&quot;as_number&quot;</span><span class="p">],</span>
+    <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;local_as&quot;</span><span class="p">],</span>       <span class="c1"># &lt;-- add this</span>
+    <span class="s2">&quot;vrf&quot;</span><span class="p">:</span> <span class="n">vrf_name</span> <span class="k">if</span> <span class="n">nb_vrf</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span> <span class="c1"># &lt;-- add this</span>
+<span class="p">},</span>
+</code></pre></div>
+<p>Similarly for BGPScope entries, add <code>local_as</code> to detected_values.</p>
+<p><strong>Step 4: Run test to verify it passes</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_apply_bgp"</code>
+Expected: PASS</p>
+<p><strong>Step 5: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/helpers/applier.py<span class="w"> </span>netbox_facts/helpers/collector.py<span class="w"> </span>netbox_facts/tests/test_applier.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Applier: handle BGPRouter/BGPScope/BGPPeer report entries&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-6-full-integration-test--end-to-end-bgp-collection">Task 6: Full integration test — end-to-end BGP collection<a class="headerlink" href="#task-6-full-integration-test--end-to-end-bgp-collection" title="Permanent link">&para;</a></h4>
+<p><strong>Files:</strong>
+- Test: <code>netbox_facts/tests/test_helpers.py</code></p>
+<p><strong>Step 1: Write the end-to-end test</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">BGPEndToEndTest</span><span class="p">(</span><span class="n">CollectorTestBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Full bgp() call should create IPs, ASNs, and routing objects.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">test_full_bgp_collection_creates_routing_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">ipam.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">ASN</span><span class="p">,</span> <span class="n">RIR</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">netbox_routing.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">BGPPeer</span><span class="p">,</span> <span class="n">BGPRouter</span><span class="p">,</span> <span class="n">BGPScope</span>
+
+        <span class="n">rir</span> <span class="o">=</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">first</span><span class="p">()</span> <span class="ow">or</span> <span class="n">RIR</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Test RIR&quot;</span><span class="p">,</span> <span class="n">slug</span><span class="o">=</span><span class="s2">&quot;test-rir&quot;</span><span class="p">)</span>
+        <span class="n">plan</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_plan</span><span class="p">(</span><span class="n">collector_type</span><span class="o">=</span><span class="n">CollectionTypeChoices</span><span class="o">.</span><span class="n">TYPE_BGP</span><span class="p">)</span>
+        <span class="n">collector</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_collector</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>
+        <span class="n">collector</span><span class="o">.</span><span class="n">_current_device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span>
+
+        <span class="n">mock_driver</span> <span class="o">=</span> <span class="n">MagicMock</span><span class="p">()</span>
+        <span class="n">mock_driver</span><span class="o">.</span><span class="n">get_bgp_neighbors_detail</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;global&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="mi">65001</span><span class="p">:</span> <span class="p">[</span>
+                    <span class="p">{</span><span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.1&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">},</span>
+                    <span class="p">{</span><span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.2&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">},</span>
+                <span class="p">],</span>
+                <span class="mi">65002</span><span class="p">:</span> <span class="p">[</span>
+                    <span class="p">{</span><span class="s2">&quot;remote_address&quot;</span><span class="p">:</span> <span class="s2">&quot;10.0.0.3&quot;</span><span class="p">,</span> <span class="s2">&quot;up&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;local_as&quot;</span><span class="p">:</span> <span class="mi">65000</span><span class="p">},</span>
+                <span class="p">],</span>
+            <span class="p">},</span>
+        <span class="p">}</span>
+
+        <span class="n">collector</span><span class="o">.</span><span class="n">bgp</span><span class="p">(</span><span class="n">mock_driver</span><span class="p">)</span>
+
+        <span class="c1"># Verify routing chain</span>
+        <span class="n">device_ct</span> <span class="o">=</span> <span class="n">ContentType</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get_for_model</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">router</span> <span class="o">=</span> <span class="n">BGPRouter</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+            <span class="n">assigned_object_type</span><span class="o">=</span><span class="n">device_ct</span><span class="p">,</span>
+            <span class="n">assigned_object_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">pk</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">router</span><span class="o">.</span><span class="n">asn</span><span class="o">.</span><span class="n">asn</span><span class="p">,</span> <span class="mi">65000</span><span class="p">)</span>
+
+        <span class="n">scope</span> <span class="o">=</span> <span class="n">BGPScope</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">router</span><span class="o">=</span><span class="n">router</span><span class="p">,</span> <span class="n">vrf</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="n">scope</span><span class="p">)</span>
+
+        <span class="n">peers</span> <span class="o">=</span> <span class="n">BGPPeer</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">scope</span><span class="o">=</span><span class="n">scope</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">peers</span><span class="o">.</span><span class="n">count</span><span class="p">(),</span> <span class="mi">3</span><span class="p">)</span>
+
+        <span class="c1"># Verify report entries exist for routing objects</span>
+        <span class="n">entries</span> <span class="o">=</span> <span class="n">FactsReportEntry</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+            <span class="n">report</span><span class="o">=</span><span class="n">collector</span><span class="o">.</span><span class="n">_report</span><span class="p">,</span>
+            <span class="n">object_repr__startswith</span><span class="o">=</span><span class="s2">&quot;BGPRouter&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">entries</span><span class="o">.</span><span class="n">count</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>Step 2: Run test</strong></p>
+<p>Run: <code>make test TEST_ARGS="-k test_full_bgp_collection_creates_routing_chain"</code>
+Expected: PASS</p>
+<p><strong>Step 3: Commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>netbox_facts/tests/test_helpers.py
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add end-to-end BGP collection with netbox-routing test&quot;</span>
+</code></pre></div>
+<hr />
+<h4 id="task-7-run-full-test-suite-and-fix-regressions">Task 7: Run full test suite and fix regressions<a class="headerlink" href="#task-7-run-full-test-suite-and-fix-regressions" title="Permanent link">&para;</a></h4>
+<p><strong>Step 1: Run all tests</strong></p>
+<p>Run: <code>make test</code>
+Expected: All 193+ tests pass</p>
+<p><strong>Step 2: Fix any failures</strong></p>
+<p>Common issues to watch for:
+- Import errors if <code>netbox_routing</code> models have different field names than expected
+- Existing BGP tests that mock <code>_bgp_routing_integration</code> may need updating
+- <code>FactsReportEntry</code> queries in tests may need to account for new routing entries</p>
+<p><strong>Step 3: Final commit</strong></p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>add<span class="w"> </span>-u
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Fix test regressions from BGP routing integration&quot;</span>
+</code></pre></div>
+<hr />
+<h3 id="summary-of-changes">Summary of Changes<a class="headerlink" href="#summary-of-changes" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>netbox_facts/forms.py</code></td>
+<td>Hide BGP/OSPF choices when no netbox-routing</td>
+</tr>
+<tr>
+<td><code>netbox_facts/helpers/collector.py</code></td>
+<td>Accumulate <code>_bgp_routing_data</code>; flesh out <code>_bgp_routing_integration()</code></td>
+</tr>
+<tr>
+<td><code>netbox_facts/helpers/applier.py</code></td>
+<td>Add <code>_apply_bgp_router_entry</code>, <code>_apply_bgp_scope_entry</code>, <code>_apply_bgp_peer_entry</code></td>
+</tr>
+<tr>
+<td><code>netbox_facts/tests/test_helpers.py</code></td>
+<td>Tests for form hiding, data accumulation, routing integration</td>
+</tr>
+<tr>
+<td><code>netbox_facts/tests/test_applier.py</code></td>
+<td>Tests for applier routing entry handlers</td>
+</tr>
+<tr>
+<td><code>.devcontainer/Dockerfile-plugin_dev</code></td>
+<td>Add <code>netbox-routing</code> to pip install (already done)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="not-changing">Not Changing<a class="headerlink" href="#not-changing" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Existing IP/ASN creation logic in <code>bgp()</code></li>
+<li><code>FactsReportEntry</code> model (GFK, no new fields)</li>
+<li>Migration files (no FK to netbox-routing)</li>
+<li>OSPF routing integration (separate future task)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/jsenecal/netbox-facts" target="_blank" rel="noopener" title="Github" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="mailto:contact@jonathansenecal.com" target="_blank" rel="noopener" title="" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m20 8-8 5-8-5V6l8 5 8-5m0-2H4c-1.11 0-2 .89-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.indexes", "navigation.instant", "navigation.tabs.sticky"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
