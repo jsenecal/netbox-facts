@@ -858,14 +858,12 @@ class NapalmCollector:
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
         self._seen_ips = set()
-        # Pass the interface regex to enhanced drivers that support server-side filtering
+        # Always fetch all interfaces and filter client-side with the Python
+        # regex.  Passing the regex pattern to the Junos RPC as interface_name
+        # causes mismatches because Junos treats '.' as a literal dot while
+        # Python regex treats it as "any character".
         try:
-            try:
-                ifaces = driver.get_interfaces(
-                    interface_name=self._interfaces_re.pattern,
-                )
-            except TypeError:
-                ifaces = driver.get_interfaces()
+            ifaces = driver.get_interfaces()
         except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve interface data: {exc}")
             return
@@ -876,23 +874,25 @@ class NapalmCollector:
             if not self._interfaces_re.match(iface_name):
                 continue
 
-            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
-
             mac_addr = iface_data.get("mac_address") or ""
             if mac_addr.lower() in ("none", "n/a"):
                 mac_addr = ""
 
-            detected = {
-                "interface": iface_name,
-                "mac_address": mac_addr,
-                "is_enabled": iface_data.get("is_enabled"),
-                "speed": iface_data.get("speed"),
-                "mtu": iface_data.get("mtu"),
-                "is_up": iface_data.get("is_up"),
-            }
-
             if not mac_addr:
-                # Record the interface even without a MAC address
+                # Only collect MAC-less interfaces that carry logical
+                # sub-interfaces (e.g. lo0, irb, ae with no MAC).  This
+                # avoids creating system pseudo-interfaces like .local.
+                if not iface_data.get("logical_interfaces"):
+                    continue
+                nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+                detected = {
+                    "interface": iface_name,
+                    "mac_address": "",
+                    "is_enabled": iface_data.get("is_enabled"),
+                    "speed": iface_data.get("speed"),
+                    "mtu": iface_data.get("mtu"),
+                    "is_up": iface_data.get("is_up"),
+                }
                 self._record_entry(
                     action=EntryActionChoices.ACTION_CONFIRMED,
                     collector_type=self._collector_type,
@@ -902,6 +902,17 @@ class NapalmCollector:
                     object_repr=self._object_repr(nb_iface),
                 )
                 continue
+
+            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+
+            detected = {
+                "interface": iface_name,
+                "mac_address": mac_addr,
+                "is_enabled": iface_data.get("is_enabled"),
+                "speed": iface_data.get("speed"),
+                "mtu": iface_data.get("mtu"),
+                "is_up": iface_data.get("is_up"),
+            }
 
             # Validate MAC address format before querying
             try:
