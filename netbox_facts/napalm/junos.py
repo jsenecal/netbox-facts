@@ -1,11 +1,12 @@
 import re
-from typing import Generator, Dict, Any
+from collections.abc import Generator
+from typing import Any
 
 import napalm.base.helpers
 from napalm.junos import JunOSDriver
 
-from .utils import junos_views
 from .helpers import ip_object
+from .utils import junos_views
 
 __all__ = ("EnhancedJunOSDriver",)
 
@@ -30,7 +31,7 @@ def _module_to_dict(module, parent_name=None):
 class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
     """Enhanced JunOSDriver with richer interface data and regex filtering."""
 
-    def get_arp_table(self, vrf="") -> Generator[Dict[str, Any], None, None]:
+    def get_arp_table(self, vrf="") -> Generator[dict[str, Any], None, None]:
         """Return the ARP table with the ip address object."""
         if vrf:
             msg = "VRF support has not been added for this getter on this platform."
@@ -46,7 +47,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
             arp_entry["ip"] = ip_object(arp_entry.get("ip"))
             yield arp_entry
 
-    def get_ipv6_neighbors_table(self) -> Generator[Dict[str, Any], None, None]:
+    def get_ipv6_neighbors_table(self) -> Generator[dict[str, Any], None, None]:
         """Return the IPv6 neighbors table with the ip address object."""
         ipv6_neighbors_table_raw = junos_views.junos_ipv6_neighbors_table(self.device)
         ipv6_neighbors_table_raw.get()
@@ -55,9 +56,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
         for ipv6_table_entry in ipv6_neighbors_table_items:
             ipv6_entry = {elem[0]: elem[1] for elem in ipv6_table_entry[1]}
             ipv6_entry["mac"] = (
-                ""
-                if ipv6_entry.get("mac") == "none"
-                else napalm.base.helpers.mac(ipv6_entry.get("mac"))
+                "" if ipv6_entry.get("mac") == "none" else napalm.base.helpers.mac(ipv6_entry.get("mac"))
             )
             ipv6_entry["ip"] = ip_object(ipv6_entry.get("ip"))
             yield ipv6_entry
@@ -87,9 +86,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
             iface_data = {elem[0]: elem[1] for elem in iface_entry[1]}
 
             mac_raw = iface_data.get("mac_address")
-            mac = napalm.base.helpers.convert(
-                napalm.base.helpers.mac, mac_raw, ""
-            )
+            mac = napalm.base.helpers.convert(napalm.base.helpers.mac, mac_raw, "")
 
             match_mtu = re.search(r"(\w+)", str(iface_data.get("mtu") or ""))
             mtu = napalm.base.helpers.convert(int, match_mtu.group(0), 0) if match_mtu else 0
@@ -153,7 +150,7 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
 
         return result
 
-    def get_chassis_inventory(self) -> Generator[Dict[str, Any], None, None]:
+    def get_chassis_inventory(self) -> Generator[dict[str, Any], None, None]:
         """Walk the 3-level chassis module tree and yield flat dicts."""
         table = junos_views.junos_chassis_inventory_table(self.device)
         table.get()
@@ -164,16 +161,12 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
 
             if sub_modules:
                 for sub_entry in sub_modules.items():
-                    sub_dict, sub_sub_modules = _module_to_dict(
-                        sub_entry, parent_name=mod_dict["name"]
-                    )
+                    sub_dict, sub_sub_modules = _module_to_dict(sub_entry, parent_name=mod_dict["name"])
                     yield sub_dict
 
                     if sub_sub_modules:
                         for sub_sub_entry in sub_sub_modules.items():
-                            sub_sub_dict, _ = _module_to_dict(
-                                sub_sub_entry, parent_name=sub_dict["name"]
-                            )
+                            sub_sub_dict, _ = _module_to_dict(sub_sub_entry, parent_name=sub_dict["name"])
                             yield sub_sub_dict
 
     @staticmethod

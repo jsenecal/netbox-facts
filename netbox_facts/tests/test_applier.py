@@ -1,6 +1,5 @@
 import unittest
 
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
 from dcim.models import (
     Device,
@@ -11,6 +10,7 @@ from dcim.models import (
 )
 from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.modules import Module, ModuleType
+from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 
@@ -27,6 +27,7 @@ from netbox_facts.models.mac import MACAddress
 
 try:
     from netbox_routing.models import BGPPeer, BGPRouter, BGPScope
+
     HAS_NETBOX_ROUTING = True
 except Exception:
     HAS_NETBOX_ROUTING = False
@@ -39,9 +40,7 @@ class ApplierTestMixin:
     def setUpTestData(cls):
         cls.site = Site.objects.create(name="Applier Site", slug="applier-site")
         cls.manufacturer = Manufacturer.objects.create(name="AppMfg", slug="appmfg")
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer, model="AppModel", slug="appmodel"
-        )
+        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="AppModel", slug="appmodel")
         cls.role = DeviceRole.objects.create(name="AppRole", slug="approle")
         cls.device = Device.objects.create(
             name="applier-dev",
@@ -271,12 +270,8 @@ class ApplyInterfaceLAGEntryTest(ApplierTestMixin, TestCase):
 
     def test_apply_lag_sets_parent(self):
         """Applying a LAG entry should set the interface's lag field."""
-        ge_iface = Interface.objects.create(
-            device=self.device, name="ge-0/0/0", type="1000base-t"
-        )
-        ae_iface = Interface.objects.create(
-            device=self.device, name="ae0", type="lag"
-        )
+        ge_iface = Interface.objects.create(device=self.device, name="ge-0/0/0", type="1000base-t")
+        ae_iface = Interface.objects.create(device=self.device, name="ae0", type="lag")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -297,9 +292,7 @@ class ApplyInterfaceLAGEntryTest(ApplierTestMixin, TestCase):
 
     def test_apply_lag_missing_parent_creates_it(self):
         """Applying a LAG entry when ae parent doesn't exist should auto-create it."""
-        Interface.objects.create(
-            device=self.device, name="ge-0/0/1", type="1000base-t"
-        )
+        Interface.objects.create(device=self.device, name="ge-0/0/1", type="1000base-t")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -330,9 +323,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
 
     def test_apply_ip_creates_address_and_prefix(self):
         """Applying an IP entry should create IPAddress and Prefix."""
-        li = Interface.objects.create(
-            device=self.device, name="ge-0/0/2.0", type="virtual"
-        )
+        li = Interface.objects.create(device=self.device, name="ge-0/0/2.0", type="virtual")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -361,9 +352,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
     def test_apply_ip_with_vrf(self):
         """Applying an IP entry with VRF should link both IP and prefix to VRF."""
         vrf = VRF.objects.create(name="APPLY_VRF")
-        li = Interface.objects.create(
-            device=self.device, name="ge-0/0/3.100", type="virtual"
-        )
+        li = Interface.objects.create(device=self.device, name="ge-0/0/3.100", type="virtual")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -390,9 +379,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
 
     def test_apply_ip_host_route_no_prefix(self):
         """Applying a /32 host route should not create a prefix."""
-        Interface.objects.create(
-            device=self.device, name="lo0.0", type="virtual"
-        )
+        Interface.objects.create(device=self.device, name="lo0.0", type="virtual")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -416,9 +403,7 @@ class ApplyInterfaceIPEntryTest(ApplierTestMixin, TestCase):
 
     def test_apply_ip_existing_unassigned_sets_interface(self):
         """Applying IP entry when IP exists but has no assigned_object should assign it."""
-        li = Interface.objects.create(
-            device=self.device, name="ge-0/0/4.0", type="virtual"
-        )
+        li = Interface.objects.create(device=self.device, name="ge-0/0/4.0", type="virtual")
         existing_ip = IPAddress.objects.create(address="10.0.6.1/24")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
@@ -507,9 +492,7 @@ class ApplyInterfaceAutoCreateTest(ApplierTestMixin, TestCase):
 
     def test_apply_ip_auto_created_logical_has_parent(self):
         """Auto-created sub-interface should have parent set to existing physical."""
-        phys = Interface.objects.create(
-            device=self.device, name="ge-0/0/7", type="1000base-t"
-        )
+        phys = Interface.objects.create(device=self.device, name="ge-0/0/7", type="1000base-t")
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
             report=report,
@@ -653,8 +636,12 @@ class ApplyInventoryItemTest(ApplierTestMixin, TestCase):
     def test_apply_changed_inventory_item(self):
         """Applying a CHANGED entry should update serial/part_id."""
         item = InventoryItem.objects.create(
-            device=self.device, name="FPC 0", serial="OLD_SN",
-            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+            device=self.device,
+            name="FPC 0",
+            serial="OLD_SN",
+            part_id="750-12345",
+            description="MPC 4e 3D",
+            discovered=True,
         )
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
@@ -687,8 +674,12 @@ class ApplyInventoryItemTest(ApplierTestMixin, TestCase):
     def test_apply_stale_inventory_item(self):
         """Applying a STALE entry should delete the discovered InventoryItem."""
         InventoryItem.objects.create(
-            device=self.device, name="FPC 1", serial="GONE_SN",
-            part_id="750-99999", description="Old card", discovered=True,
+            device=self.device,
+            name="FPC 1",
+            serial="GONE_SN",
+            part_id="750-99999",
+            description="Old card",
+            discovered=True,
         )
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
@@ -710,15 +701,17 @@ class ApplyInventoryItemTest(ApplierTestMixin, TestCase):
         self.assertEqual(applied, 1)
         self.assertEqual(failed, 0)
 
-        self.assertFalse(
-            InventoryItem.objects.filter(device=self.device, name="FPC 1").exists()
-        )
+        self.assertFalse(InventoryItem.objects.filter(device=self.device, name="FPC 1").exists())
 
     def test_apply_new_inventory_item_with_parent(self):
         """Applying a sub-module entry should set parent to existing InventoryItem."""
         fpc = InventoryItem.objects.create(
-            device=self.device, name="FPC 0", serial="FPC_SN",
-            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+            device=self.device,
+            name="FPC 0",
+            serial="FPC_SN",
+            part_id="750-12345",
+            description="MPC 4e 3D",
+            discovered=True,
         )
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
@@ -751,7 +744,9 @@ class ApplyModuleTest(ApplierTestMixin, TestCase):
         """Applying a NEW Module entry should create a Module with adoption flags."""
         bay = ModuleBay.objects.create(device=self.device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         report = FactsReport.objects.create(collection_plan=self.plan)
         entry = FactsReportEntry.objects.create(
@@ -783,10 +778,15 @@ class ApplyModuleTest(ApplierTestMixin, TestCase):
         """Applying a CHANGED Module entry should update the serial."""
         bay = ModuleBay.objects.create(device=self.device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         existing_mod = Module.objects.create(
-            device=self.device, module_bay=bay, module_type=mod_type, serial="OLD_SN",
+            device=self.device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial="OLD_SN",
         )
         existing_mod.tags.add(AUTO_D_TAG)
 
@@ -819,10 +819,15 @@ class ApplyModuleTest(ApplierTestMixin, TestCase):
         """Applying a STALE Module entry should delete the auto-discovered Module."""
         bay = ModuleBay.objects.create(device=self.device, name="FPC 1")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-99999",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-99999",
         )
         stale_mod = Module.objects.create(
-            device=self.device, module_bay=bay, module_type=mod_type, serial="GONE_SN",
+            device=self.device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial="GONE_SN",
         )
         stale_mod.tags.add(AUTO_D_TAG)
 
@@ -856,6 +861,7 @@ class ApplyBGPRouterEntryTest(ApplierTestMixin, TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         from ipam.models import RIR
+
         RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
 
     def test_apply_bgp_router_creates_router(self):
@@ -876,6 +882,7 @@ class ApplyBGPRouterEntryTest(ApplierTestMixin, TestCase):
 
         from django.contrib.contenttypes.models import ContentType
         from ipam.models import ASN
+
         device_ct = ContentType.objects.get_for_model(self.device)
         asn = ASN.objects.get(asn=65000)
         router = BGPRouter.objects.get(
@@ -917,6 +924,7 @@ class ApplyBGPScopeEntryTest(ApplierTestMixin, TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         from ipam.models import RIR
+
         RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
 
     def test_apply_bgp_scope_global(self):
@@ -970,6 +978,7 @@ class ApplyBGPPeerRoutingEntryTest(ApplierTestMixin, TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         from ipam.models import RIR
+
         RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
 
     def test_apply_bgp_peer_creates_full_chain(self):
@@ -995,6 +1004,7 @@ class ApplyBGPPeerRoutingEntryTest(ApplierTestMixin, TestCase):
 
         # Verify full chain
         from ipam.models import ASN
+
         ASN.objects.get(asn=65000)
         ASN.objects.get(asn=65001)
 
@@ -1092,6 +1102,7 @@ class ApplyBGPDispatchTest(ApplierTestMixin, TestCase):
     def setUpTestData(cls):
         super().setUpTestData()
         from ipam.models import RIR
+
         RIR.objects.get_or_create(name="IANA", defaults={"slug": "iana", "is_private": True})
 
     def test_regular_bgp_peer_entry_not_dispatched_to_routing(self):

@@ -1,5 +1,5 @@
-from utilities.choices import ChoiceSet
 from django.utils.translation import gettext_lazy as _
+from utilities.choices import ChoiceSet
 
 
 class CollectionTypeChoices(ChoiceSet):

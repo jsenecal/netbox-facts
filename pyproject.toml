@@ -30,42 +30,23 @@ dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/jsenecal/netbox-facts"
-Documentation = "https://jsenecal.github.io/netbox-facts"
+Documentation = "https://jsenecal.github.io/netbox-facts/"
 Repository = "https://github.com/jsenecal/netbox-facts"
+Issues = "https://github.com/jsenecal/netbox-facts/issues"
 
 [project.optional-dependencies]
 routing = ["netbox-routing"]
 dev = [
     "netbox-routing",
-    "autoflake",
-    "autopep8",
-    "bandit",
-    "black",
-    "bump2version",
-    "debugpy",
-    "flake8",
-    "ipython",
-    "isort",
-    "mypy",
-    "mypy-extensions",
-    "pre-commit",
-    "pycodestyle",
-    "pydocstyle",
-    "pylint",
-    "pylint-django",
+    "bumpver",
+    "pre-commit>=4.0.0",
     "pytest",
-    "rich",
+    "pytest-django>=4.5.0",
+    "pytest-cov>=3.0.0",
     "ruff",
-    "sourcery-analytics",
-    "mkdocs",
-    "mkdocs-material",
-    "mkdocs-include-markdown-plugin",
-    "mkdocstrings[python]",
-    "twine",
-    "watchdog",
-    "wheel",
-    "wily",
-    "yapf",
+]
+docs = [
+    "zensical",
 ]
 
 [tool.hatch.version]
@@ -76,28 +57,55 @@ packages = ["netbox_facts"]
 
 [tool.ruff]
 line-length = 120
+target-version = "py312"
+extend-exclude = ["**/migrations/*.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E203", "E266"]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "DJ", "PIE"]
+# N818 (exception names) ignored: existing CollectionTimeout / CollectionFailed
+# / OperationNotSupported predate the convention. Renaming is a follow-up.
+# S104 (bind 0.0.0.0) is a reachable default; the CollectionPlan field
+# accepts user-supplied addresses at runtime so it's not a hardcoded risk.
+# TODO(future code-quality pass): F811, B007, C408 are pre-existing minor
+# issues that should be addressed after this normalization PR lands so the
+# toolkit-only commit stays focused.
+ignore = ["E203", "E266", "E501", "N806", "N818", "S101", "S104", "DJ01", "DJ008", "DJ001", "F811", "B007", "C408"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+"migrations/*" = ["N806", "N999"]
+"netbox_facts/tests/*" = ["S101", "S105", "S106", "E402", "F841", "N811", "N814", "B017", "F811"]
+"tests/*" = ["S101", "S105", "S106", "E402", "F841"]
 
-[tool.isort]
-profile = "black"
-line_length = 120
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "netbox.settings"
+testpaths = ["netbox_facts/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=netbox_facts --cov-report=term-missing --reuse-db"
 
-[tool.bumpversion]
+[tool.bumpver]
 current_version = "0.0.1"
+version_pattern = "MAJOR.MINOR.PATCH"
+commit_message = "chore: bump version {old_version} -> {new_version}"
+tag_pattern = "vMAJOR.MINOR.PATCH"
 commit = true
 tag = true
+push = true
 
-[[tool.bumpversion.files]]
-filename = "netbox_facts/__init__.py"
-search = "__version__ = \"{current_version}\""
-replace = "__version__ = \"{new_version}\""
+[tool.bumpver.file_patterns]
+"pyproject.toml" = [
+    'current_version = "{version}"',
+]
+"netbox_facts/__init__.py" = [
+    '__version__ = "{version}"',
+]
+"CHANGELOG.md" = [
+    '## \[Unreleased\]',
+    '## \[{version}\] - {now:%Y-%m-%d}',
+]

@@ -1,18 +1,15 @@
 from core.choices import JobStatusChoices
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
 from dcim.fields import mac_unix_expanded_uppercase
 from dcim.models.devices import Manufacturer
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from netaddr import EUI
 
-from .models import MACAddress, MACVendor, CollectionPlan
+from .models import CollectionPlan, MACAddress, MACVendor
 
 
 @receiver(post_save, sender=MACAddress)
-def handle_mac_change(
-    instance: MACAddress, **kwargs
-):  # pylint: disable=unused-argument
+def handle_mac_change(instance: MACAddress, **kwargs):  # pylint: disable=unused-argument
     """
     Update vendor foreign key when MACAddress is created or updated.
     """
@@ -29,11 +26,7 @@ def handle_mac_change(
             except (
                 Manufacturer.DoesNotExist  # pylint: disable=no-member # type: ignore
             ):
-                other_vendor = (
-                    MACVendor.objects.filter(vendor_name=vendor_name)
-                    .exclude(manufacturer=None)
-                    .first()
-                )
+                other_vendor = MACVendor.objects.filter(vendor_name=vendor_name).exclude(manufacturer=None).first()
                 if other_vendor is not None:
                     manufacturer = other_vendor.manufacturer
                 else:
@@ -44,18 +37,13 @@ def handle_mac_change(
                 mac_prefix=instance.mac_address,
             )
             vendor.save()
-    elif (
-        int(instance.vendor.mac_prefix) & ~0x0000FFFFFF
-        != int(instance.mac_address) & ~0x0000FFFFFF
-    ):
+    elif int(instance.vendor.mac_prefix) & ~0x0000FFFFFF != int(instance.mac_address) & ~0x0000FFFFFF:
         vendor = MACVendor.objects.get_by_mac_address(instance.mac_address)
         MACAddress.objects.filter(pk=instance.pk).update(vendor=vendor)
 
 
 @receiver(post_save, sender=MACVendor)
-def handle_mac_vendor_change(
-    instance: MACVendor, **kwargs
-):  # pylint: disable=unused-argument
+def handle_mac_vendor_change(instance: MACVendor, **kwargs):  # pylint: disable=unused-argument
     """
     Update vendor foreign key when a MACVendor is created or updated.
     """
@@ -68,15 +56,12 @@ def handle_mac_vendor_change(
         dialect=mac_unix_expanded_uppercase,
     )
     prefix_str = str(prefix).lower()[:8]  # "dd:ee:ff"
-    mac_addresses = MACAddress.objects.filter(
-        mac_address__startswith=prefix_str
-    )
+    mac_addresses = MACAddress.objects.filter(mac_address__startswith=prefix_str)
     mac_addresses.update(vendor=instance)
 
+
 @receiver(post_save, sender=CollectionPlan)
-def handle_collection_job_change(
-    instance: CollectionPlan, created=False, **kwargs
-):  # pylint: disable=unused-argument
+def handle_collection_job_change(instance: CollectionPlan, created=False, **kwargs):  # pylint: disable=unused-argument
     """
     Schedule or cancel collection jobs when a CollectionPlan is saved.
     Mirrors the DataSource sync scheduling pattern from core/signals.py.
@@ -92,8 +77,12 @@ def handle_collection_job_change(
         )
     elif not created:
         # Delete any previously scheduled recurring jobs for this CollectionPlan
-        for job in CollectionJobRunner.get_jobs(instance).defer("data").filter(
-            interval__isnull=False,
-            status=JobStatusChoices.STATUS_SCHEDULED,
+        for job in (
+            CollectionJobRunner.get_jobs(instance)
+            .defer("data")
+            .filter(
+                interval__isnull=False,
+                status=JobStatusChoices.STATUS_SCHEDULED,
+            )
         ):
             job.delete()

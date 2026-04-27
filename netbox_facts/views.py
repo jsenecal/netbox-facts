@@ -1,9 +1,5 @@
 """Views for the netbox_facts plugin."""
 
-import logging
-
-from core.choices import JobStatusChoices
-from extras.choices import LogLevelChoices
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from django.contrib import messages
@@ -12,13 +8,14 @@ from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
+from extras.choices import LogLevelChoices
+from extras.views import ScriptResultView
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
 from netbox import object_actions
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
-from extras.views import ScriptResultView
 from utilities.htmx import htmx_partial
 from utilities.views import (
     ViewTab,
@@ -54,10 +51,7 @@ class MACIPAddressesView(generic.ObjectChildrenView):
 
     def get_table(self, data, request, bulk_actions=True):
         table = self.table(data, user=request.user)
-        if (
-            "pk" in table.base_columns
-            and bulk_actions
-        ):
+        if "pk" in table.base_columns and bulk_actions:
             table.columns.show("pk")
 
         table.configure(request)
@@ -246,10 +240,7 @@ class CollectionPlanView(generic.ObjectView):
             ("Device Types", instance.device_types.all),
             (
                 "Device Status",
-                [
-                    dict(DeviceStatusChoices)[status]
-                    for status in instance.device_status
-                ],
+                [dict(DeviceStatusChoices)[status] for status in instance.device_status],
             ),
             ("Roles", instance.roles.all),
             ("Platforms", instance.platforms.all),
@@ -259,10 +250,7 @@ class CollectionPlanView(generic.ObjectView):
         )
 
         return {
-            "assigned_objects": [
-                (title, values, not isinstance(values, list))
-                for title, values in assigned_objects
-            ],
+            "assigned_objects": [(title, values, not isinstance(values, list)) for title, values in assigned_objects],
         }
 
 
@@ -309,13 +297,10 @@ class CollectorRunView(BaseObjectView):
 
 @register_model_view(models.CollectionPlan, "results")
 class CollectorResultsView(ScriptResultView):
-
     tab = ViewTab(
         label=_("Results"),
         permission="netbox_facts.view_collector_results",
-        badge=lambda x: (
-            x.result.get_status_display() if x.result is not None else False
-        ),
+        badge=lambda x: x.result.get_status_display() if x.result is not None else False,
         hide_if_empty=True,
         weight=5000,
     )
@@ -329,13 +314,9 @@ class CollectorResultsView(ScriptResultView):
         table = None
         instance = self.get_object(**kwargs)
 
-        object_type = ContentType.objects.get_for_model(
-            instance, for_concrete_model=False
-        )
+        object_type = ContentType.objects.get_for_model(instance, for_concrete_model=False)
         job: Job | None = (
-            Job.objects.filter(object_id=instance.pk, object_type=object_type)
-            .order_by("-started")
-            .first()
+            Job.objects.filter(object_id=instance.pk, object_type=object_type).order_by("-started").first()
         )
         if job is None:
             raise Http404(f"No job found for {instance}")
@@ -357,11 +338,7 @@ class CollectorResultsView(ScriptResultView):
         if job.data and "log" in job.data:
             context["tests"] = job.data.get("tests", {})
         elif job.data:
-            context["tests"] = {
-                name: data
-                for name, data in job.data.items()
-                if name.startswith("test_")
-            }
+            context["tests"] = {name: data for name, data in job.data.items() if name.startswith("test_")}
 
         # If this is an HTMX request, return only the result HTML
         if htmx_partial(request):
@@ -456,7 +433,6 @@ class FactsReportBulkDeleteView(generic.BulkDeleteView):
     queryset = models.FactsReport.objects.all()
     filterset = filtersets.FactsReportFilterSet
     table = tables.FactsReportTable
-
 
 
 def _status_entries_view(status_value, status_label, weight):

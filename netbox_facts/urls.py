@@ -1,9 +1,8 @@
 from django.urls import include, path
-
 from netbox.views.generic import ObjectChangeLogView, ObjectJournalView
 from utilities.urls import get_model_urls
-from . import models, views
 
+from . import models, views
 
 urlpatterns = (
     path("mac-addresses/", views.MACAddressListView.as_view(), name="macaddress_list"),
@@ -50,9 +49,7 @@ urlpatterns = (
         name="macvendor_bulk_delete",
     ),
     path("mac-vendor/add/", views.MACVendorEditView.as_view(), name="macvendor_add"),
-    path(
-        "mac-vendor/<int:pk>/", views.MACVendorView.as_view(), name="macvendor_detail"
-    ),
+    path("mac-vendor/<int:pk>/", views.MACVendorView.as_view(), name="macvendor_detail"),
     path(
         "mac-vendor/<int:pk>/edit/",
         views.MACVendorEditView.as_view(),

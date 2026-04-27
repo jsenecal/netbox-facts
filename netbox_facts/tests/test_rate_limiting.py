@@ -1,11 +1,11 @@
 """Tests for rate limiting, bulk import forms, and management commands."""
 
 from io import StringIO
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
+from dcim.choices import DeviceStatusChoices
 from django.core.management import call_command
 from django.test import TestCase
-from dcim.choices import DeviceStatusChoices
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -13,9 +13,9 @@ from netbox_facts.choices import (
 )
 from netbox_facts.exceptions import OperationNotSupported
 from netbox_facts.forms import (
+    CollectionPlanImportForm,
     MACAddressImportForm,
     MACVendorImportForm,
-    CollectionPlanImportForm,
 )
 from netbox_facts.models import CollectionPlan
 

@@ -1,6 +1,6 @@
+from dcim.fields import MACAddressField, mac_unix_expanded_uppercase
 from django.core.exceptions import ValidationError
-from dcim.fields import mac_unix_expanded_uppercase, MACAddressField
-from netaddr import AddrFormatError, EUI
+from netaddr import EUI, AddrFormatError
 
 __all__ = ["MACPrefixField"]
 

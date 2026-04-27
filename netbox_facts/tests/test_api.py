@@ -1,14 +1,10 @@
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Manufacturer
-from django.urls import reverse
 from netaddr import EUI
-from rest_framework import status
-from users.models import Token
-from utilities.testing import APITestCase, APIViewTestCases
+from utilities.testing import APIViewTestCases
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
-    CollectorPriorityChoices,
 )
 from netbox_facts.models import CollectionPlan, MACAddress, MACVendor
 

@@ -1,13 +1,13 @@
 """NetBox helper functions"""
 
-
 import ipaddress
-from typing import Any, Dict, Generator, List, Tuple
+from collections.abc import Generator
+from typing import Any
+
 from dcim.models.device_components import Interface
 from dcim.models.devices import Device
 from ipam.models import IPAddress
 from ipam.models.ip import Prefix
-
 from ipam.models.vrfs import VRF
 
 from netbox_facts.constants import AUTO_D_TAG
@@ -16,9 +16,7 @@ from netbox_facts.constants import AUTO_D_TAG
 def get_absolute_url_markdown(instance: Any, code=False, bold=False) -> str:
     """Get a markdown link to an object's absolute URL."""
     if hasattr(instance, "get_absolute_url") is False:
-        raise ValueError(
-            f"Object {instance} does not have a get_absolute_url() method."
-        )
+        raise ValueError(f"Object {instance} does not have a get_absolute_url() method.")
 
     link_text = str(instance)
     if code:
@@ -72,7 +70,7 @@ def get_connection_ips(instance: Device, target: str) -> list[tuple[str, str]]:
 
 def resolve_napalm_network_instances(
     instances,
-) -> Generator[Tuple[str, Dict[str, str | List[str]]], Any, Any]:
+) -> Generator[tuple[str, dict[str, str | list[str]]], Any, Any]:
     """Parse network instances and resolve VRFs in NetBox.
     Returns a generator of instance_name, data pairs where the netbox_vrf key is either missing, None or a VRF object.
     """
@@ -81,9 +79,7 @@ def resolve_napalm_network_instances(
         if data["instance_type"] == "L3VRF":
             try:
                 # Try to find an existing VRF object and cache it
-                data["netbox_vrf"] = instances_by_name.get(
-                    instance_name, VRF.objects.get(name=instance_name)
-                )
+                data["netbox_vrf"] = instances_by_name.get(instance_name, VRF.objects.get(name=instance_name))
                 instances_by_name[instance_name] = data["netbox_vrf"]
             except VRF.DoesNotExist:  # pylint: disable=no-member
                 pass
@@ -220,7 +216,9 @@ def get_or_create_ip(address, vrf=None, **defaults):
     Returns (IPAddress, bool). Lets MultipleObjectsReturned propagate.
     """
     nb_ip, created = IPAddress.objects.get_or_create(
-        address=address, vrf=vrf, defaults=defaults,
+        address=address,
+        vrf=vrf,
+        defaults=defaults,
     )
     if created:
         nb_ip.tags.add(AUTO_D_TAG)

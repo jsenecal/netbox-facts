@@ -29,15 +29,9 @@ class Command(BaseCommand):
                     status=CollectorStatusChoices.STALLED,
                 )
                 recovered += 1
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"Recovered stale plan '{plan.name}' (pk={plan.pk})"
-                    )
-                )
+                self.stdout.write(self.style.WARNING(f"Recovered stale plan '{plan.name}' (pk={plan.pk})"))
 
         if recovered:
-            self.stdout.write(
-                self.style.SUCCESS(f"Recovered {recovered} stale plan(s).")
-            )
+            self.stdout.write(self.style.SUCCESS(f"Recovered {recovered} stale plan(s)."))
         else:
             self.stdout.write("No stale plans found.")

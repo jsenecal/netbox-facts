@@ -1,7 +1,6 @@
 import logging
 
 from django.db import DatabaseError
-
 from netbox.jobs import JobRunner
 from netbox.plugins.utils import get_plugin_config
 
@@ -30,9 +29,7 @@ class CollectionJobRunner(JobRunner):
         # Update the CollectionPlan's status to queued
         if instance := job.object:
             instance.status = CollectorStatusChoices.QUEUED
-            CollectionPlan.objects.filter(pk=instance.pk).update(
-                status=CollectorStatusChoices.QUEUED
-            )
+            CollectionPlan.objects.filter(pk=instance.pk).update(status=CollectorStatusChoices.QUEUED)
 
         return job
 
@@ -53,16 +50,14 @@ class CollectionJobRunner(JobRunner):
 
             # Link the most recent report to this job
             try:
-                report = (
-                    FactsReport.objects.filter(collection_plan_id=plan.pk)
-                    .order_by("-created")
-                    .first()
-                )
+                report = FactsReport.objects.filter(collection_plan_id=plan.pk).order_by("-created").first()
                 if report and not report.job_id:
                     report.job = self.job
                     report.save(update_fields=["job"])
             except DatabaseError:
                 logger.warning(
                     "Failed to link FactsReport to job %s for plan %s",
-                    self.job.pk, plan.pk, exc_info=True,
+                    self.job.pk,
+                    plan.pk,
+                    exc_info=True,
                 )

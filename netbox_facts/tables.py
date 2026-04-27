@@ -1,12 +1,11 @@
 import django_tables2 as tables
-from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
-
+from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable
 from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, MarkdownColumn, ToggleColumn
 
 from .choices import EntryActionChoices
-from .models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
+from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
 
 __all__ = [
     "MACAddressTable",
@@ -47,7 +46,7 @@ class MACAddressTable(DatedNetboxTable):
             "occurences",
             "last_seen",
             "actions",
-            "discovery_method"
+            "discovery_method",
         )
         default_columns = (
             "mac_address",
@@ -146,8 +145,14 @@ class FactsReportEntryTable(NetBoxTable):
     """Table representation of the FactsReportEntry model."""
 
     SKIP_FIELDS = {
-        "name", "component_name", "parent_name", "module_bay_id",
-        "module_type_id", "interface", "logical_interface", "raw_output",
+        "name",
+        "component_name",
+        "parent_name",
+        "module_bay_id",
+        "module_type_id",
+        "interface",
+        "logical_interface",
+        "raw_output",
     }
     LABEL_MAP = {
         "serial_number": "serial",
