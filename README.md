@@ -1,9 +1,15 @@
 # NetBox Facts Plugin
 
-Gather operational facts from supported NetBox Devices using [NAPALM](https://napalm.readthedocs.io/en/latest/) and store them in NetBox.
+[![PyPI](https://img.shields.io/pypi/v/netbox-facts.svg)](https://pypi.org/project/netbox-facts/)
+[![Python](https://img.shields.io/pypi/pyversions/netbox-facts.svg)](https://pypi.org/project/netbox-facts/)
+[![NetBox](https://img.shields.io/badge/NetBox-4.5%2B-success.svg)](https://github.com/netbox-community/netbox)
+[![CI](https://github.com/jsenecal/netbox-facts/actions/workflows/ci.yml/badge.svg)](https://github.com/jsenecal/netbox-facts/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jsenecal/netbox-facts/branch/main/graph/badge.svg)](https://codecov.io/gh/jsenecal/netbox-facts)
+[![Documentation](https://img.shields.io/badge/docs-jsenecal.github.io-blue)](https://jsenecal.github.io/netbox-facts/)
+![Status](https://img.shields.io/badge/status-alpha-orange)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-* Free software: Apache-2.0
-* Documentation: https://jsenecal.github.io/netbox-facts
+Gather operational facts from supported NetBox Devices using [NAPALM](https://napalm.readthedocs.io/en/latest/) and store them in NetBox.
 
 ## Features
 
