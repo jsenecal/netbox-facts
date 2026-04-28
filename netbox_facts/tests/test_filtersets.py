@@ -1,6 +1,6 @@
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Manufacturer
+from django.test import TestCase
 from netaddr import EUI
 
 from netbox_facts.choices import (
@@ -21,15 +21,9 @@ class MACAddressFilterSetTest(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.mac1 = MACAddress.objects.create(
-            mac_address="AA:BB:CC:DD:EE:01", description="first"
-        )
-        cls.mac2 = MACAddress.objects.create(
-            mac_address="AA:BB:CC:DD:EE:02", description="second"
-        )
-        cls.mac3 = MACAddress.objects.create(
-            mac_address="11:22:33:44:55:66", description="other"
-        )
+        cls.mac1 = MACAddress.objects.create(mac_address="AA:BB:CC:DD:EE:01", description="first")
+        cls.mac2 = MACAddress.objects.create(mac_address="AA:BB:CC:DD:EE:02", description="second")
+        cls.mac3 = MACAddress.objects.create(mac_address="11:22:33:44:55:66", description="other")
 
     def test_filter_by_mac_address(self):
         params = {"mac_address": "AA:BB:CC"}

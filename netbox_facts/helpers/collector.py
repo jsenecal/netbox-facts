@@ -4,22 +4,20 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Generator
 from itertools import groupby
-from typing import TYPE_CHECKING, Generator, Tuple, Type, List, Dict, Any
+from typing import TYPE_CHECKING, Any
 
 import django.core.exceptions
 import django.db
-
+from dcim.models.device_components import Interface, InventoryItem, ModuleBay
+from dcim.models.devices import Device
+from dcim.models.modules import Module, ModuleType
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import CharField, Func
 from django.utils import timezone
-from dcim.models.device_components import Interface, ModuleBay
-from dcim.models.device_components import InventoryItem
-from dcim.models.devices import Device
-from dcim.models.modules import Module, ModuleType
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
-from netbox.plugins.utils import get_plugin_config
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 from napalm.base import NetworkDriver
@@ -30,12 +28,15 @@ from napalm.base.exceptions import (
     ModuleImportError,
     NapalmException,
 )
+from netbox.plugins.utils import get_plugin_config
+
 from netbox_facts.choices import (
     CollectionTypeChoices,
     EntryActionChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
@@ -55,7 +56,6 @@ from netbox_facts.helpers.netbox import (
     resolve_vrf,
 )
 from netbox_facts.models.mac import MACAddress
-from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
 
 if TYPE_CHECKING:
@@ -65,6 +65,7 @@ if TYPE_CHECKING:
 
 try:
     import netbox_routing  # noqa: F401
+
     HAS_NETBOX_ROUTING = True
 except ImportError:
     HAS_NETBOX_ROUTING = False
@@ -80,7 +81,7 @@ class NapalmCollector:
         self.plan: CollectionPlan = plan
         self._collector_type = plan.collector_type
         self._napalm_args = plan.get_napalm_args()
-        self._napalm_driver: Type[NetworkDriver] | None = None
+        self._napalm_driver: type[NetworkDriver] | None = None
         # Per-plan username/password override global defaults
         self._napalm_username = self._napalm_args.pop(
             "username",
@@ -90,9 +91,7 @@ class NapalmCollector:
             "password",
             get_plugin_config("netbox_facts", "napalm_password", "netbox"),
         )
-        self._interfaces_re = re.compile(
-            get_plugin_config("netbox_facts", "valid_interfaces_re")
-        )
+        self._interfaces_re = re.compile(get_plugin_config("netbox_facts", "valid_interfaces_re"))
         # Inject NAPALM connection timeout into optional_args
         napalm_timeout = get_plugin_config("netbox_facts", "napalm_timeout", 60)
         if napalm_timeout and "timeout" not in self._napalm_args:
@@ -109,9 +108,7 @@ class NapalmCollector:
         try:
             self._napalm_driver = plan.get_napalm_driver()
         except (ModuleImportError, ModuleNotFoundError) as exc:
-            raise CollectionError(
-                f"There was an error initializing the napalm driver: {exc}"
-            ) from exc
+            raise CollectionError(f"There was an error initializing the napalm driver: {exc}") from exc
 
         # Get the devices to collect from
         self._devices = plan.get_devices_queryset()
@@ -145,7 +142,7 @@ class NapalmCollector:
         current_values: dict | None = None,
         object_instance=None,
         object_repr: str = "",
-    ) -> "FactsReportEntry | None":
+    ) -> FactsReportEntry | None:
         """Create a FactsReportEntry. Returns the entry or None if no report."""
         if self._report is None:
             return None
@@ -188,38 +185,26 @@ class NapalmCollector:
             update_fields.append("object_repr")
         entry.save(update_fields=update_fields)
 
-    def _get_network_instances(
-        self, driver: NetworkDriver
-    ) -> Generator[Tuple[str, dict], None, None]:
+    def _get_network_instances(self, driver: NetworkDriver) -> Generator[tuple[str, dict], None, None]:
         """Get network instances organized by interface from a device."""
         return get_network_instances_by_interface(
-            resolve_napalm_network_instances(
-                parse_network_instances(driver.get_network_instances())
-            )
+            resolve_napalm_network_instances(parse_network_instances(driver.get_network_instances()))
         )
 
     def _ip_neighbors(
         self,
         driver: NetworkDriver | EnhancedJunOSDriver,
-        table: Generator[Dict[str, Any], None, None],
+        table: Generator[dict[str, Any], None, None],
     ):
         """Manage IPv4 and IPv6 neighbors from a device."""
         # Shuffles the network instances into a dict with interface names as keys
         network_instances = dict(self._get_network_instances(driver))
 
-        interfaces_ip = dict(
-            resolve_napalm_interfaces_ip_addresses(
-                driver.get_interfaces_ip(), network_instances
-            )
-        )
+        interfaces_ip = dict(resolve_napalm_interfaces_ip_addresses(driver.get_interfaces_ip(), network_instances))
         table_as_list = list(table)
 
         # Pre-fetch existing MACs in bulk to avoid N+1 queries
-        all_macs = {
-            entry["mac"]
-            for entry in table_as_list
-            if entry["mac"] and entry.get("state", "") != "unreachable"
-        }
+        all_macs = {entry["mac"] for entry in table_as_list if entry["mac"] and entry.get("state", "") != "unreachable"}
         existing_macs_by_addr = {}
         if all_macs:
             for mac_obj in MACAddress.objects.filter(mac_address__in=all_macs):
@@ -231,8 +216,7 @@ class NapalmCollector:
             {
                 entry["ip"]
                 for entry in table_as_list
-                if entry["ip"] and entry["mac"]
-                and entry.get("state", "") != "unreachable"
+                if entry["ip"] and entry["mac"] and entry.get("state", "") != "unreachable"
             }
         )
         existing_ips_map = {}  # (cidr_str, vrf_id) -> IPAddress
@@ -240,7 +224,8 @@ class NapalmCollector:
             for ip_obj in (
                 IPAddress.objects.annotate(
                     _host=Func(
-                        "address", function="HOST",
+                        "address",
+                        function="HOST",
                         output_field=CharField(),
                     )
                 )
@@ -252,9 +237,7 @@ class NapalmCollector:
 
         seen_ips = set()  # Track (cidr_str, vrf_id) for stale detection
 
-        for interface_name, arp_data in groupby(
-            table_as_list, key=lambda x: x["interface"]
-        ):
+        for interface_name, arp_data in groupby(table_as_list, key=lambda x: x["interface"]):
             # Skip interfaces that don't match the configured regex
             if not self._interfaces_re.match(interface_name):
                 continue
@@ -272,10 +255,7 @@ class NapalmCollector:
                     message += f"{len(list(arp_data))} ARP entries"
 
                 else:
-                    message += ", ".join(
-                        f"`{arp_entry['ip']} ({arp_entry['mac']})`"
-                        for arp_entry in arp_data
-                    )
+                    message += ", ".join(f"`{arp_entry['ip']} ({arp_entry['mac']})`" for arp_entry in arp_data)
                 self._log_warning(message)
                 continue
 
@@ -306,9 +286,7 @@ class NapalmCollector:
                         continue
 
                     if arp_entry["ip"] in data["ip_interface_object"].network:
-                        ip_interface_object = ipaddress.ip_interface(
-                            f"{arp_entry['ip']}/{data['prefix_length']}"
-                        )
+                        ip_interface_object = ipaddress.ip_interface(f"{arp_entry['ip']}/{data['prefix_length']}")
                         routing_instance = data.get("netbox_vrf")
                         netbox_prefix_qs = data.get("netbox_prefixes")
                         break
@@ -321,13 +299,10 @@ class NapalmCollector:
 
                 if not netbox_prefix_qs.exists():
                     message = (
-                        f"Could not find a NetBox prefix for `{arp_entry['ip']}` "
-                        + f"on interface `{interface_name}`"
+                        f"Could not find a NetBox prefix for `{arp_entry['ip']}` " + f"on interface `{interface_name}`"
                     )
                     self._log_warning(
-                        message + "."
-                        if routing_instance is None
-                        else message + f" in VRF `{routing_instance}`."
+                        message + "." if routing_instance is None else message + f" in VRF `{routing_instance}`."
                     )
                     continue
 
@@ -377,9 +352,7 @@ class NapalmCollector:
                     try:
                         netbox_mac, created = get_or_create_mac(arp_entry["mac"])
                     except MACAddress.MultipleObjectsReturned:
-                        self._log_warning(
-                            duplicate_object_warning("MAC", arp_entry["mac"])
-                        )
+                        self._log_warning(duplicate_object_warning("MAC", arp_entry["mac"]))
                         continue
                     if created:
                         self._log_success(
@@ -400,9 +373,7 @@ class NapalmCollector:
                             description=f"Automatically discovered on {self._now}",
                         )
                     except IPAddress.MultipleObjectsReturned:
-                        self._log_warning(
-                            duplicate_object_warning("IP", ip_interface_object)
-                        )
+                        self._log_warning(duplicate_object_warning("IP", ip_interface_object))
                         continue
                     if created:
                         JournalEntry.objects.create(
@@ -445,9 +416,7 @@ class NapalmCollector:
         # Filter by IP family so ARP only flags v4, NDP only flags v6.
         if self._current_device and seen_ips:
             ip_family = 6 if self._collector_type == CollectionTypeChoices.TYPE_NDP else 4
-            device_macs = MACAddress.objects.filter(
-                interfaces__in=self._current_device.vc_interfaces()
-            ).distinct()
+            device_macs = MACAddress.objects.filter(interfaces__in=self._current_device.vc_interfaces()).distinct()
             known_ips = (
                 IPAddress.objects.filter(mac_addresses__in=device_macs)
                 .filter(tags__name=AUTO_D_TAG, address__family=ip_family)
@@ -469,9 +438,7 @@ class NapalmCollector:
                         object_instance=ip_obj,
                         object_repr=self._object_repr(ip_obj),
                     )
-                    self._log_info(
-                        f"IP {ip_obj.address} not seen in current table — flagged as stale."
-                    )
+                    self._log_info(f"IP {ip_obj.address} not seen in current table — flagged as stale.")
 
     def arp(self, driver: NetworkDriver | EnhancedJunOSDriver):
         """Collect ARP table data from a device."""
@@ -549,7 +516,7 @@ class NapalmCollector:
                 created=self._now,
                 assigned_object=device,
                 kind=JournalEntryKindChoices.KIND_INFO,
-                comments=f"Inventory facts collected:\n" + "\n".join(f"- {c}" for c in changes),
+                comments="Inventory facts collected:\n" + "\n".join(f"- {c}" for c in changes),
             )
 
         # Chassis module inventory (Junos-specific)
@@ -568,10 +535,7 @@ class NapalmCollector:
         manufacturer = device.device_type.manufacturer
 
         # Pre-fetch existing discovered InventoryItems for this device
-        existing_items = {
-            item.name: item
-            for item in InventoryItem.objects.filter(device=device)
-        }
+        existing_items = {item.name: item for item in InventoryItem.objects.filter(device=device)}
         # Track newly created items so children can find their parent
         created_items = {}
         seen_names = set()
@@ -610,11 +574,7 @@ class NapalmCollector:
             if existing is None:
                 action = EntryActionChoices.ACTION_NEW
                 current = {}
-            elif (
-                existing.serial != serial
-                or existing.part_id != part_id
-                or existing.description != description
-            ):
+            elif existing.serial != serial or existing.part_id != part_id or existing.description != description:
                 action = EntryActionChoices.ACTION_CHANGED
                 current = {
                     "serial": existing.serial,
@@ -670,14 +630,22 @@ class NapalmCollector:
 
             # --- Module creation logic ---
             self._collect_chassis_module(
-                device, manufacturer, name, component_name, parent_name,
-                serial, part_id, description,
-                modules_by_name, seen_module_bay_ids,
+                device,
+                manufacturer,
+                name,
+                component_name,
+                parent_name,
+                serial,
+                part_id,
+                description,
+                modules_by_name,
+                seen_module_bay_ids,
             )
 
         # Detect stale discovered items (hardware no longer present)
         stale_items = InventoryItem.objects.filter(
-            device=device, discovered=True,
+            device=device,
+            discovered=True,
         ).exclude(name__in=seen_names)
 
         for stale_item in stale_items:
@@ -701,7 +669,8 @@ class NapalmCollector:
 
         # Detect stale auto-discovered Modules
         stale_modules = Module.objects.filter(
-            device=device, tags__name=AUTO_D_TAG,
+            device=device,
+            tags__name=AUTO_D_TAG,
         ).exclude(module_bay_id__in=seen_module_bay_ids)
 
         for stale_mod in stale_modules:
@@ -724,8 +693,17 @@ class NapalmCollector:
                 self._mark_entry_applied(stale_entry, device)
 
     def _collect_chassis_module(
-        self, device, manufacturer, name, component_name, parent_name,
-        serial, part_id, description, modules_by_name, seen_module_bay_ids,
+        self,
+        device,
+        manufacturer,
+        name,
+        component_name,
+        parent_name,
+        serial,
+        part_id,
+        description,
+        modules_by_name,
+        seen_module_bay_ids,
     ):
         """Try to create/confirm a Module for a chassis hardware module.
 
@@ -739,7 +717,8 @@ class NapalmCollector:
             if parent_module is None:
                 # Try DB lookup for previously created modules
                 parent_bay = ModuleBay.objects.filter(
-                    device=device, name=parent_name.rsplit("/", 1)[-1] if "/" in parent_name else parent_name,
+                    device=device,
+                    name=parent_name.rsplit("/", 1)[-1] if "/" in parent_name else parent_name,
                     module=None,
                 ).first()
                 if parent_bay:
@@ -758,11 +737,13 @@ class NapalmCollector:
 
         # Find ModuleType — part_number takes precedence over model
         module_type = ModuleType.objects.filter(
-            manufacturer=manufacturer, part_number=part_id,
+            manufacturer=manufacturer,
+            part_number=part_id,
         ).first()
         if module_type is None:
             module_type = ModuleType.objects.filter(
-                manufacturer=manufacturer, model=part_id,
+                manufacturer=manufacturer,
+                model=part_id,
             ).first()
 
         if module_type is None:
@@ -850,9 +831,7 @@ class NapalmCollector:
                     kwargs["mtu"] = iface_data["mtu"]
             nb_iface = Interface.objects.create(**kwargs)
             nb_iface.tags.add(AUTO_D_TAG)
-            self._log_success(
-                f"Auto-created interface `{name}` (type={iface_type}) on {device}."
-            )
+            self._log_success(f"Auto-created interface `{name}` (type={iface_type}) on {device}.")
             return nb_iface
 
     def interfaces(self, driver: NetworkDriver):
@@ -918,9 +897,7 @@ class NapalmCollector:
             try:
                 existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
             except (django.core.exceptions.ValidationError, ValueError):
-                self._log_warning(
-                    f"Invalid MAC address `{mac_addr}` on interface `{iface_name}`. Skipping."
-                )
+                self._log_warning(f"Invalid MAC address `{mac_addr}` on interface `{iface_name}`. Skipping.")
                 continue
 
             action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
@@ -938,20 +915,14 @@ class NapalmCollector:
                 try:
                     netbox_mac, created = get_or_create_mac(mac_addr)
                 except MACAddress.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("MAC", mac_addr)
-                    )
+                    self._log_warning(duplicate_object_warning("MAC", mac_addr))
                     continue
                 except (django.core.exceptions.ValidationError, ValueError) as exc:
-                    self._log_warning(
-                        f"Could not create MAC `{mac_addr}` for `{iface_name}`: {exc}"
-                    )
+                    self._log_warning(f"Could not create MAC `{mac_addr}` for `{iface_name}`: {exc}")
                     continue
 
                 if created:
-                    self._log_success(
-                        f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                    )
+                    self._log_success(f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}.")
 
                 netbox_mac.device_interface = nb_iface
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
@@ -960,10 +931,7 @@ class NapalmCollector:
                 self._mark_entry_applied(iface_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
 
         # --- Process logical interfaces (LAG, IPs, VRFs) ---
-        has_logical = any(
-            iface_data.get("logical_interfaces")
-            for iface_data in ifaces.values()
-        )
+        has_logical = any(iface_data.get("logical_interfaces") for iface_data in ifaces.values())
         if has_logical:
             self._interfaces_logical(device, ifaces)
         else:
@@ -1000,11 +968,7 @@ class NapalmCollector:
                         if current_lag == ae_name:
                             action = EntryActionChoices.ACTION_CONFIRMED
                         else:
-                            action = (
-                                EntryActionChoices.ACTION_CHANGED
-                                if current_lag
-                                else EntryActionChoices.ACTION_NEW
-                            )
+                            action = EntryActionChoices.ACTION_CHANGED if current_lag else EntryActionChoices.ACTION_NEW
                         entry = self._record_entry(
                             action=action,
                             collector_type=self._collector_type,
@@ -1019,9 +983,7 @@ class NapalmCollector:
                             nb_iface.lag = ae_iface
                             nb_iface.save()
                             self._mark_entry_applied(entry, nb_iface)
-                            self._log_success(
-                                f"Set LAG membership: `{iface_name}` -> `{ae_name}`"
-                            )
+                            self._log_success(f"Set LAG membership: `{iface_name}` -> `{ae_name}`")
                 break  # Only check the first logical interface for LAG
 
             # LAG members don't have their own IPs; skip to next physical
@@ -1039,10 +1001,7 @@ class NapalmCollector:
                 try:
                     netbox_vrf = resolve_vrf(vrf_name)
                 except VRF.DoesNotExist:
-                    self._log_warning(
-                        f"VRF `{vrf_name}` not found in NetBox. "
-                        f"Skipping IPs on `{li_name}`."
-                    )
+                    self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{li_name}`.")
                     self._record_entry(
                         action=EntryActionChoices.ACTION_NEW,
                         collector_type=self._collector_type,
@@ -1052,10 +1011,7 @@ class NapalmCollector:
                     )
                     continue
                 except VRF.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("VRF", vrf_name)
-                        + f" Skipping IPs on `{li_name}`."
-                    )
+                    self._log_warning(duplicate_object_warning("VRF", vrf_name) + f" Skipping IPs on `{li_name}`.")
                     continue
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
@@ -1078,9 +1034,7 @@ class NapalmCollector:
                                 # Handle incomplete inet destinations (3 octets)
                                 if fam_name == "inet" and dest.count(".") == 2:
                                     net_part, prefix_len = dest.split("/")
-                                    net = ipaddress.ip_network(
-                                        f"{net_part}.0/{prefix_len}"
-                                    )
+                                    net = ipaddress.ip_network(f"{net_part}.0/{prefix_len}")
                                 else:
                                     net = ipaddress.ip_network(dest, strict=False)
                             else:
@@ -1162,9 +1116,7 @@ class NapalmCollector:
         li_name = nb_li.name
         vrf_name = netbox_vrf.name if netbox_vrf else None
 
-        existing_ip = IPAddress.objects.filter(
-            address=cidr, vrf=netbox_vrf
-        ).first()
+        existing_ip = IPAddress.objects.filter(address=cidr, vrf=netbox_vrf).first()
         if not existing_ip:
             action = EntryActionChoices.ACTION_NEW
         elif (
@@ -1193,7 +1145,9 @@ class NapalmCollector:
             detected_values=detected,
             current_values=current_values,
             object_instance=existing_ip or nb_li,
-            object_repr=self._object_repr(existing_ip, nb_li) if existing_ip else f"IPAddress {cidr} on {get_absolute_url_markdown(nb_li)}",
+            object_repr=self._object_repr(existing_ip, nb_li)
+            if existing_ip
+            else f"IPAddress {cidr} on {get_absolute_url_markdown(nb_li)}",
         )
 
         vrf_id = netbox_vrf.pk if netbox_vrf else None
@@ -1207,35 +1161,27 @@ class NapalmCollector:
                         prefix=str(net),
                         vrf=netbox_vrf,
                         defaults={
-                            "description": (
-                                f"Discovered on {device} "
-                                f"({self._now.date()})"
-                            ),
+                            "description": (f"Discovered on {device} ({self._now.date()})"),
                         },
                     )
                 except Prefix.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("Prefix", net)
-                    )
+                    self._log_warning(duplicate_object_warning("Prefix", net))
                     return
                 if prefix_created:
                     nb_prefix.tags.add(AUTO_D_TAG)
             # Create/get IPAddress
             try:
                 nb_ip, created = get_or_create_ip(
-                    cidr, vrf=netbox_vrf,
+                    cidr,
+                    vrf=netbox_vrf,
                     assigned_object=nb_li,
                     description=f"Discovered on {device} ({self._now.date()})",
                 )
             except IPAddress.MultipleObjectsReturned:
-                self._log_warning(
-                    duplicate_object_warning("IP", cidr)
-                )
+                self._log_warning(duplicate_object_warning("IP", cidr))
                 return
             if created:
-                self._log_success(
-                    f"Created IP `{cidr}` on `{li_name}`"
-                )
+                self._log_success(f"Created IP `{cidr}` on `{li_name}`")
             elif nb_ip.assigned_object is None:
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
@@ -1259,14 +1205,10 @@ class NapalmCollector:
             try:
                 local_iface = device.vc_interfaces().get(name=local_iface_name)
             except Interface.DoesNotExist:
-                self._log_warning(
-                    f"Could not find local interface `{local_iface_name}` in NetBox. Skipping."
-                )
+                self._log_warning(f"Could not find local interface `{local_iface_name}` in NetBox. Skipping.")
                 continue
             except Interface.MultipleObjectsReturned:
-                self._log_warning(
-                    duplicate_object_warning("interface", local_iface_name)
-                )
+                self._log_warning(duplicate_object_warning("interface", local_iface_name))
                 continue
 
             for neighbor in neighbors:
@@ -1286,9 +1228,7 @@ class NapalmCollector:
                     )
                     continue
                 except Device.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("device", remote_system_name)
-                    )
+                    self._log_warning(duplicate_object_warning("device", remote_system_name))
                     continue
 
                 # Only create cables between devices in the same site
@@ -1307,16 +1247,12 @@ class NapalmCollector:
                     )
                     continue
                 except Interface.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("interface", f"{remote_port}` on `{remote_system_name}")
-                    )
+                    self._log_warning(duplicate_object_warning("interface", f"{remote_port}` on `{remote_system_name}"))
                     continue
 
                 # Check that neither interface already has a cable
                 if local_iface.cable_id is not None:
-                    self._log_info(
-                        f"Local interface `{local_iface_name}` already has a cable. Skipping."
-                    )
+                    self._log_info(f"Local interface `{local_iface_name}` already has a cable. Skipping.")
                     continue
                 if remote_iface.cable_id is not None:
                     self._log_info(
@@ -1364,9 +1300,13 @@ class NapalmCollector:
                             f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
                         )
                         self._mark_entry_applied(lldp_entry, cable, object_repr=self._object_repr(cable))
-                    except (Device.DoesNotExist, Interface.DoesNotExist, ValueError,
-                            django.core.exceptions.ValidationError,
-                            django.db.IntegrityError) as exc:
+                    except (
+                        Device.DoesNotExist,
+                        Interface.DoesNotExist,
+                        ValueError,
+                        django.core.exceptions.ValidationError,
+                        django.db.IntegrityError,
+                    ) as exc:
                         self._log_warning(
                             f"Could not create cable between `{local_iface_name}` and "
                             f"`{remote_system_name}:{remote_port}`: {exc}"
@@ -1397,14 +1337,10 @@ class NapalmCollector:
             try:
                 nb_iface = device.vc_interfaces().get(name=iface_name)
             except Interface.DoesNotExist:
-                self._log_warning(
-                    f"Could not find interface `{iface_name}` in NetBox. Skipping."
-                )
+                self._log_warning(f"Could not find interface `{iface_name}` in NetBox. Skipping.")
                 continue
             except Interface.MultipleObjectsReturned:
-                self._log_warning(
-                    duplicate_object_warning("interface", iface_name)
-                )
+                self._log_warning(duplicate_object_warning("interface", iface_name))
                 continue
 
             existing_mac = MACAddress.objects.filter(mac_address=mac_addr).first()
@@ -1428,14 +1364,10 @@ class NapalmCollector:
                 try:
                     netbox_mac, created = get_or_create_mac(mac_addr)
                 except MACAddress.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("MAC", mac_addr)
-                    )
+                    self._log_warning(duplicate_object_warning("MAC", mac_addr))
                     continue
                 if created:
-                    self._log_success(
-                        f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                    )
+                    self._log_success(f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}.")
 
                 netbox_mac.interfaces.add(nb_iface)
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
@@ -1468,8 +1400,7 @@ class NapalmCollector:
             return getattr(self, impl_name)
         supported = [k for k, v in vendor_map.items() if hasattr(self, v)]
         raise NotImplementedError(
-            f"{method_name} is not implemented for driver '{driver_name}'. "
-            f"Supported drivers: {supported}"
+            f"{method_name} is not implemented for driver '{driver_name}'. Supported drivers: {supported}"
         )
 
     def l2_circuits(self, driver: NetworkDriver):
@@ -1545,18 +1476,14 @@ class NapalmCollector:
                     try:
                         netbox_mac, created = get_or_create_mac(mac_str)
                     except MACAddress.MultipleObjectsReturned:
-                        self._log_warning(
-                            duplicate_object_warning("MAC", mac_str)
-                        )
+                        self._log_warning(duplicate_object_warning("MAC", mac_str))
                         continue
                     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
                     netbox_mac.last_seen = self._now
                     netbox_mac.save()
 
                     if created:
-                        self._log_success(
-                            f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}."
-                        )
+                        self._log_success(f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}.")
                     self._mark_entry_applied(evpn_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
 
         if self._should_apply():
@@ -1584,10 +1511,7 @@ class NapalmCollector:
             try:
                 nb_vrf = resolve_vrf(vrf_name)
             except VRF.DoesNotExist:
-                self._log_warning(
-                    f"Could not find VRF `{vrf_name}` in NetBox. "
-                    "Skipping peers in this VRF."
-                )
+                self._log_warning(f"Could not find VRF `{vrf_name}` in NetBox. Skipping peers in this VRF.")
                 self._record_entry(
                     action=EntryActionChoices.ACTION_NEW,
                     collector_type=self._collector_type,
@@ -1597,10 +1521,7 @@ class NapalmCollector:
                 )
                 continue
             except VRF.MultipleObjectsReturned:
-                self._log_warning(
-                    duplicate_object_warning("VRF", vrf_name)
-                    + " Skipping peers in this VRF."
-                )
+                self._log_warning(duplicate_object_warning("VRF", vrf_name) + " Skipping peers in this VRF.")
                 continue
 
             for as_number, peers in peers_by_as.items():
@@ -1620,9 +1541,7 @@ class NapalmCollector:
                         prefix_len = 32 if ip_obj.version == 4 else 128
                         ip_str = f"{remote_address}/{prefix_len}"
                     except ValueError:
-                        self._log_warning(
-                            f"Invalid IP address `{remote_address}`. Skipping."
-                        )
+                        self._log_warning(f"Invalid IP address `{remote_address}`. Skipping.")
                         continue
 
                     existing_ip = IPAddress.objects.filter(address=ip_str, vrf=nb_vrf).first()
@@ -1652,23 +1571,18 @@ class NapalmCollector:
                                 defaults={"rir": RIR.objects.first()},
                             )
                         except (RIR.DoesNotExist, TypeError):
-                            self._log_warning(
-                                f"No RIR exists in NetBox. Cannot create ASN {as_number}."
-                            )
+                            self._log_warning(f"No RIR exists in NetBox. Cannot create ASN {as_number}.")
                         except ASN.MultipleObjectsReturned:
-                            self._log_warning(
-                                duplicate_object_warning("ASN", as_number)
-                            )
+                            self._log_warning(duplicate_object_warning("ASN", as_number))
 
                         try:
                             nb_ip, created = get_or_create_ip(
-                                ip_str, vrf=nb_vrf,
+                                ip_str,
+                                vrf=nb_vrf,
                                 description=f"BGP peer AS{as_number} discovered on {self._now}",
                             )
                         except IPAddress.MultipleObjectsReturned:
-                            self._log_warning(
-                                duplicate_object_warning("IP", ip_str)
-                            )
+                            self._log_warning(duplicate_object_warning("IP", ip_str))
                             continue
                         if created:
                             JournalEntry.objects.create(
@@ -1686,17 +1600,19 @@ class NapalmCollector:
                                 f"Created peer IP {get_absolute_url_markdown(nb_ip, bold=True)} (AS{as_number})."
                             )
                         else:
-                            self._log_info(
-                                f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}."
-                            )
-                        self._mark_entry_applied(bgp_entry, nb_ip, object_repr=f"BGP peer {get_absolute_url_markdown(nb_ip)} AS{as_number}")
-                        self._bgp_routing_data["vrfs"].setdefault(vrf_name, []).append({
-                            "remote_address": remote_address,
-                            "as_number": int(as_number),
-                            "nb_vrf": nb_vrf,
-                            "nb_ip": nb_ip,
-                            "nb_asn": nb_asn,
-                        })
+                            self._log_info(f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}.")
+                        self._mark_entry_applied(
+                            bgp_entry, nb_ip, object_repr=f"BGP peer {get_absolute_url_markdown(nb_ip)} AS{as_number}"
+                        )
+                        self._bgp_routing_data["vrfs"].setdefault(vrf_name, []).append(
+                            {
+                                "remote_address": remote_address,
+                                "as_number": int(as_number),
+                                "nb_vrf": nb_vrf,
+                                "nb_ip": nb_ip,
+                                "nb_asn": nb_asn,
+                            }
+                        )
 
         self._bgp_routing_integration()
         self._log_success("BGP collection completed")
@@ -1782,7 +1698,8 @@ class NapalmCollector:
                     bgp_scope.tags.add(AUTO_D_TAG)
             else:
                 bgp_scope = BGPScope.objects.filter(
-                    router=bgp_router, vrf=nb_vrf,
+                    router=bgp_router,
+                    vrf=nb_vrf,
                 ).first()
                 scope_created = bgp_scope is None
 
@@ -1816,7 +1733,8 @@ class NapalmCollector:
                         bgp_peer.tags.add(AUTO_D_TAG)
                 else:
                     bgp_peer = BGPPeer.objects.filter(
-                        scope=bgp_scope, peer=nb_ip,
+                        scope=bgp_scope,
+                        peer=nb_ip,
                     ).first()
                     peer_created = bgp_peer is None
 
@@ -1861,12 +1779,14 @@ class NapalmCollector:
             iface_name = match.group(2)
             state = match.group(3)
             router_id = match.group(4)
-            neighbors.append({
-                "address": neighbor_ip,
-                "interface": iface_name,
-                "state": state,
-                "router_id": router_id,
-            })
+            neighbors.append(
+                {
+                    "address": neighbor_ip,
+                    "interface": iface_name,
+                    "state": state,
+                    "router_id": router_id,
+                }
+            )
 
             existing_ip = IPAddress.objects.filter(address=f"{neighbor_ip}/32").first()
             ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
@@ -1896,23 +1816,24 @@ class NapalmCollector:
                         ),
                     )
                 except IPAddress.MultipleObjectsReturned:
-                    self._log_warning(
-                        duplicate_object_warning("IP", f"{neighbor_ip}/32")
-                    )
+                    self._log_warning(duplicate_object_warning("IP", f"{neighbor_ip}/32"))
                     continue
                 if created:
                     self._log_success(
                         f"Created OSPF neighbor IP {get_absolute_url_markdown(ip_obj, bold=True)} "
                         f"(Router ID: {router_id})."
                     )
-                self._mark_entry_applied(ospf_entry, ip_obj, object_repr=f"OSPF neighbor {get_absolute_url_markdown(ip_obj)} (RID: {router_id})")
+                self._mark_entry_applied(
+                    ospf_entry,
+                    ip_obj,
+                    object_repr=f"OSPF neighbor {get_absolute_url_markdown(ip_obj)} (RID: {router_id})",
+                )
 
                 self._ospf_routing_integration(ip_obj, neighbors[-1])
 
         if neighbors and self._should_apply():
             neighbor_lines = "\n".join(
-                f"- `{n['address']}` on `{n['interface']}` (State: {n['state']}, "
-                f"Router ID: {n['router_id']})"
+                f"- `{n['address']}` on `{n['interface']}` (State: {n['state']}, Router ID: {n['router_id']})"
                 for n in neighbors
             )
             JournalEntry.objects.create(
@@ -1975,9 +1896,7 @@ class NapalmCollector:
                         self.plan.connection_target,
                     )
                 except ValueError:
-                    self._log_warning(
-                        "Device has no usable IP address configured. Skipping."
-                    )
+                    self._log_warning("Device has no usable IP address configured. Skipping.")
                     continue
 
                 connected = False
@@ -2015,9 +1934,7 @@ class NapalmCollector:
             self._report.update_summary()
             self._report.completed_at = timezone.now()
             self._report.status = (
-                ReportStatusChoices.STATUS_APPLIED
-                if self._should_apply()
-                else ReportStatusChoices.STATUS_PENDING
+                ReportStatusChoices.STATUS_APPLIED if self._should_apply() else ReportStatusChoices.STATUS_PENDING
             )
             self._report.save(update_fields=["completed_at", "status"])
 

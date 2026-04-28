@@ -1,5 +1,4 @@
 import django_filters
-
 from dcim.fields import MACAddressField
 from django.utils.translation import gettext_lazy as _
 from netbox.filtersets import NetBoxModelFilterSet
@@ -13,7 +12,7 @@ from .choices import (
     ReportStatusChoices,
 )
 from .fields import MACPrefixField
-from .models import MACAddress, MACVendor, CollectionPlan, FactsReport, FactsReportEntry
+from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
 
 __all__ = [
     "MACAddressFilterSet",

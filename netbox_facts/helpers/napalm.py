@@ -1,7 +1,8 @@
-from typing import Any, Dict, Generator, List, Tuple
+from collections.abc import Generator
+from typing import Any
 
 
-def parse_network_instances(instances) -> Dict[str, Dict[str, str | List[str] | None]]:
+def parse_network_instances(instances) -> dict[str, dict[str, str | list[str] | None]]:
     """Parse network instances"""
 
     return {
@@ -18,13 +19,9 @@ def parse_network_instances(instances) -> Dict[str, Dict[str, str | List[str] | 
 
 def get_network_instances_by_interface(
     instances,
-) -> Generator[Tuple[str, Dict[str, str]], Any, Any]:
+) -> Generator[tuple[str, dict[str, str]], Any, Any]:
     """Get network instances by interface"""
     for instance_name, instance_data in instances:
         instance_data["name"] = instance_name
         for interface in instance_data["interfaces"]:
-            yield interface, {
-                key: value
-                for key, value in instance_data.items()
-                if key != "interfaces"
-            }
+            yield interface, {key: value for key, value in instance_data.items() if key != "interfaces"}

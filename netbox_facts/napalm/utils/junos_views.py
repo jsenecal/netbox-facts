@@ -1,10 +1,12 @@
 """
 Load tables/views
 """
-import yaml
+
 import re
-from jnpr.junos.factory import loadyaml, FactoryLoader
 from os.path import splitext
+
+import yaml
+from jnpr.junos.factory import FactoryLoader
 
 
 def _preprocess_yml(path):

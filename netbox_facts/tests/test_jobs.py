@@ -1,9 +1,9 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
+from django.test import TestCase
 
-from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
+from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.jobs import CollectionJobRunner
 from netbox_facts.models import CollectionPlan
 

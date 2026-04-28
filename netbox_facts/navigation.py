@@ -1,8 +1,9 @@
 """Navigation menu for the netbox_facts plugin."""
+
 from django.utils.translation import gettext_lazy as _
+from netbox.choices import ButtonColorChoices
 from netbox.plugins import PluginMenuButton, PluginMenuItem, get_plugin_config
 from netbox.plugins.navigation import PluginMenu
-from netbox.choices import ButtonColorChoices
 
 macaddress_buttons = [
     PluginMenuButton(

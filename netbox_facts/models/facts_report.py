@@ -78,11 +78,7 @@ class FactsReport(BaseModel):
         """Recompute cached summary counts from entries."""
         from django.db.models import Count
 
-        counts = (
-            self.entries.values("action")
-            .annotate(count=Count("id"))
-            .order_by()
-        )
+        counts = self.entries.values("action").annotate(count=Count("id")).order_by()
         self.summary = {
             EntryActionChoices.ACTION_NEW: 0,
             EntryActionChoices.ACTION_CHANGED: 0,

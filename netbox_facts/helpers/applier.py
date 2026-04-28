@@ -3,16 +3,16 @@
 import ipaddress
 import logging
 
-from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
-from django.utils import timezone
-
 from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.devices import Device
 from dcim.models.modules import ModuleType
+from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
+from django.utils import timezone
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -20,7 +20,6 @@ from netbox_facts.choices import (
     EntryStatusChoices,
     ReportStatusChoices,
 )
-from ipam.models.vrfs import VRF
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.netbox import (
     create_module,
@@ -76,9 +75,9 @@ def apply_entries(report, entry_pks):
 
 def skip_entries(report, entry_pks):
     """Bulk-skip selected pending entries."""
-    count = report.entries.filter(
-        pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING
-    ).update(status=EntryStatusChoices.STATUS_SKIPPED)
+    count = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING).update(
+        status=EntryStatusChoices.STATUS_SKIPPED
+    )
     _update_report_status(report)
     return count
 
@@ -87,9 +86,7 @@ def _update_report_status(report):
     """Recompute report status from entry status distribution."""
     report.update_summary()
 
-    statuses = set(
-        report.entries.values_list("status", flat=True).distinct()
-    )
+    statuses = set(report.entries.values_list("status", flat=True).distinct())
 
     if not statuses or statuses == {EntryStatusChoices.STATUS_PENDING}:
         report.status = ReportStatusChoices.STATUS_PENDING
@@ -148,8 +145,9 @@ def _apply_arp_entry(entry, now):
                 nb_iface = entry.device.vc_interfaces().get(name=iface_name)
                 netbox_mac.interfaces.add(nb_iface)
             except Interface.DoesNotExist:
-                logger.warning("Interface %s not found on device %s for ARP entry %s",
-                               iface_name, entry.device, entry.pk)
+                logger.warning(
+                    "Interface %s not found on device %s for ARP entry %s", iface_name, entry.device, entry.pk
+                )
         _set_entry_object(entry, netbox_mac)
     else:
         # IP entry: create/update IP and associate with MAC
@@ -165,7 +163,8 @@ def _apply_arp_entry(entry, now):
                 logger.warning("VRF %s not found for ARP/NDP entry %s", vrf_name, entry.pk)
 
         nb_ip, created = get_or_create_ip(
-            ip_str, vrf=vrf,
+            ip_str,
+            vrf=vrf,
             description=f"Automatically discovered on {now}",
         )
 
@@ -221,7 +220,8 @@ def _apply_inventory_item(entry):
     parent = None
     if parent_name:
         parent = InventoryItem.objects.filter(
-            device=entry.device, name=parent_name,
+            device=entry.device,
+            name=parent_name,
         ).first()
 
     item, created = InventoryItem.objects.get_or_create(
@@ -252,7 +252,9 @@ def _apply_stale_inventory_item(entry):
     name = cv.get("name", "")
     try:
         item = InventoryItem.objects.get(
-            device=entry.device, name=name, discovered=True,
+            device=entry.device,
+            name=name,
+            discovered=True,
         )
         item.delete()
     except InventoryItem.DoesNotExist:
@@ -381,7 +383,8 @@ def _apply_interfaces_ip(entry, dv, now):
 
     # Create/get IPAddress
     nb_ip, created = get_or_create_ip(
-        cidr, vrf=vrf,
+        cidr,
+        vrf=vrf,
         assigned_object=nb_li,
         description=f"Discovered on {entry.device} ({now.date()})",
     )
@@ -468,8 +471,12 @@ def _apply_ethernet_switching_entry(entry, now):
             nb_iface = entry.device.vc_interfaces().get(name=iface_name)
             netbox_mac.interfaces.add(nb_iface)
         except Interface.DoesNotExist:
-            logger.warning("Interface %s not found on device %s for ethernet switching entry %s",
-                           iface_name, entry.device, entry.pk)
+            logger.warning(
+                "Interface %s not found on device %s for ethernet switching entry %s",
+                iface_name,
+                entry.device,
+                entry.pk,
+            )
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
     netbox_mac.last_seen = now
@@ -522,7 +529,8 @@ def _apply_bgp_entry(entry, now):
         raise ValueError(f"Invalid IP: {remote_address}") from exc
 
     nb_ip, created = get_or_create_ip(
-        ip_str, vrf=nb_vrf,
+        ip_str,
+        vrf=nb_vrf,
         description=f"BGP peer AS{as_number} discovered on {now}",
     )
 
@@ -549,8 +557,7 @@ def _apply_ospf_entry(entry, now):
     ip_obj, created = get_or_create_ip(
         f"{address}/32",
         description=(
-            f"OSPF neighbor (Router ID: {dv.get('router_id', '')}) "
-            f"discovered on {entry.device} ({now.date()})"
+            f"OSPF neighbor (Router ID: {dv.get('router_id', '')}) discovered on {entry.device} ({now.date()})"
         ),
     )
     _set_entry_object(entry, ip_obj)
@@ -637,7 +644,8 @@ def _apply_bgp_scope_entry(entry):
         nb_vrf = resolve_vrf(vrf_name)
 
     scope, created = BGPScope.objects.get_or_create(
-        router=router, vrf=nb_vrf,
+        router=router,
+        vrf=nb_vrf,
     )
     if created:
         scope.tags.add(AUTO_D_TAG)
@@ -673,7 +681,8 @@ def _apply_bgp_peer_routing_entry(entry):
         nb_vrf = resolve_vrf(vrf_name)
 
     scope, _ = BGPScope.objects.get_or_create(
-        router=router, vrf=nb_vrf,
+        router=router,
+        vrf=nb_vrf,
     )
 
     # IP + remote ASN
@@ -690,7 +699,8 @@ def _apply_bgp_peer_routing_entry(entry):
         )
 
     peer, created = BGPPeer.objects.get_or_create(
-        scope=scope, peer=nb_ip,
+        scope=scope,
+        peer=nb_ip,
         defaults={"remote_as": nb_remote_asn},
     )
     if created:

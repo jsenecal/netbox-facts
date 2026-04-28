@@ -1,11 +1,41 @@
 # Changelog
 
-## Unreleased
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
+
+## [Unreleased]
 
 ### Breaking Changes
 
-* Migrated from setuptools to hatchling build backend with `pyproject.toml`
-* Removed hardcoded default NAPALM credentials from plugin settings — `napalm_username` and `napalm_password` now default to empty strings and must be configured explicitly
+* Migrated from setuptools to hatchling build backend with `pyproject.toml`.
+* Removed hardcoded default NAPALM credentials from plugin settings; `napalm_username` and `napalm_password` now default to empty strings and must be configured explicitly.
+
+### Added (toolkit normalization)
+
+* Canonical 5 GHA workflows (ci.yml, publish.yml, docs.yml, release-drafter.yml, pr-title.yml) + `.github/release-drafter.yml`. Replaces the previous `tests.yml` + `mkdocs.yml` workflow setup. CI now matrixes Python 3.12-3.14 x NetBox 4.5.3/4.5.8 with full migrate / pytest / makemigrations check / system check / build steps and OIDC codecov upload.
+* `.pre-commit-config.yaml` with ruff hooks + standard pre-commit-hooks + commit-msg AI-attribution rejecter.
+* `.git-template/hooks/commit-msg` (canonical hook tracked in-tree).
+* `docs/zensical.toml` (replaces root `mkdocs.yml`; same nav).
+* `uv.lock` committed.
+* Empty `tests/` directory and pytest config (was using `manage.py test netbox_facts`).
+
+### Removed (toolkit normalization)
+
+* `tests.yml` workflow (replaced by `ci.yml`).
+* `mkdocs.yml` workflow (replaced by `docs.yml`).
+* Root `mkdocs.yml` config (replaced by `docs/zensical.toml`).
+* Dev deps no longer needed: `autoflake`, `autopep8`, `bandit`, `black`, `bump2version`, `debugpy`, `flake8`, `ipython`, `isort`, `mypy`, `mypy-extensions`, `pycodestyle`, `pydocstyle`, `pylint`, `pylint-django`, `rich`, `sourcery-analytics`, `mkdocs`, `mkdocs-material`, `mkdocs-include-markdown-plugin`, `mkdocstrings[python]`, `twine`, `watchdog`, `wheel`, `wily`, `yapf`. Kept: `pre-commit`, `pytest`, `ruff`. Added: `pytest-django`, `pytest-cov`, `bumpver`. `zensical` lives in a separate `[docs]` extra.
+* `[tool.isort]`, `[tool.mypy]`, `[tool.bumpversion]` sections.
+
+### Changed (toolkit normalization)
+
+* Build is now `uv build` (was `python -m build`).
+* `[tool.bumpversion]` -> `[tool.bumpver]` with the canonical file_patterns including a `CHANGELOG.md` promotion pattern. Tag pattern `vMAJOR.MINOR.PATCH`.
+* Ruff selectors expanded from `["E", "F", "W"]` to the canonical set (`E, F, W, I, N, UP, S, B, A, C4, DJ, PIE`); ignore `N806` globally for the Django `User = get_user_model()` idiom; per-file ignores added for migrations and tests.
+* CHANGELOG converted to Keep-a-Changelog format with bracketed `[Unreleased]` heading. Pre-1.0.x entries kept in their existing `## VERSION (DATE)` style.
 
 ### Added
 

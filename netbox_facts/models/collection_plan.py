@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any, Dict, Type
+from typing import Any
 
 from core.choices import JobStatusChoices
 from core.models import Job
@@ -18,11 +18,10 @@ from django.db import models
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-
 from extras.choices import LogLevelChoices
-from netbox.context_managers import event_tracking
 from napalm import get_network_driver
 from napalm.base.base import NetworkDriver
+from netbox.context_managers import event_tracking
 from netbox.models import NetBoxModel
 from netbox.models.features import EventRulesMixin, JobsMixin
 from netbox.plugins.utils import get_plugin_config
@@ -46,21 +45,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     """Model representing a Collection Plan"""
 
     name = models.CharField(verbose_name=_("name"), max_length=100, unique=True)
-    priority = models.CharField(
-        choices=CollectorPriorityChoices, default=CollectorPriorityChoices.PRIORITY_LOW
-    )
+    priority = models.CharField(choices=CollectorPriorityChoices, default=CollectorPriorityChoices.PRIORITY_LOW)
     status = models.CharField(
         max_length=50,
         choices=CollectorStatusChoices,
         default=CollectorStatusChoices.NEW,
     )
     enabled = models.BooleanField(verbose_name=_("enabled"), default=True)
-    description = models.CharField(
-        verbose_name=_("description"), max_length=200, blank=True
-    )
-    run_as = models.ForeignKey(
-        get_user_model(), on_delete=models.SET_NULL, null=True, blank=True
-    )
+    description = models.CharField(verbose_name=_("description"), max_length=200, blank=True)
+    run_as = models.ForeignKey(get_user_model(), on_delete=models.SET_NULL, null=True, blank=True)
 
     devices = models.ManyToManyField(to="dcim.Device", related_name="+", blank=True)
     device_status = ArrayField(
@@ -72,40 +65,28 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         blank=True,
     )
     regions = models.ManyToManyField(to="dcim.Region", related_name="+", blank=True)
-    site_groups = models.ManyToManyField(
-        to="dcim.SiteGroup", related_name="+", blank=True
-    )
+    site_groups = models.ManyToManyField(to="dcim.SiteGroup", related_name="+", blank=True)
     sites = models.ManyToManyField(to="dcim.Site", related_name="+", blank=True)
     locations = models.ManyToManyField(to="dcim.Location", related_name="+", blank=True)
-    device_types = models.ManyToManyField(
-        to="dcim.DeviceType", related_name="+", blank=True
-    )
+    device_types = models.ManyToManyField(to="dcim.DeviceType", related_name="+", blank=True)
     roles = models.ManyToManyField(to="dcim.DeviceRole", related_name="+", blank=True)
     platforms = models.ManyToManyField(to="dcim.Platform", related_name="+", blank=True)
-    tenant_groups = models.ManyToManyField(
-        to="tenancy.TenantGroup", related_name="+", blank=True
-    )
+    tenant_groups = models.ManyToManyField(to="tenancy.TenantGroup", related_name="+", blank=True)
     tenants = models.ManyToManyField(to="tenancy.Tenant", related_name="+", blank=True)
     tags = models.ManyToManyField(to="extras.Tag", related_name="+", blank=True)
 
-    collector_type = models.CharField(
-        _("Collector Type"), max_length=50, choices=CollectionTypeChoices
-    )
+    collector_type = models.CharField(_("Collector Type"), max_length=50, choices=CollectionTypeChoices)
 
     napalm_driver = models.CharField(
         max_length=50,
         verbose_name="NAPALM driver",
-        help_text=_(
-            "The name of the NAPALM driver to use when interacting with devices"
-        ),
+        help_text=_("The name of the NAPALM driver to use when interacting with devices"),
     )
     napalm_args = models.JSONField(
         default=dict,
         blank=True,
         verbose_name="NAPALM arguments",
-        help_text=_(
-            "Additional arguments to pass when initiating the NAPALM driver (JSON format)"
-        ),
+        help_text=_("Additional arguments to pass when initiating the NAPALM driver (JSON format)"),
     )
 
     scheduled_at = models.DateTimeField(
@@ -120,9 +101,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         null=True,
     )
 
-    last_run = models.DateTimeField(
-        verbose_name=_("last run"), blank=True, null=True, editable=False
-    )
+    last_run = models.DateTimeField(verbose_name=_("last run"), blank=True, null=True, editable=False)
 
     detect_only = models.BooleanField(
         default=False,
@@ -138,7 +117,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         default=ConnectionTargetChoices.TARGET_PRIMARY,
         help_text=_(
             "Which IP address to use when connecting to devices. "
-            "\"Both\" options try the first, then fall back to the second on connection failure."
+            '"Both" options try the first, then fall back to the second on connection failure.'
         ),
     )
 
@@ -155,9 +134,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         object_id_field="action_object_id",
     )
 
-    ip_addresses = models.ManyToManyField(
-        to="ipam.IPAddress", related_name="discovered_by", blank=True, editable=False
-    )
+    ip_addresses = models.ManyToManyField(to="ipam.IPAddress", related_name="discovered_by", blank=True, editable=False)
 
     objects = RestrictedQuerySet.as_manager()
 
@@ -199,7 +176,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """String representation of the Collector object."""
 
         return str(self.name)
-    
+
     def clean(self):
         """Clean the object."""
         if isinstance(self.napalm_args, str):
@@ -225,11 +202,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     def check_stalled(self):
         """Update the status of the collector if stalled."""
-        if (
-            self.pk
-            and self.current_job is None
-            and self.status == CollectorStatusChoices.WORKING
-        ):
+        if self.pk and self.current_job is None and self.status == CollectorStatusChoices.WORKING:
             job = self.get_current_job()
             if job is None:
                 self.status = CollectorStatusChoices.STALLED
@@ -298,13 +271,13 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
         return Device.objects.filter(q).distinct()
 
-    def get_napalm_args(self) -> Dict[str, Any]:
+    def get_napalm_args(self) -> dict[str, Any]:
         """Return the NAPALM arguments to use when initiating the driver."""
         napalm_args = get_plugin_config("netbox_facts", "global_napalm_args", {})
         napalm_args.update(self.napalm_args if self.napalm_args else {})
         return napalm_args
 
-    def get_napalm_driver(self) -> Type[NetworkDriver]:
+    def get_napalm_driver(self) -> type[NetworkDriver]:
         """Return a NAPALM driver instance."""
         try:
             driver = get_network_driver(f"netbox_facts.napalm.{self.napalm_driver}")
@@ -328,11 +301,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
                 f"Cannot enqueue collection job; plan is already {self.get_status_display().lower()}."
             )
 
-        user = (
-            self.run_as
-            if request.user.is_superuser and self.run_as is not None
-            else request.user
-        )
+        user = self.run_as if request.user.is_superuser and self.run_as is not None else request.user
 
         self.current_job = CollectionJobRunner.enqueue(
             instance=self,
@@ -342,13 +311,9 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         )
         return self.current_job
 
-    def run(
-        self, request=None, *args, **kwargs
-    ):  # pylint: disable=missing-function-docstring,unused-argument
+    def run(self, request=None, *args, **kwargs):  # pylint: disable=missing-function-docstring,unused-argument
         if self.status == CollectorStatusChoices.WORKING:
-            raise OperationNotSupported(
-                "Cannot initiate collection job; Collector already working."
-            )
+            raise OperationNotSupported("Cannot initiate collection job; Collector already working.")
 
         self.status = CollectorStatusChoices.WORKING
         CollectionPlan.objects.filter(pk=self.pk).update(status=self.status)
@@ -374,24 +339,22 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             # Update status & last_synced time
             self.status = CollectorStatusChoices.COMPLETED
             self.last_run = timezone.now()
-            CollectionPlan.objects.filter(pk=self.pk).update(
-                status=self.status, last_run=self.last_run
-            )
+            CollectionPlan.objects.filter(pk=self.pk).update(status=self.status, last_run=self.last_run)
         except Exception:
-            CollectionPlan.objects.filter(pk=self.pk).update(
-                status=CollectorStatusChoices.FAILED
-            )
+            CollectionPlan.objects.filter(pk=self.pk).update(status=CollectorStatusChoices.FAILED)
             raise
 
     run.alters_data = True
 
     def _log(self, level, message):
         """Append a timestamped log entry."""
-        self.log.append({
-            "time": timezone.now().isoformat(),
-            "status": level,
-            "message": str(message),
-        })
+        self.log.append(
+            {
+                "time": timezone.now().isoformat(),
+                "status": level,
+                "message": str(message),
+            }
+        )
 
     def log_debug(self, message):
         """Log a message at DEBUG level."""

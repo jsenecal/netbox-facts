@@ -1,10 +1,7 @@
 import ipaddress
-from typing import Optional
 
 
-def ip_object(
-    addr: str, version: Optional[int] = None
-) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+def ip_object(addr: str, version: int | None = None) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     """
     Converts a raw string to a valid IP address object. Optional version argument will detect that \
     object matches specified version.

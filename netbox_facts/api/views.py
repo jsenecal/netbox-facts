@@ -1,20 +1,18 @@
 from django.db.models import Count
+from netbox.api.viewsets import NetBoxModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
-from netbox.api.viewsets import NetBoxModelViewSet
-
-from ..exceptions import OperationNotSupported
 from .. import filtersets, models
+from ..exceptions import OperationNotSupported
 from ..helpers.applier import apply_entries, skip_entries
 from .serializers import (
-    MACAddressSerializer,
-    MACVendorSerializer,
     CollectionPlanSerializer,
     FactsReportSerializer,
-    FactsReportEntrySerializer,
+    MACAddressSerializer,
+    MACVendorSerializer,
 )
 
 
@@ -82,9 +80,7 @@ class FactsReportViewSet(NetBoxModelViewSet):
 
     def _validate_entry_ownership(self, report, entry_pks):
         """Check all entry PKs belong to the report. Returns invalid PKs or None."""
-        valid_pks = set(
-            report.entries.filter(pk__in=entry_pks).values_list("pk", flat=True)
-        )
+        valid_pks = set(report.entries.filter(pk__in=entry_pks).values_list("pk", flat=True))
         invalid_pks = set(entry_pks) - valid_pks
         return invalid_pks or None
 
@@ -105,10 +101,12 @@ class FactsReportViewSet(NetBoxModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         applied, failed = apply_entries(report, entry_pks)
-        return Response({
-            "applied": applied,
-            "failed": failed,
-        })
+        return Response(
+            {
+                "applied": applied,
+                "failed": failed,
+            }
+        )
 
     @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
     def skip(self, request, pk=None):

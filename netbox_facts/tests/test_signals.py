@@ -1,7 +1,7 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
+from django.test import TestCase
 
 from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.models import CollectionPlan
@@ -28,7 +28,11 @@ class HandleCollectionJobChangeSignalTest(TestCase):
 
         mock_runner.enqueue_once.assert_called_once()
         call_kwargs = mock_runner.enqueue_once.call_args
-        self.assertEqual(call_kwargs.kwargs.get("interval") or call_kwargs[1].get("interval", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else None), 60)
+        self.assertEqual(
+            call_kwargs.kwargs.get("interval")
+            or call_kwargs[1].get("interval", call_kwargs[0][1] if len(call_kwargs[0]) > 1 else None),
+            60,
+        )
 
     @patch("netbox_facts.jobs.CollectionJobRunner")
     def test_no_enqueue_when_disabled(self, mock_runner):

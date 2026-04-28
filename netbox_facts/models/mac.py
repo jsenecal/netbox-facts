@@ -1,14 +1,15 @@
-""" Models for NetBox Facts Plugin. """
+"""Models for NetBox Facts Plugin."""
+
 from dcim.fields import MACAddressField, mac_unix_expanded_uppercase
 from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netaddr import EUI, NotRegisteredError
-from netbox_facts.choices import CollectionTypeChoices
+from netbox.models import NetBoxModel
 from taggit.managers import TaggableManager
 from utilities.querysets import RestrictedQuerySet
 
-from netbox.models import NetBoxModel
+from netbox_facts.choices import CollectionTypeChoices
 
 from ..fields import MACPrefixField
 
@@ -20,9 +21,9 @@ class MACAddress(NetBoxModel):
 
     # Override tags with explicit related_name to avoid clash with dcim.MACAddress
     tags = TaggableManager(
-        through='extras.TaggedItem',
-        ordering=('weight', 'name'),
-        related_name='netbox_facts_macaddress_set',
+        through="extras.TaggedItem",
+        ordering=("weight", "name"),
+        related_name="netbox_facts_macaddress_set",
     )
 
     mac_address = MACAddressField(
@@ -34,9 +35,7 @@ class MACAddress(NetBoxModel):
         "netbox_facts.MACVendor",
         on_delete=models.PROTECT,
         related_name="instances",
-        help_text=_(
-            "This field is automatically overriden from MAC Address when known."
-        ),
+        help_text=_("This field is automatically overriden from MAC Address when known."),
         null=True,
         blank=True,
         editable=False,
@@ -145,12 +144,8 @@ class MACAddressInterfaceRelation(models.Model):
 
     mac_address = models.ForeignKey("MACAddress", on_delete=models.CASCADE)
     interface = models.ForeignKey("dcim.Interface", on_delete=models.CASCADE)
-    created = models.DateTimeField(
-        verbose_name=_("created"), auto_now_add=True, blank=True, null=True
-    )
-    last_updated = models.DateTimeField(
-        verbose_name=_("last updated"), auto_now=True, blank=True, null=True
-    )
+    created = models.DateTimeField(verbose_name=_("created"), auto_now_add=True, blank=True, null=True)
+    last_updated = models.DateTimeField(verbose_name=_("last updated"), auto_now=True, blank=True, null=True)
 
     class Meta:
         unique_together = ("mac_address", "interface")
@@ -161,12 +156,8 @@ class MACAddressIPAddressRelation(models.Model):
 
     mac_address = models.ForeignKey("MACAddress", on_delete=models.CASCADE)
     ip_address = models.ForeignKey("ipam.ipaddress", on_delete=models.CASCADE)
-    created = models.DateTimeField(
-        verbose_name=_("created"), auto_now_add=True, blank=True, null=True
-    )
-    last_updated = models.DateTimeField(
-        verbose_name=_("last updated"), auto_now=True, blank=True, null=True
-    )
+    created = models.DateTimeField(verbose_name=_("created"), auto_now_add=True, blank=True, null=True)
+    last_updated = models.DateTimeField(verbose_name=_("last updated"), auto_now=True, blank=True, null=True)
 
     class Meta:
         unique_together = ("mac_address", "ip_address")
@@ -179,9 +170,7 @@ class MACVendorManager(models.Manager.from_queryset(RestrictedQuerySet)):
 
     def get_by_mac_address(self, mac):
         """Return the MACVendor object matching the MAC Address first 6 bytes."""
-        clean_mac = EUI(
-            int(mac) & ~0x0000FFFFFF, version=48, dialect=mac_unix_expanded_uppercase
-        )
+        clean_mac = EUI(int(mac) & ~0x0000FFFFFF, version=48, dialect=mac_unix_expanded_uppercase)
         return self.get(mac_prefix=clean_mac)
 
 

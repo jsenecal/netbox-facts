@@ -1,4 +1,3 @@
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
 from dcim.models import (
     Device,
@@ -7,6 +6,7 @@ from dcim.models import (
     Manufacturer,
     Site,
 )
+from django.test import TestCase
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -24,9 +24,7 @@ class FactsReportModelTest(TestCase):
     def setUpTestData(cls):
         cls.site = Site.objects.create(name="Report Site", slug="report-site")
         cls.manufacturer = Manufacturer.objects.create(name="RMfg", slug="rmfg")
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer, model="RModel", slug="rmodel"
-        )
+        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="RModel", slug="rmodel")
         cls.role = DeviceRole.objects.create(name="RRole", slug="rrole")
         cls.device = Device.objects.create(
             name="report-dev",
@@ -99,9 +97,7 @@ class FactsReportEntryModelTest(TestCase):
     def setUpTestData(cls):
         cls.site = Site.objects.create(name="Entry Site", slug="entry-site")
         cls.manufacturer = Manufacturer.objects.create(name="EMfg", slug="emfg")
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer, model="EModel", slug="emodel"
-        )
+        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="EModel", slug="emodel")
         cls.role = DeviceRole.objects.create(name="ERole", slug="erole")
         cls.device = Device.objects.create(
             name="entry-dev",

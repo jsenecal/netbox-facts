@@ -1,4 +1,3 @@
-from django.test import TestCase
 from dcim.choices import DeviceStatusChoices
 from dcim.models import (
     Device,
@@ -8,11 +7,11 @@ from dcim.models import (
     Platform,
     Site,
 )
+from django.test import TestCase
 from netaddr import EUI
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
-    CollectorPriorityChoices,
     CollectorStatusChoices,
 )
 from netbox_facts.models import CollectionPlan, MACAddress, MACVendor
@@ -124,12 +123,8 @@ class CollectionPlanModelTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.site = Site.objects.create(name="Test Site", slug="test-site")
-        cls.manufacturer = Manufacturer.objects.create(
-            name="TestMfg", slug="testmfg"
-        )
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer, model="TestModel", slug="testmodel"
-        )
+        cls.manufacturer = Manufacturer.objects.create(name="TestMfg", slug="testmfg")
+        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="TestModel", slug="testmodel")
         cls.role = DeviceRole.objects.create(name="TestRole", slug="testrole")
         cls.platform = Platform.objects.create(name="junos", slug="junos")
 
@@ -190,9 +185,7 @@ class CollectionPlanModelTest(TestCase):
     def test_get_devices_queryset_by_status(self):
         """device_status ArrayField filter should use __in lookup."""
         d_active = self._create_device("active-dev")
-        d_planned = self._create_device(
-            "planned-dev", status=DeviceStatusChoices.STATUS_PLANNED
-        )
+        d_planned = self._create_device("planned-dev", status=DeviceStatusChoices.STATUS_PLANNED)
         plan = self._create_plan(
             device_status=[DeviceStatusChoices.STATUS_ACTIVE],
         )

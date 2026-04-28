@@ -1,8 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
-from django.utils import timezone
-
 from dcim.choices import DeviceStatusChoices
 from dcim.models import (
     Device,
@@ -13,6 +10,8 @@ from dcim.models import (
 )
 from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.modules import Module, ModuleType
+from django.test import TestCase
+from django.utils import timezone
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
@@ -20,7 +19,6 @@ from ipam.models.vrfs import VRF
 from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.collector import NapalmCollector
-from netbox_facts.napalm.junos import EnhancedJunOSDriver
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
@@ -35,6 +33,7 @@ from netbox_facts.helpers.netbox import (
 )
 from netbox_facts.models import CollectionPlan
 from netbox_facts.models.mac import MACAddress
+from netbox_facts.napalm.junos import EnhancedJunOSDriver
 
 
 class ParseNetworkInstancesTest(TestCase):
@@ -145,12 +144,8 @@ class CollectorTestMixin:
     @classmethod
     def setUpTestData(cls):
         cls.site = Site.objects.create(name="Collector Site", slug="collector-site")
-        cls.manufacturer = Manufacturer.objects.create(
-            name="CollectorMfg", slug="collectormfg"
-        )
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer, model="CollModel", slug="collmodel"
-        )
+        cls.manufacturer = Manufacturer.objects.create(name="CollectorMfg", slug="collectormfg")
+        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="CollModel", slug="collmodel")
         cls.role = DeviceRole.objects.create(name="CollRole", slug="collrole")
 
     def _create_plan(self, collector_type=CollectionTypeChoices.TYPE_INVENTORY, **kwargs):
@@ -272,6 +267,7 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -310,6 +306,7 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
     def test_interfaces_skips_non_matching_interface(self):
         """Interfaces not matching the regex should be skipped."""
         import re as _re
+
         plan = self._create_plan(
             collector_type=CollectionTypeChoices.TYPE_INTERFACES,
             name="Plan-ifaces-regex",
@@ -402,9 +399,11 @@ class InterfacesCollectorTest(CollectorTestMixin, TestCase):
 
         self.assertEqual(MACAddress.objects.count(), 0)
         # Interface should get a report entry (MAC-less but has logical units)
-        entries = list(report.entries.filter(
-            detected_values__interface="lo0",
-        ))
+        entries = list(
+            report.entries.filter(
+                detected_values__interface="lo0",
+            )
+        )
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].detected_values["mac_address"], "")
 
@@ -483,6 +482,7 @@ class InterfacesAutoCreateTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -650,12 +650,9 @@ class EthernetSwitchingCollectorTest(CollectorTestMixin, TestCase):
         collector.ethernet_switching(driver)
 
         from netbox_facts.models.mac import MACAddressInterfaceRelation
+
         mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:10")
-        self.assertTrue(
-            MACAddressInterfaceRelation.objects.filter(
-                mac_address=mac, interface=iface
-            ).exists()
-        )
+        self.assertTrue(MACAddressInterfaceRelation.objects.filter(mac_address=mac, interface=iface).exists())
         self.assertEqual(mac.discovery_method, CollectionTypeChoices.TYPE_L2)
 
     def test_skips_empty_mac(self):
@@ -908,6 +905,7 @@ class BGPCollectorTest(CollectorTestMixin, TestCase):
         collector.bgp(driver)
 
         from ipam.models.ip import IPAddress as IP
+
         self.assertTrue(IP.objects.filter(address="10.0.0.1/32").exists())
 
     def test_creates_asn_when_rir_exists(self):
@@ -977,6 +975,7 @@ class BGPCollectorTest(CollectorTestMixin, TestCase):
         collector.bgp(driver)
 
         from ipam.models.ip import IPAddress as IP
+
         peer_ip = IP.objects.get(address="172.16.0.1/32")
         self.assertEqual(peer_ip.vrf, vrf)
 
@@ -1256,11 +1255,13 @@ class NetboxRoutingIntegrationTest(TestCase):
     def test_has_netbox_routing_detection(self):
         """HAS_NETBOX_ROUTING should be a boolean."""
         from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
+
         self.assertIsInstance(HAS_NETBOX_ROUTING, bool)
 
     def test_bgp_integration_without_routing(self):
         """BGP collector should work without netbox-routing installed."""
         from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
+
         self.assertIsInstance(HAS_NETBOX_ROUTING, bool)
 
 
@@ -1270,6 +1271,7 @@ class HideCollectorTypeTests(TestCase):
     @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", False)
     def test_form_hides_bgp_ospf_when_no_routing(self):
         from netbox_facts.forms import CollectorForm
+
         form = CollectorForm()
         choices = [c[0] for c in form.fields["collector_type"].choices]
         self.assertNotIn("bgp", choices)
@@ -1278,6 +1280,7 @@ class HideCollectorTypeTests(TestCase):
     @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", True)
     def test_form_shows_bgp_ospf_when_routing_present(self):
         from netbox_facts.forms import CollectorForm
+
         form = CollectorForm()
         choices = [c[0] for c in form.fields["collector_type"].choices]
         self.assertIn("bgp", choices)
@@ -1286,6 +1289,7 @@ class HideCollectorTypeTests(TestCase):
     @patch("netbox_facts.forms.HAS_NETBOX_ROUTING", False)
     def test_filter_form_hides_bgp_ospf_when_no_routing(self):
         from netbox_facts.forms import CollectionPlanFilterForm
+
         form = CollectionPlanFilterForm()
         choices = [c[0] for c in form.fields["collector_type"].choices]
         self.assertNotIn("bgp", choices)
@@ -1368,7 +1372,7 @@ class DetectOnlyInventoryTest(CollectorTestMixin, TestCase):
 
     def test_detect_only_inventory_no_serial_update(self):
         """With detect_only=True, device serial should NOT be updated."""
-        from netbox_facts.models.facts_report import FactsReport, FactsReportEntry
+        from netbox_facts.models.facts_report import FactsReport
 
         plan = self._create_plan(name="DetectOnly-inv", detect_only=True)
         device = self._create_device("detect-inv-dev", serial="OLD_SERIAL")
@@ -1403,6 +1407,7 @@ class DetectOnlyInterfacesTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -1489,6 +1494,7 @@ class DetectOnlyLLDPTest(CollectorTestMixin, TestCase):
     def test_detect_only_no_cable_created(self):
         """With detect_only=True, no Cable objects should be created."""
         from dcim.models.cables import Cable as CableModel
+
         from netbox_facts.models.facts_report import FactsReport
 
         plan = self._create_plan(
@@ -1536,6 +1542,7 @@ class InterfacesLAGTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -1555,8 +1562,12 @@ class InterfacesLAGTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "ge-0/0/0": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:01",
                 "logical_interfaces": {
                     "ge-0/0/0.0": {
@@ -1593,8 +1604,12 @@ class InterfacesLAGTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "ge-0/0/1": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:02",
                 "logical_interfaces": {
                     "ge-0/0/1.0": {
@@ -1618,6 +1633,7 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -1639,30 +1655,37 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
-        driver = self._make_driver({
-            "ge-0/0/2": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
-                "mac_address": "AA:BB:CC:DD:EE:10",
-                "logical_interfaces": {
-                    "ge-0/0/2.0": {
-                        "families": {
-                            "inet": {
-                                "mtu": 1500, "ae_bundle": "",
-                                "addresses": {
-                                    "10.0.1.0/24": {
-                                        "local": "10.0.1.1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
+        driver = self._make_driver(
+            {
+                "ge-0/0/2": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 1000.0,
+                    "mtu": 1500,
+                    "mac_address": "AA:BB:CC:DD:EE:10",
+                    "logical_interfaces": {
+                        "ge-0/0/2.0": {
+                            "families": {
+                                "inet": {
+                                    "mtu": 1500,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        "10.0.1.0/24": {
+                                            "local": "10.0.1.1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1684,31 +1707,38 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
-        driver = self._make_driver({
-            "lo0": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 0, "mtu": 65535,
-                "mac_address": "",
-                "logical_interfaces": {
-                    "lo0.0": {
-                        "families": {
-                            "inet": {
-                                "mtu": 65535, "ae_bundle": "",
-                                "addresses": {
-                                    # destination is the dict key; empty string = no destination
-                                    "": {
-                                        "local": "192.0.2.1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
+        driver = self._make_driver(
+            {
+                "lo0": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 0,
+                    "mtu": 65535,
+                    "mac_address": "",
+                    "logical_interfaces": {
+                        "lo0.0": {
+                            "families": {
+                                "inet": {
+                                    "mtu": 65535,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        # destination is the dict key; empty string = no destination
+                                        "": {
+                                            "local": "192.0.2.1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1731,36 +1761,43 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
 
         # Post-driver data: two different subnets on same interface,
         # one preferred, one not. The non-preferred should be skipped.
-        driver = self._make_driver({
-            "ge-0/0/3": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
-                "mac_address": "AA:BB:CC:DD:EE:11",
-                "logical_interfaces": {
-                    "ge-0/0/3.0": {
-                        "families": {
-                            "inet": {
-                                "mtu": 1500, "ae_bundle": "",
-                                "addresses": {
-                                    "10.0.2.0/24": {
-                                        "local": "10.0.2.1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
-                                    },
-                                    "10.0.3.0/24": {
-                                        "local": "10.0.3.1",
-                                        "broadcast": "",
-                                        "preferred": False,
-                                        "primary": False,
+        driver = self._make_driver(
+            {
+                "ge-0/0/3": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 1000.0,
+                    "mtu": 1500,
+                    "mac_address": "AA:BB:CC:DD:EE:11",
+                    "logical_interfaces": {
+                        "ge-0/0/3.0": {
+                            "families": {
+                                "inet": {
+                                    "mtu": 1500,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        "10.0.2.0/24": {
+                                            "local": "10.0.2.1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
+                                        "10.0.3.0/24": {
+                                            "local": "10.0.3.1",
+                                            "broadcast": "",
+                                            "preferred": False,
+                                            "primary": False,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1780,30 +1817,37 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
-        driver = self._make_driver({
-            "ge-0/0/4": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
-                "mac_address": "AA:BB:CC:DD:EE:12",
-                "logical_interfaces": {
-                    "ge-0/0/4.0": {
-                        "families": {
-                            "inet": {
-                                "mtu": 1500, "ae_bundle": "",
-                                "addresses": {
-                                    "10.0.3/24": {
-                                        "local": "10.0.3.1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
+        driver = self._make_driver(
+            {
+                "ge-0/0/4": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 1000.0,
+                    "mtu": 1500,
+                    "mac_address": "AA:BB:CC:DD:EE:12",
+                    "logical_interfaces": {
+                        "ge-0/0/4.0": {
+                            "families": {
+                                "inet": {
+                                    "mtu": 1500,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        "10.0.3/24": {
+                                            "local": "10.0.3.1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1824,31 +1868,38 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
-        driver = self._make_driver({
-            "ge-0/0/5": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
-                "mac_address": "AA:BB:CC:DD:EE:13",
-                "logical_interfaces": {
-                    "ge-0/0/5.100": {
-                        "vrf": "CUST_A",
-                        "families": {
-                            "inet": {
-                                "mtu": 1500, "ae_bundle": "",
-                                "addresses": {
-                                    "172.16.0.0/30": {
-                                        "local": "172.16.0.1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
+        driver = self._make_driver(
+            {
+                "ge-0/0/5": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 1000.0,
+                    "mtu": 1500,
+                    "mac_address": "AA:BB:CC:DD:EE:13",
+                    "logical_interfaces": {
+                        "ge-0/0/5.100": {
+                            "vrf": "CUST_A",
+                            "families": {
+                                "inet": {
+                                    "mtu": 1500,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        "172.16.0.0/30": {
+                                            "local": "172.16.0.1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1870,30 +1921,37 @@ class InterfacesIPTest(CollectorTestMixin, TestCase):
         collector = self._make_collector(plan)
         collector._current_device = device
 
-        driver = self._make_driver({
-            "ge-0/0/6": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
-                "mac_address": "AA:BB:CC:DD:EE:14",
-                "logical_interfaces": {
-                    "ge-0/0/6.0": {
-                        "families": {
-                            "inet6": {
-                                "mtu": 1500, "ae_bundle": "",
-                                "addresses": {
-                                    "2001:db8::/64": {
-                                        "local": "2001:db8::1",
-                                        "broadcast": "",
-                                        "preferred": True,
-                                        "primary": True,
+        driver = self._make_driver(
+            {
+                "ge-0/0/6": {
+                    "is_up": True,
+                    "is_enabled": True,
+                    "description": "",
+                    "last_flapped": -1.0,
+                    "speed": 1000.0,
+                    "mtu": 1500,
+                    "mac_address": "AA:BB:CC:DD:EE:14",
+                    "logical_interfaces": {
+                        "ge-0/0/6.0": {
+                            "families": {
+                                "inet6": {
+                                    "mtu": 1500,
+                                    "ae_bundle": "",
+                                    "addresses": {
+                                        "2001:db8::/64": {
+                                            "local": "2001:db8::1",
+                                            "broadcast": "",
+                                            "preferred": True,
+                                            "primary": True,
+                                        },
                                     },
                                 },
                             },
                         },
                     },
                 },
-            },
-        })
+            }
+        )
 
         collector.interfaces(driver)
 
@@ -1907,6 +1965,7 @@ class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -1926,8 +1985,12 @@ class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
         # No logical_interfaces → triggers generic path
         driver.get_interfaces.return_value = {
             "Ethernet1": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:20",
             },
         }
@@ -1970,8 +2033,12 @@ class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "Ethernet2": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:21",
             },
         }
@@ -2011,8 +2078,12 @@ class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "Ethernet3": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:22",
             },
         }
@@ -2052,14 +2123,19 @@ class InterfacesIPGenericTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "ge-0/0/7": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:23",
                 "logical_interfaces": {
                     "ge-0/0/7.0": {
                         "families": {
                             "inet": {
-                                "mtu": 1500, "ae_bundle": "",
+                                "mtu": 1500,
+                                "ae_bundle": "",
                                 "addresses": {
                                     "10.0.7.0/24": {
                                         "local": "10.0.7.1",
@@ -2088,6 +2164,7 @@ class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -2112,8 +2189,12 @@ class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "ge-0/0/8": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:30",
                 "logical_interfaces": {
                     "ge-0/0/8.0": {
@@ -2153,14 +2234,19 @@ class DetectOnlyInterfacesLogicalTest(CollectorTestMixin, TestCase):
         driver = MagicMock()
         driver.get_interfaces.return_value = {
             "ge-0/0/9": {
-                "is_up": True, "is_enabled": True, "description": "",
-                "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
                 "mac_address": "AA:BB:CC:DD:EE:31",
                 "logical_interfaces": {
                     "ge-0/0/9.0": {
                         "families": {
                             "inet": {
-                                "mtu": 1500, "ae_bundle": "",
+                                "mtu": 1500,
+                                "ae_bundle": "",
                                 "addresses": {
                                     "10.99.0.0/24": {
                                         "local": "10.99.0.1",
@@ -2196,19 +2282,33 @@ class ParseAddressFamiliesTest(TestCase):
 
     def test_vrrp_backup_keeps_preferred(self):
         """Duplicate destination: preferred (real) comes first, non-preferred (VGA) is dropped."""
-        addr_table = self._mock_table([
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
-                ("preferred", True), ("primary", True),
-            ]),
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.254"), ("broadcast", ""),
-                ("preferred", False), ("primary", False),
-            ]),
-        ])
-        family_table = self._mock_table([
-            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
-        ])
+        addr_table = self._mock_table(
+            [
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.1"),
+                        ("broadcast", "10.0.2.255"),
+                        ("preferred", True),
+                        ("primary", True),
+                    ],
+                ),
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.254"),
+                        ("broadcast", ""),
+                        ("preferred", False),
+                        ("primary", False),
+                    ],
+                ),
+            ]
+        )
+        family_table = self._mock_table(
+            [
+                ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+            ]
+        )
 
         result = EnhancedJunOSDriver._parse_address_families(family_table)
         addresses = result["inet"]["addresses"]
@@ -2218,19 +2318,33 @@ class ParseAddressFamiliesTest(TestCase):
 
     def test_vrrp_master_keeps_first_preferred(self):
         """Duplicate destination: both preferred (master), first entry wins."""
-        addr_table = self._mock_table([
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
-                ("preferred", True), ("primary", True),
-            ]),
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.254"), ("broadcast", ""),
-                ("preferred", True), ("primary", True),
-            ]),
-        ])
-        family_table = self._mock_table([
-            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
-        ])
+        addr_table = self._mock_table(
+            [
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.1"),
+                        ("broadcast", "10.0.2.255"),
+                        ("preferred", True),
+                        ("primary", True),
+                    ],
+                ),
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.254"),
+                        ("broadcast", ""),
+                        ("preferred", True),
+                        ("primary", True),
+                    ],
+                ),
+            ]
+        )
+        family_table = self._mock_table(
+            [
+                ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+            ]
+        )
 
         result = EnhancedJunOSDriver._parse_address_families(family_table)
         addresses = result["inet"]["addresses"]
@@ -2240,19 +2354,33 @@ class ParseAddressFamiliesTest(TestCase):
 
     def test_vrrp_vga_first_real_overwrites(self):
         """Duplicate destination: VGA (non-preferred) comes first, preferred overwrites it."""
-        addr_table = self._mock_table([
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.254"), ("broadcast", ""),
-                ("preferred", False), ("primary", False),
-            ]),
-            ("10.0.2.0/24", [
-                ("local", "10.0.2.1"), ("broadcast", "10.0.2.255"),
-                ("preferred", True), ("primary", True),
-            ]),
-        ])
-        family_table = self._mock_table([
-            ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
-        ])
+        addr_table = self._mock_table(
+            [
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.254"),
+                        ("broadcast", ""),
+                        ("preferred", False),
+                        ("primary", False),
+                    ],
+                ),
+                (
+                    "10.0.2.0/24",
+                    [
+                        ("local", "10.0.2.1"),
+                        ("broadcast", "10.0.2.255"),
+                        ("preferred", True),
+                        ("primary", True),
+                    ],
+                ),
+            ]
+        )
+        family_table = self._mock_table(
+            [
+                ("inet", [("mtu", 1500), ("ae_bundle", ""), ("addresses", addr_table)]),
+            ]
+        )
 
         result = EnhancedJunOSDriver._parse_address_families(family_table)
         addresses = result["inet"]["addresses"]
@@ -2266,14 +2394,19 @@ def _iface_driver_data(physical, logical, ip, prefix_len=24, mac="AA:BB:CC:DD:EE
     net_part = ip.rsplit(".", 1)[0]
     return {
         physical: {
-            "is_up": True, "is_enabled": True, "description": "",
-            "last_flapped": -1.0, "speed": 1000.0, "mtu": 1500,
+            "is_up": True,
+            "is_enabled": True,
+            "description": "",
+            "last_flapped": -1.0,
+            "speed": 1000.0,
+            "mtu": 1500,
             "mac_address": mac,
             "logical_interfaces": {
                 logical: {
                     "families": {
                         "inet": {
-                            "mtu": 1500, "ae_bundle": "",
+                            "mtu": 1500,
+                            "ae_bundle": "",
                             "addresses": {
                                 f"{net_part}.0/{prefix_len}": {
                                     "local": ip,
@@ -2295,6 +2428,7 @@ class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -2327,9 +2461,13 @@ class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
         collector._report = report
 
         # Driver says the IP is on ge-0/0/3.1, not ge-0/0/3.0
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/3", "ge-0/0/3.1", "10.0.3.1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/3",
+                "ge-0/0/3.1",
+                "10.0.3.1",
+            )
+        )
         collector.interfaces(driver)
 
         ip.refresh_from_db()
@@ -2360,9 +2498,13 @@ class InterfacesIPReprocessTest(CollectorTestMixin, TestCase):
         collector._current_device = device
         collector._report = report
 
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/4", "ge-0/0/4.1", "10.0.4.1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/4",
+                "ge-0/0/4.1",
+                "10.0.4.1",
+            )
+        )
         collector.interfaces(driver)
 
         ip.refresh_from_db()
@@ -2378,6 +2520,7 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
 
     def _make_collector(self, plan):
         import re as _re
+
         collector = super()._make_collector(plan)
         collector._interfaces_re = _re.compile(r".*")
         return collector
@@ -2409,9 +2552,13 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
         collector._report = report
 
         # Driver returns a DIFFERENT IP, so the stale one is not seen
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/5", "ge-0/0/5.0", "10.0.5.1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/5",
+                "ge-0/0/5.0",
+                "10.0.5.1",
+            )
+        )
         collector.interfaces(driver)
 
         stale_ip.refresh_from_db()
@@ -2441,10 +2588,14 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
         collector._current_device = device
         collector._report = report
 
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/6", "ge-0/0/6.0", "10.0.6.1",
-            mac="AA:BB:CC:DD:EE:A1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/6",
+                "ge-0/0/6.0",
+                "10.0.6.1",
+                mac="AA:BB:CC:DD:EE:A1",
+            )
+        )
         collector.interfaces(driver)
 
         stale_ip.refresh_from_db()
@@ -2475,9 +2626,13 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
         collector._current_device = device
         collector._report = report
 
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/7", "ge-0/0/7.0", "10.0.7.1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/7",
+                "ge-0/0/7.0",
+                "10.0.7.1",
+            )
+        )
         collector.interfaces(driver)
 
         entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
@@ -2507,9 +2662,13 @@ class InterfacesStaleIPTest(CollectorTestMixin, TestCase):
         collector._current_device = device
         collector._report = report
 
-        driver = self._make_driver(_iface_driver_data(
-            "ge-0/0/8", "ge-0/0/8.0", "10.0.8.1",
-        ))
+        driver = self._make_driver(
+            _iface_driver_data(
+                "ge-0/0/8",
+                "ge-0/0/8.0",
+                "10.0.8.1",
+            )
+        )
         collector.interfaces(driver)
 
         entries = report.entries.filter(action=EntryActionChoices.ACTION_STALE)
@@ -2545,24 +2704,26 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-            {
-                "name": "FPC 0/PIC 0",
-                "component_name": "PIC 0",
-                "parent_name": "FPC 0",
-                "serial": "PIC0_SN",
-                "part_id": "750-99999",
-                "description": "4x10GE PIC",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+                {
+                    "name": "FPC 0/PIC 0",
+                    "component_name": "PIC 0",
+                    "parent_name": "FPC 0",
+                    "serial": "PIC0_SN",
+                    "part_id": "750-99999",
+                    "description": "4x10GE PIC",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2583,24 +2744,30 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         plan = self._create_plan(detect_only=True)
         device = self._create_device("chassis-dev2", serial="CHASSIS_SN")
         InventoryItem.objects.create(
-            device=device, name="FPC 0", serial="FPC0_SN",
-            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+            device=device,
+            name="FPC 0",
+            serial="FPC0_SN",
+            part_id="750-12345",
+            description="MPC 4e 3D",
+            discovered=True,
         )
         collector = self._make_collector(plan)
         collector._current_device = device
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2617,24 +2784,30 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         plan = self._create_plan()
         device = self._create_device("chassis-dev3", serial="CHASSIS_SN")
         item = InventoryItem.objects.create(
-            device=device, name="FPC 0", serial="OLD_SN",
-            part_id="750-12345", description="MPC 4e 3D", discovered=True,
+            device=device,
+            name="FPC 0",
+            serial="OLD_SN",
+            part_id="750-12345",
+            description="MPC 4e 3D",
+            discovered=True,
         )
         collector = self._make_collector(plan)
         collector._current_device = device
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "NEW_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "NEW_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2658,16 +2831,18 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0/PIC 0/Xcvr 0",
-                "component_name": "Xcvr 0",
-                "parent_name": "FPC 0/PIC 0",
-                "serial": None,
-                "part_id": "BUILTIN",
-                "description": "BUILTIN module",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0/PIC 0/Xcvr 0",
+                    "component_name": "Xcvr 0",
+                    "parent_name": "FPC 0/PIC 0",
+                    "serial": None,
+                    "part_id": "BUILTIN",
+                    "description": "BUILTIN module",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2681,8 +2856,12 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         plan = self._create_plan()
         device = self._create_device("chassis-dev5", serial="CHASSIS_SN")
         InventoryItem.objects.create(
-            device=device, name="FPC 1", serial="GONE_SN",
-            part_id="750-99999", description="Old card", discovered=True,
+            device=device,
+            name="FPC 1",
+            serial="GONE_SN",
+            part_id="750-99999",
+            description="Old card",
+            discovered=True,
         )
         collector = self._make_collector(plan)
         collector._current_device = device
@@ -2711,16 +2890,18 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2742,32 +2923,34 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-            {
-                "name": "FPC 0/PIC 0",
-                "component_name": "PIC 0",
-                "parent_name": "FPC 0",
-                "serial": "PIC0_SN",
-                "part_id": "750-99999",
-                "description": "4x10GE PIC",
-            },
-            {
-                "name": "FPC 0/PIC 0/Xcvr 0",
-                "component_name": "Xcvr 0",
-                "parent_name": "FPC 0/PIC 0",
-                "serial": "XCVR_SN",
-                "part_id": "740-11111",
-                "description": "SFP+-10G-SR",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+                {
+                    "name": "FPC 0/PIC 0",
+                    "component_name": "PIC 0",
+                    "parent_name": "FPC 0",
+                    "serial": "PIC0_SN",
+                    "part_id": "750-99999",
+                    "description": "4x10GE PIC",
+                },
+                {
+                    "name": "FPC 0/PIC 0/Xcvr 0",
+                    "component_name": "Xcvr 0",
+                    "parent_name": "FPC 0/PIC 0",
+                    "serial": "XCVR_SN",
+                    "part_id": "740-11111",
+                    "description": "SFP+-10G-SR",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2787,23 +2970,27 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         device = self._create_device("chassis-mod1", serial="CHASSIS_SN")
         bay = ModuleBay.objects.create(device=device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         collector = self._make_collector(plan)
         collector._current_device = device
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2826,23 +3013,27 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         plan = self._create_plan()
         device = self._create_device("chassis-mod2", serial="CHASSIS_SN")
         ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         collector = self._make_collector(plan)
         collector._current_device = device
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2865,16 +3056,18 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2889,10 +3082,15 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         device = self._create_device("chassis-mod4", serial="CHASSIS_SN")
         bay = ModuleBay.objects.create(device=device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         existing_mod = Module.objects.create(
-            device=device, module_bay=bay, module_type=mod_type, serial="FPC0_SN",
+            device=device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial="FPC0_SN",
         )
         existing_mod.tags.add(AUTO_D_TAG)
 
@@ -2901,16 +3099,18 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2928,10 +3128,15 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         device = self._create_device("chassis-mod5", serial="CHASSIS_SN")
         bay = ModuleBay.objects.create(device=device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-12345",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-12345",
         )
         existing_mod = Module.objects.create(
-            device=device, module_bay=bay, module_type=mod_type, serial="OLD_SN",
+            device=device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial="OLD_SN",
         )
         existing_mod.tags.add(AUTO_D_TAG)
 
@@ -2940,16 +3145,18 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "NEW_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "NEW_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -2970,10 +3177,15 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         device = self._create_device("chassis-mod6", serial="CHASSIS_SN")
         bay = ModuleBay.objects.create(device=device, name="FPC 1")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="MPC-MOD", part_number="750-99999",
+            manufacturer=self.manufacturer,
+            model="MPC-MOD",
+            part_number="750-99999",
         )
         stale_mod = Module.objects.create(
-            device=device, module_bay=bay, module_type=mod_type, serial="GONE_SN",
+            device=device,
+            module_bay=bay,
+            module_type=mod_type,
+            serial="GONE_SN",
         )
         stale_mod.tags.add(AUTO_D_TAG)
 
@@ -3003,23 +3215,27 @@ class InventoryChassisTest(CollectorTestMixin, TestCase):
         device = self._create_device("chassis-mod7", serial="CHASSIS_SN")
         bay = ModuleBay.objects.create(device=device, name="FPC 0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="750-12345", part_number="",
+            manufacturer=self.manufacturer,
+            model="750-12345",
+            part_number="",
         )
         collector = self._make_collector(plan)
         collector._current_device = device
         report = FactsReport.objects.create(collection_plan=plan)
         collector._report = report
 
-        driver = self._make_chassis_driver([
-            {
-                "name": "FPC 0",
-                "component_name": "FPC 0",
-                "parent_name": None,
-                "serial": "FPC0_SN",
-                "part_id": "750-12345",
-                "description": "MPC 4e 3D",
-            },
-        ])
+        driver = self._make_chassis_driver(
+            [
+                {
+                    "name": "FPC 0",
+                    "component_name": "FPC 0",
+                    "parent_name": None,
+                    "serial": "FPC0_SN",
+                    "part_id": "750-12345",
+                    "description": "MPC 4e 3D",
+                },
+            ]
+        )
 
         collector.inventory(driver)
 
@@ -3098,7 +3314,8 @@ class CreateModuleTest(CollectorTestMixin, TestCase):
         device = self._create_device("mod-helper-dev")
         bay = ModuleBay.objects.create(device=device, name="slot0")
         mod_type = ModuleType.objects.create(
-            manufacturer=self.manufacturer, model="HelperMod",
+            manufacturer=self.manufacturer,
+            model="HelperMod",
         )
         mod = create_module(device, bay, mod_type, "SN123")
         self.assertEqual(mod.device, device)
