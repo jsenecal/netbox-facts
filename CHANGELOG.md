@@ -8,6 +8,8 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-04-28
+
 ### Breaking Changes
 
 * Migrated from setuptools to hatchling build backend with `pyproject.toml`.
