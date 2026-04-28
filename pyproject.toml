@@ -90,7 +90,7 @@ python_functions = ["test_*"]
 addopts = "-v --cov=netbox_facts --cov-report=term-missing --reuse-db"
 
 [tool.bumpver]
-current_version = "0.0.1"
+current_version = "0.1.0"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "chore: bump version {old_version} -> {new_version}"
 tag_pattern = "vMAJOR.MINOR.PATCH"
