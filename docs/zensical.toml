@@ -9,6 +9,43 @@ edit_uri = "edit/main/docs/"
 docs_dir = "."
 nav = [
   { "Home" = "index.md" },
+  { "Getting Started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Configuration" = "getting-started/configuration.md" },
+    { "Quick Start" = "getting-started/quick-start.md" },
+  ] },
+  { "User Guide" = [
+    { "Collection Plans" = "user-guide/collection-plans.md" },
+    { "Detect-Only Workflow" = "user-guide/detect-only.md" },
+    { "Facts Reports" = "user-guide/facts-reports.md" },
+    { "MAC Address Tracking" = "user-guide/mac-tracking.md" },
+    { "Scheduling and Jobs" = "user-guide/scheduling.md" },
+  ] },
+  { "Collectors" = [
+    { "Overview" = "collectors/index.md" },
+    { "ARP and NDP" = "collectors/arp-ndp.md" },
+    { "Inventory" = "collectors/inventory.md" },
+    { "Interfaces" = "collectors/interfaces.md" },
+    { "LLDP" = "collectors/lldp.md" },
+    { "Ethernet Switching" = "collectors/ethernet-switching.md" },
+    { "EVPN" = "collectors/evpn.md" },
+    { "L2 Circuits" = "collectors/l2-circuits.md" },
+    { "BGP" = "collectors/bgp.md" },
+    { "OSPF" = "collectors/ospf.md" },
+  ] },
+  { "Reference" = [
+    { "Models" = "reference/models.md" },
+    { "REST API" = "reference/rest-api.md" },
+    { "Settings" = "reference/settings.md" },
+    { "Choices" = "reference/choices.md" },
+    { "Tags and Markers" = "reference/tags.md" },
+  ] },
+  { "Developer Guide" = [
+    { "Architecture" = "developer/architecture.md" },
+    { "Vendor Dispatch" = "developer/vendor-dispatch.md" },
+    { "netbox-routing Integration" = "developer/netbox-routing.md" },
+    { "Testing" = "developer/testing.md" },
+  ] },
   { "Contributing" = "contributing.md" },
   { "Changelog" = "changelog.md" },
 ]
