@@ -50,7 +50,7 @@ class MACIPAddressesView(generic.ObjectChildrenView):
     )
 
     def get_table(self, data, request, bulk_actions=True):
-        table = self.table(data, user=request.user)
+        table = self.table(data)
         if "pk" in table.base_columns and bulk_actions:
             table.columns.show("pk")
 
@@ -139,7 +139,7 @@ class MACVendorInstancesView(generic.ObjectChildrenView):
     )
 
     def get_table(self, data, request, bulk_actions=True):
-        table = self.table(data, user=request.user)
+        table = self.table(data)
         if "pk" in table.base_columns and bulk_actions:
             table.columns.show("pk")
 
