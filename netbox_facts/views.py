@@ -49,14 +49,6 @@ class MACIPAddressesView(generic.ObjectChildrenView):
         weight=500,
     )
 
-    def get_table(self, data, request, bulk_actions=True):
-        table = self.table(data)
-        if "pk" in table.base_columns and bulk_actions:
-            table.columns.show("pk")
-
-        table.configure(request)
-        return table
-
     def get_children(self, request, parent):
         if self.child_model is not None:
             return (
