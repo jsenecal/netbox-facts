@@ -6,7 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
-## [Unreleased]
+
+
+## [0.1.1] - 2026-05-01
+
+### Fixed
+
+* `MACIPAddressesView.get_table` and `MACVendorInstancesView.get_table` no longer pass the `user` kwarg to `BaseTable.__init__`. NetBox 4.5 removed that kwarg, so the "IP Addresses" tab on the MAC address detail and the "Instances" tab on the MAC vendor detail crashed with `TypeError: Table.__init__() got an unexpected keyword argument 'user'`. User-specific column/ordering preferences are now applied entirely via `table.configure(request)`, which both overrides already invoke. (#4)
+
+### Changed
+
+* Removed the redundant `MACIPAddressesView.get_table` override; the view now inherits upstream `TableMixin.get_table`, which adds support for persisting saved `TableConfig` selections via the `tableconfig_id` query parameter.
+
+### Tests
+
+* Added a regression test pinning the post-fix Table init contract for `MACAddressTable` and the upstream `IPAddressTable` mounted in the IP-addresses child view.
 
 ## [0.1.0] - 2026-04-28
 
