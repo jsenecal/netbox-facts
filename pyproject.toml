@@ -24,7 +24,7 @@ classifiers = [
 keywords = ["netbox", "netbox-plugin", "napalm", "network-automation"]
 dependencies = [
     "napalm~=5.1.0",
-    "requests~=2.32.0",
+    "requests~=2.33.0",
 ]
 dynamic = ["version"]
 
