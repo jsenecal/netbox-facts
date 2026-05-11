@@ -23,6 +23,7 @@ classifiers = [
 ]
 keywords = ["netbox", "netbox-plugin", "napalm", "network-automation"]
 dependencies = [
+    "Django>=5.2,<5.3",
     "napalm~=5.1.0",
     "requests~=2.34.0",
 ]
