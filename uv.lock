@@ -770,10 +770,9 @@ wheels = [
 
 [[package]]
 name = "napalm"
-version = "5.1.0"
+version = "5.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi" },
     { name = "jinja2" },
     { name = "junos-eznc" },
     { name = "lxml" },
@@ -785,15 +784,14 @@ dependencies = [
     { name = "pyeapi" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "setuptools" },
     { name = "textfsm" },
     { name = "ttp" },
     { name = "ttp-templates" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/a4/7c32c22e4862c3e39d344ac82f50ce5e522f3d5edf8eddefa6d92beccaaf/napalm-5.1.0.tar.gz", hash = "sha256:a9f898f38d4af00f3e7c5b3ad291f49773fc0229be0e83967a34f29cab2d50f4", size = 229514, upload-time = "2025-08-05T18:31:07.697Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/89/2258ac65b46b80c1ea5cfa5cd9675a02f4e582edbcdd5649296887f5c0a3/napalm-5.2.0.tar.gz", hash = "sha256:9d1250d61e9412542263aa14d20e507fd9f34b0483e9e2719aaa00e2fc6c04da", size = 218872, upload-time = "2026-07-27T19:27:16.465Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/a6/c056307436cad842c6b993322e50f72eeddea360346654a83faa4aab5993/napalm-5.1.0-py2.py3-none-any.whl", hash = "sha256:626736ccb185676a02390a8d11798f3ad46b62b0e3160874fee5dbff6901261c", size = 263272, upload-time = "2025-08-05T18:31:05.058Z" },
+    { url = "https://files.pythonhosted.org/packages/61/84/17c84987286f7eabc3ce64939558316a39e2747c61620bffda8fa1d4f4b4/napalm-5.2.0-py3-none-any.whl", hash = "sha256:7de60abd0040f22e131487ff0635320342809e2ac1db44d1bf7dd6fc16604467", size = 261477, upload-time = "2026-07-27T19:27:15.177Z" },
 ]
 
 [[package]]
@@ -845,7 +843,7 @@ routing = [
 requires-dist = [
     { name = "bump-my-version", marker = "extra == 'dev'" },
     { name = "django", specifier = ">=5.2,<5.3" },
-    { name = "napalm", specifier = "~=5.1.0" },
+    { name = "napalm", specifier = "~=5.2.0" },
     { name = "netbox-routing", marker = "extra == 'dev'" },
     { name = "netbox-routing", marker = "extra == 'routing'" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.0" },
@@ -1394,15 +1392,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d6/1c/d213e1c6651d0bd37636b21b1ba9b895f276e8057f882c9f944931e4f002/scp-0.15.0.tar.gz", hash = "sha256:f1b22e9932123ccf17eebf19e0953c6e9148f589f93d91b872941a696305c83f", size = 13905, upload-time = "2024-05-23T21:37:41.835Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/b3/561cd6afa959e9dd522af12acc4f803e8bab1bd0e383bffc5211721c5fcb/scp-0.15.0-py2.py3-none-any.whl", hash = "sha256:9e7f721e5ac563c33eb0831d0f949c6342f1c28c3bdc3b02f39d77b5ea20df7e", size = 8753, upload-time = "2024-05-23T21:37:46.226Z" },
-]
-
-[[package]]
-name = "setuptools"
-version = "82.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/db/cfac1baf10650ab4d1c111714410d2fbb77ac5a616db26775db562c8fab2/setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9", size = 1152316, upload-time = "2026-03-09T12:47:17.221Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb", size = 1006223, upload-time = "2026-03-09T12:47:15.026Z" },
 ]
 
 [[package]]
