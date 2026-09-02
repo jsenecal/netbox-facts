@@ -8,6 +8,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Changed
+
+- CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
+  and 4.6.10, previously 4.5.8 and 4.5.10), with Renovate keeping the
+  matrix pinned to the newest release of each supported minor. The
+  README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
+
 ## [0.1.1] - 2026-05-01
 
 ### Fixed
