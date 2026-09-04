@@ -8,6 +8,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Added
+
+- Documentation page "netbox-facts and NetBox Discovery" positioning the
+  plugin against NetBox Labs' Orb/Diode discovery stack.
+
 ### Changed
 
 - CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
