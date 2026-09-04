@@ -27,6 +27,7 @@ Gather operational facts from supported NetBox Devices using [NAPALM](https://na
 |----------------|----------------|
 |     4.5.x      |      0.1.x     |
 |     4.6.x      |      0.1.x     |
+|     4.7.x      |      0.1.x     |
 
 ## Installing
 

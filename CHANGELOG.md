@@ -8,8 +8,22 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Added
+
+- `FactsConfig` now declares `min_version = "4.5.0"` and
+  `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
+  release instead of failing later with an obscure import or template
+  error.
+
 ### Changed
 
+- NetBox 4.7 support. CI adds a 4.7.0 lane alongside 4.5.10 and 4.6.10,
+  Renovate keeps a `4.7.x` lane pinned to the newest release of that
+  minor, and the coverage upload now runs on the 4.7 lane. The README
+  and docs compatibility lists add NetBox 4.7.x.
+- Dropped the `Django>=5.2,<5.3` runtime dependency. NetBox pins the
+  Django version it supports, and the plugin-side pin conflicted with
+  NetBox 4.7, which ships Django 6.1.
 - CI now tests against the latest NetBox 4.5 and 4.6 releases (4.5.10
   and 4.6.10, previously 4.5.8 and 4.5.10), with Renovate keeping the
   matrix pinned to the newest release of each supported minor. The

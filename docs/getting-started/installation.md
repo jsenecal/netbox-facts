@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- NetBox 4.5.x
+- NetBox 4.5.x, 4.6.x, or 4.7.x
 - Python 3.12, 3.13, or 3.14
 - A reachable PostgreSQL database and Redis (the standard NetBox stack)
 - NAPALM-compatible network devices
