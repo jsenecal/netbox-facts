@@ -6,6 +6,7 @@ import ipaddress
 import re
 from collections.abc import Generator
 from itertools import groupby
+from types import GeneratorType
 from typing import TYPE_CHECKING, Any
 
 import django.core.exceptions
@@ -1952,10 +1953,16 @@ class NapalmCollector:
     def _napalm_rpc(self, call, label, *args, **kwargs):
         """Execute a NAPALM RPC call with standard error handling.
 
-        Returns the call result, or None if the call failed.
+        Returns the call result, or None if the call failed. Generator
+        results are materialized here because generator getters only run
+        their RPC at iteration time; without this, iteration-time errors
+        would escape the callers and abort the whole run.
         """
         try:
-            return call(*args, **kwargs)
+            result = call(*args, **kwargs)
+            if isinstance(result, GeneratorType):
+                result = list(result)
+            return result
         except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve {label}: {exc}")
             return None

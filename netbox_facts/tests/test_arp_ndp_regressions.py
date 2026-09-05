@@ -2,14 +2,18 @@
 
 import re
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from dcim.models.device_components import Interface
 from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
+from jnpr.junos.exception import ConnectError, RpcError
+from napalm.base.exceptions import CommandErrorException, ConnectionException
 
 from netbox_facts.choices import CollectionTypeChoices
 from netbox_facts.models.mac import MACAddress
+from netbox_facts.napalm.junos import EnhancedJunOSDriver
+from netbox_facts.napalm.utils import junos_views
 from netbox_facts.tests.test_helpers import CollectorTestMixin
 
 
@@ -72,6 +76,84 @@ class ArpStrIpPortabilityTest(ArpNdpCollectorTestMixin, TestCase):
 
         self.assertTrue(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:30").exists())
         self.assertTrue(IPAddress.objects.filter(address="10.1.0.50/24").exists())
+
+
+class GeneratorRpcErrorHandlingTest(ArpNdpCollectorTestMixin, TestCase):
+    """RPC errors surfacing when a generator getter is iterated must not escape."""
+
+    @staticmethod
+    def _failing_table(exc):
+        raise exc
+        yield  # unreachable; makes this function a generator function
+
+    def _driver_with_failing_table(self, getter_name):
+        driver = MagicMock()
+        table = self._failing_table(CommandErrorException("RPC failed mid-stream"))
+        getattr(driver, getter_name).return_value = table
+        driver.get_network_instances.return_value = {}
+        driver.get_interfaces_ip.return_value = {}
+        return driver
+
+    def test_arp_generator_rpc_error_is_logged_and_skipped(self):
+        """An RPC error at first iteration of the ARP table skips the device.
+
+        Regression test for issue #44: generator getters defer the RPC past
+        _napalm_rpc, so iteration-time errors escaped arp() and aborted the
+        entire multi-device run.
+        """
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            name="Plan-arp-gen-error",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = self._create_device("arp-gen-dev1")
+        driver = self._driver_with_failing_table("get_arp_table")
+
+        with patch.object(collector, "_log_failure") as log_failure:
+            collector.arp(driver)
+
+        log_failure.assert_called()
+        self.assertEqual(MACAddress.objects.count(), 0)
+
+    def test_ndp_generator_rpc_error_is_logged_and_skipped(self):
+        """An RPC error at first iteration of the NDP table skips the device (issue #44)."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_NDP,
+            name="Plan-ndp-gen-error",
+        )
+        collector = self._make_collector(plan)
+        collector._current_device = self._create_device("ndp-gen-dev1")
+        driver = self._driver_with_failing_table("get_ipv6_neighbors_table")
+
+        with patch.object(collector, "_log_failure") as log_failure:
+            collector.ndp(driver)
+
+        log_failure.assert_called()
+        self.assertEqual(MACAddress.objects.count(), 0)
+
+
+class EnhancedJunosRpcTranslationTest(TestCase):
+    """EnhancedJunOSDriver getters translate PyEZ errors to NAPALM exceptions."""
+
+    @staticmethod
+    def _make_driver():
+        return EnhancedJunOSDriver("192.0.2.1", "user", "secret")
+
+    def test_get_arp_table_translates_rpc_error(self):
+        """A PyEZ RpcError during the ARP RPC becomes CommandErrorException (issue #44)."""
+        driver = self._make_driver()
+        with patch.object(junos_views, "junos_arp_table") as table_cls:
+            table_cls.return_value.get.side_effect = RpcError()
+            with self.assertRaises(CommandErrorException):
+                list(driver.get_arp_table())
+
+    def test_get_ipv6_neighbors_table_translates_connect_error(self):
+        """A PyEZ ConnectError during the NDP RPC becomes ConnectionException (issue #44)."""
+        driver = self._make_driver()
+        with patch.object(junos_views, "junos_ipv6_neighbors_table") as table_cls:
+            table_cls.return_value.get.side_effect = ConnectError(MagicMock())
+            with self.assertRaises(ConnectionException):
+                list(driver.get_ipv6_neighbors_table())
 
 
 class ExecuteDispatchTest(ArpNdpCollectorTestMixin, TestCase):
