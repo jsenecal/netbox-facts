@@ -1,19 +1,18 @@
 """Regression tests for the interfaces collector and its helpers."""
 
 import re
+from unittest.mock import MagicMock
 
 from dcim.models.device_components import Interface
 from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
 from napalm.base.exceptions import ConnectionException
-from unittest.mock import MagicMock
-
-from netbox_facts.constants import AUTO_D_TAG
-from netbox_facts.helpers.netbox import resolve_napalm_network_instances
 
 from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
+from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.applier import apply_entries
+from netbox_facts.helpers.netbox import resolve_napalm_network_instances
 from netbox_facts.models import FactsReport, FactsReportEntry
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.tests.test_helpers import CollectorTestMixin
