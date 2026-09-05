@@ -44,6 +44,7 @@ from netbox_facts.helpers.napalm import (
     parse_network_instances,
 )
 from netbox_facts.helpers.netbox import (
+    claim_device_interface,
     create_module,
     detect_interface_type,
     duplicate_object_warning,
@@ -105,6 +106,8 @@ class NapalmCollector:
         self._report: FactsReport | None = None
         self._detect_only: bool = getattr(plan, "detect_only", False)
         self._seen_ips: set = set()
+        self._missing_ifaces: set = set()
+        self._skipped_ip_ifaces: set = set()
 
         # Get the NAPALM driver
         try:
@@ -841,16 +844,39 @@ class NapalmCollector:
 
         return True
 
+    @staticmethod
+    def _pad_inet_destination(dest):
+        """Restore trailing zero octets Junos trims from inet destinations.
+
+        Junos abbreviates ifa-destination by dropping trailing zero octets
+        ("10/8", "172.16/16", "10.0.0/24"). Pad the network part back to
+        four octets so ip_network() can parse it with the real prefix
+        length. Anything that is not a shortened dotted-decimal form is
+        returned unchanged.
+        """
+        if "/" not in dest:
+            return dest
+        net_part, prefix_len = dest.split("/", 1)
+        octets = net_part.split(".")
+        if len(octets) >= 4 or not all(octet.isdigit() for octet in octets):
+            return dest
+        return ".".join(octets + ["0"] * (4 - len(octets))) + "/" + prefix_len
+
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
 
         Uses detect_interface_type() to infer the type and optionally
         populates description/enabled/mtu from iface_data.
         Sub-interfaces (containing '.') get their parent set to the physical interface.
+
+        In detect-only mode nothing is created: a missing interface
+        returns None so the caller can record a pending entry instead.
         """
         try:
             return device.vc_interfaces().get(name=name)
         except Interface.DoesNotExist:
+            if not self._should_apply():
+                return None
             iface_type = detect_interface_type(name)
             kwargs = {"device": device, "name": name, "type": iface_type}
             if "." in name:
@@ -871,9 +897,47 @@ class NapalmCollector:
             self._log_success(f"Auto-created interface `{name}` (type={iface_type}) on {device}.")
             return nb_iface
 
+    def _record_missing_interface(self, device, name, detected_values=None):
+        """Record a pending NEW entry for an interface absent from NetBox.
+
+        Used in detect-only mode, where interfaces are never created; the
+        applier creates the interface when the entry is applied. Each
+        interface is recorded at most once per device run.
+        """
+        if name in self._missing_ifaces:
+            return
+        self._missing_ifaces.add(name)
+        self._record_entry(
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values=detected_values or {"interface": name},
+            object_repr=f"Interface {name}",
+        )
+
+    def _record_missing_vrf(self, device, vrf_name, iface_name):
+        """Warn about a device VRF absent from NetBox and record a pending entry.
+
+        The entry payload (detected name plus 'VRF <name>' repr) is the
+        contract the applier's VRF handler consumes to create the VRF on
+        apply. The interface's IPs are skipped, so it is also excluded
+        from the stale sweep.
+        """
+        self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{iface_name}`.")
+        self._record_entry(
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values={"name": vrf_name},
+            object_repr=f"VRF {vrf_name}",
+        )
+        self._skipped_ip_ifaces.add(iface_name)
+
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
         self._seen_ips = set()
+        self._missing_ifaces = set()
+        self._skipped_ip_ifaces = set()
         # Always fetch all interfaces and filter client-side with the Python
         # regex.  Passing the regex pattern to the Junos RPC as interface_name
         # causes mismatches because Junos treats '.' as a literal dot while
@@ -900,7 +964,6 @@ class NapalmCollector:
                 # avoids creating system pseudo-interfaces like .local.
                 if not iface_data.get("logical_interfaces"):
                     continue
-                nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
                 detected = {
                     "interface": iface_name,
                     "mac_address": "",
@@ -909,6 +972,10 @@ class NapalmCollector:
                     "mtu": iface_data.get("mtu"),
                     "is_up": iface_data.get("is_up"),
                 }
+                nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+                if nb_iface is None:
+                    self._record_missing_interface(device, iface_name, detected)
+                    continue
                 self._record_entry(
                     action=EntryActionChoices.ACTION_CONFIRMED,
                     collector_type=self._collector_type,
@@ -919,8 +986,6 @@ class NapalmCollector:
                 )
                 continue
 
-            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
-
             detected = {
                 "interface": iface_name,
                 "mac_address": mac_addr,
@@ -929,6 +994,11 @@ class NapalmCollector:
                 "mtu": iface_data.get("mtu"),
                 "is_up": iface_data.get("is_up"),
             }
+
+            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+            if nb_iface is None:
+                self._record_missing_interface(device, iface_name, detected)
+                continue
 
             # Validate MAC address format before querying
             try:
@@ -961,7 +1031,7 @@ class NapalmCollector:
                 if created:
                     self._log_success(f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}.")
 
-                netbox_mac.device_interface = nb_iface
+                claim_device_interface(netbox_mac, nb_iface)
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
@@ -971,10 +1041,14 @@ class NapalmCollector:
         has_logical = any(iface_data.get("logical_interfaces") for iface_data in ifaces.values())
         if has_logical:
             self._interfaces_logical(device, ifaces)
+            ip_collection_complete = True
         else:
-            self._interfaces_ip_generic(device, driver)
+            ip_collection_complete = self._interfaces_ip_generic(device, driver)
 
-        self._detect_stale_ips(device)
+        if ip_collection_complete:
+            self._detect_stale_ips(device)
+        else:
+            self._log_warning("IP collection did not complete; skipping stale IP detection.")
         self._log_success("Interface collection completed")
 
     def _interfaces_logical(self, device, ifaces):
@@ -988,6 +1062,9 @@ class NapalmCollector:
                 continue
 
             nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+            if nb_iface is None:
+                self._record_missing_interface(device, iface_name)
+                continue
 
             # --- LAG membership ---
             # Check the first logical interface's first family for "aenet"
@@ -1038,20 +1115,17 @@ class NapalmCollector:
                 try:
                     netbox_vrf = resolve_vrf(vrf_name)
                 except VRF.DoesNotExist:
-                    self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{li_name}`.")
-                    self._record_entry(
-                        action=EntryActionChoices.ACTION_NEW,
-                        collector_type=self._collector_type,
-                        device=device,
-                        detected_values={"name": vrf_name},
-                        object_repr=f"VRF {vrf_name}",
-                    )
+                    self._record_missing_vrf(device, vrf_name, li_name)
                     continue
                 except VRF.MultipleObjectsReturned:
                     self._log_warning(duplicate_object_warning("VRF", vrf_name) + f" Skipping IPs on `{li_name}`.")
+                    self._skipped_ip_ifaces.add(li_name)
                     continue
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
+                if nb_li is None:
+                    self._record_missing_interface(device, li_name)
+                    continue
 
                 for fam_name, fam_data in families.items():
                     if fam_name not in ("inet", "inet6"):
@@ -1068,10 +1142,8 @@ class NapalmCollector:
                         # Build CIDR
                         try:
                             if dest:
-                                # Handle incomplete inet destinations (3 octets)
-                                if fam_name == "inet" and dest.count(".") == 2:
-                                    net_part, prefix_len = dest.split("/")
-                                    net = ipaddress.ip_network(f"{net_part}.0/{prefix_len}")
+                                if fam_name == "inet":
+                                    net = ipaddress.ip_network(self._pad_inet_destination(dest), strict=False)
                                 else:
                                     net = ipaddress.ip_network(dest, strict=False)
                             else:
@@ -1088,18 +1160,37 @@ class NapalmCollector:
                         self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
 
     def _interfaces_ip_generic(self, device, driver):
-        """Collect IPs/VRFs using standard NAPALM get_interfaces_ip()."""
+        """Collect IPs/VRFs using standard NAPALM get_interfaces_ip().
+
+        Returns True when IP collection completed, False when the RPC
+        failed and the stale sweep must not run.
+        """
         interfaces_ip = self._napalm_rpc(driver.get_interfaces_ip, "interface IP data")
         if interfaces_ip is None:
-            return
+            return False
 
         network_instances = dict(self._get_network_instances(driver))
 
         for iface_name, family_data in interfaces_ip.items():
             nb_li = self._get_or_create_interface(device, iface_name)
+            if nb_li is None:
+                self._record_missing_interface(device, iface_name)
+                continue
 
-            # Resolve VRF from network instances
+            # Resolve VRF from network instances. An absent netbox_vrf key
+            # means the device VRF exists but could not be resolved in
+            # NetBox; treating it as the global table would misfile (or
+            # steal) addresses, so skip those IPs instead.
             ni_data = network_instances.get(iface_name, {})
+            if ni_data.get("netbox_vrf_duplicate"):
+                self._log_warning(
+                    duplicate_object_warning("VRF", ni_data.get("name", "")) + f" Skipping IPs on `{iface_name}`."
+                )
+                self._skipped_ip_ifaces.add(iface_name)
+                continue
+            if ni_data and "netbox_vrf" not in ni_data:
+                self._record_missing_vrf(device, ni_data.get("name", ""), iface_name)
+                continue
             netbox_vrf = ni_data.get("netbox_vrf")
 
             for family_name, addresses in family_data.items():
@@ -1114,11 +1205,21 @@ class NapalmCollector:
                         continue
 
                     self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
+        return True
 
     def _detect_stale_ips(self, device):
-        """Detect auto-discovered IPs on a device that weren't seen in this run."""
+        """Detect auto-discovered IPs on a device that weren't seen in this run.
+
+        Only interfaces this run actually inspected are swept: names the
+        configured regex excludes, and interfaces whose IPs were skipped
+        (unresolvable VRF), keep their assignments.
+        """
         iface_ct = ContentType.objects.get_for_model(Interface)
-        device_iface_ids = device.vc_interfaces().values_list("pk", flat=True)
+        device_iface_ids = [
+            pk
+            for pk, name in device.vc_interfaces().values_list("pk", "name")
+            if self._interfaces_re.match(name) and name not in self._skipped_ip_ifaces
+        ]
         stale_ips = IPAddress.objects.filter(
             assigned_object_type=iface_ct,
             assigned_object_id__in=device_iface_ids,

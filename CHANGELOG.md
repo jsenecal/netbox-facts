@@ -10,6 +10,12 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
+- The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
+- A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)
+- Junos inet destinations abbreviated below three octets (such as `10/8` and `172.16/16`) keep their real prefix length instead of being recorded and created as /32 host routes. (#56)
+- The generic IP path skips addresses in a device VRF that has no NetBox counterpart, recording a pending missing-VRF entry instead of booking them into the global table or stealing existing global IPs. (#57)
+- Duplicate VRF names in NetBox no longer abort the entire collection run with MultipleObjectsReturned; the affected instance's IPs are skipped with a warning. (#46)
 - `CollectionPlan.get_napalm_driver` no longer routes plugin-local driver names through napalm's `get_network_driver`, which rejects dotted module paths under napalm 5.2.0 and made every collection run fail before contacting a device. (#42)
 - `CollectionPlan.get_napalm_args` no longer mutates the live `PLUGINS_CONFIG` dict, which leaked one plan's NAPALM arguments (including username/password overrides) into every later plan run in the same worker process. (#58)
 - Credential values (`username`, `password`, `secret`) stored in a plan's NAPALM arguments are now censored in REST API responses and in the edit form; submitting the censored values back preserves the stored real values. (#59)
