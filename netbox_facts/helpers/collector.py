@@ -1135,8 +1135,29 @@ class NapalmCollector:
                 self._record_missing_interface(device, iface_name)
                 continue
 
-            # Resolve VRF from network instances
+            # Resolve VRF from network instances. An absent netbox_vrf key
+            # means the device VRF exists but could not be resolved in
+            # NetBox; treating it as the global table would misfile (or
+            # steal) addresses, so skip those IPs instead.
             ni_data = network_instances.get(iface_name, {})
+            if ni_data.get("netbox_vrf_duplicate"):
+                self._log_warning(
+                    duplicate_object_warning("VRF", ni_data.get("name", "")) + f" Skipping IPs on `{iface_name}`."
+                )
+                self._skipped_ip_ifaces.add(iface_name)
+                continue
+            if ni_data and "netbox_vrf" not in ni_data:
+                vrf_name = ni_data.get("name", "")
+                self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{iface_name}`.")
+                self._record_entry(
+                    action=EntryActionChoices.ACTION_NEW,
+                    collector_type=self._collector_type,
+                    device=device,
+                    detected_values={"name": vrf_name},
+                    object_repr=f"VRF {vrf_name}",
+                )
+                self._skipped_ip_ifaces.add(iface_name)
+                continue
             netbox_vrf = ni_data.get("netbox_vrf")
 
             for family_name, addresses in family_data.items():

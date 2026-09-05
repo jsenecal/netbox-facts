@@ -72,7 +72,12 @@ def resolve_napalm_network_instances(
     instances,
 ) -> Generator[tuple[str, dict[str, str | list[str]]], Any, Any]:
     """Parse network instances and resolve VRFs in NetBox.
-    Returns a generator of instance_name, data pairs where the netbox_vrf key is either missing, None or a VRF object.
+
+    Returns a generator of instance_name, data pairs. The netbox_vrf key is
+    None for non-L3VRF instances (global table), a VRF object when resolved,
+    and absent when the device VRF cannot be resolved in NetBox -- either
+    missing, or duplicated by name, in which case netbox_vrf_duplicate is
+    set to True so consumers can tell the two apart.
     """
     instances_by_name = {}
     for instance_name, data in instances.items():
@@ -83,6 +88,10 @@ def resolve_napalm_network_instances(
                 instances_by_name[instance_name] = data["netbox_vrf"]
             except VRF.DoesNotExist:  # pylint: disable=no-member
                 pass
+            except VRF.MultipleObjectsReturned:  # pylint: disable=no-member
+                # VRF names are not unique in NetBox; a duplicate cannot be
+                # resolved safely and must not abort the whole run.
+                data["netbox_vrf_duplicate"] = True
         else:
             data["netbox_vrf"] = None
         yield instance_name, data

@@ -5,10 +5,12 @@ import re
 from dcim.models.device_components import Interface
 from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 from napalm.base.exceptions import ConnectionException
 from unittest.mock import MagicMock
 
 from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.helpers.netbox import resolve_napalm_network_instances
 
 from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
 from netbox_facts.helpers.applier import apply_entries
@@ -386,3 +388,96 @@ class StaleIpScopeTest(InterfacesRegressionTestMixin, TestCase):
         auto_ip.refresh_from_db()
         self.assertEqual(auto_ip.assigned_object, mgmt)
         self.assertEqual(report.entries.filter(action=EntryActionChoices.ACTION_STALE).count(), 0)
+
+
+class GenericPathVrfResolutionTest(InterfacesRegressionTestMixin, TestCase):
+    """Unresolvable device VRFs must not collapse to the global table."""
+
+    def _run_generic(self, name, instance_name, iface_name, ip_str):
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name=f"Plan-{name}",
+        )
+        device = self._create_device(name)
+        Interface.objects.create(device=device, name=iface_name, type="1000base-t")
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            iface_name: {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:61",
+            },
+        }
+        driver.get_interfaces_ip.return_value = {
+            iface_name: {"ipv4": {ip_str: {"prefix_length": 24}}},
+        }
+        driver.get_network_instances.return_value = {
+            instance_name: {
+                "name": instance_name,
+                "type": "L3VRF",
+                "state": {"route_distinguisher": "65000:61"},
+                "interfaces": {"interface": {iface_name: {}}},
+            },
+        }
+
+        collector.interfaces(driver)
+        return device, report
+
+    def test_unknown_vrf_ips_skipped_not_booked_globally(self):
+        """Regression test for issue #57: IPs in a device VRF with no NetBox
+        counterpart must be skipped with a missing-VRF entry, not created in
+        the global table -- and must not steal an existing global IP."""
+        other_device = self._create_device("unknown-vrf-other-dev")
+        other_iface = Interface.objects.create(device=other_device, name="Ethernet1", type="1000base-t")
+        global_ip = IPAddress.objects.create(address="10.61.0.1/24", assigned_object=other_iface)
+        global_ip.tags.add(AUTO_D_TAG)
+
+        device, report = self._run_generic("unknown-vrf-dev", "CUST_A", "Ethernet7", "10.61.0.1")
+
+        global_ip.refresh_from_db()
+        self.assertEqual(global_ip.assigned_object, other_iface)
+        self.assertEqual(IPAddress.objects.filter(address="10.61.0.1/24").count(), 1)
+        vrf_entries = report.entries.filter(object_repr="VRF CUST_A")
+        self.assertEqual(vrf_entries.count(), 1)
+        self.assertEqual(vrf_entries[0].action, EntryActionChoices.ACTION_NEW)
+        self.assertEqual(vrf_entries[0].status, "pending")
+
+    def test_duplicate_vrf_names_do_not_abort_run(self):
+        """Regression test for issue #46: two NetBox VRFs sharing a name must
+        not raise MultipleObjectsReturned out of the collector; the affected
+        instance's IPs are skipped with a warning and no VRF entry."""
+        VRF.objects.create(name="DUPVRF", rd="65000:1")
+        VRF.objects.create(name="DUPVRF", rd="65000:2")
+
+        device, report = self._run_generic("dup-vrf-dev", "DUPVRF", "Ethernet9", "10.62.0.1")
+
+        self.assertFalse(IPAddress.objects.filter(address="10.62.0.1/24").exists())
+        self.assertEqual(report.entries.filter(object_repr="VRF DUPVRF").count(), 0)
+
+    def test_resolver_marks_duplicate_vrf(self):
+        """Regression test for issue #46: resolve_napalm_network_instances
+        must survive duplicate VRF names, leaving netbox_vrf unset and
+        flagging the instance as a duplicate."""
+        VRF.objects.create(name="DUPVRF2", rd="65000:3")
+        VRF.objects.create(name="DUPVRF2", rd="65000:4")
+        instances = {
+            "DUPVRF2": {
+                "instance_type": "L3VRF",
+                "route_distinguisher": "65000:3",
+                "interfaces": ["Ethernet1"],
+            },
+        }
+
+        result = dict(resolve_napalm_network_instances(instances))
+
+        self.assertNotIn("netbox_vrf", result["DUPVRF2"])
+        self.assertTrue(result["DUPVRF2"].get("netbox_vrf_duplicate"))
