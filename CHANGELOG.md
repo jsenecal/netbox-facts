@@ -14,6 +14,8 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template
   error.
+- Documentation page "netbox-facts and NetBox Discovery" positioning the
+  plugin against NetBox Labs' Orb/Diode discovery stack.
 
 ### Changed
 

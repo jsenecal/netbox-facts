@@ -37,6 +37,8 @@ re-run on a configurable interval.
 - Integrators: read the [REST API](reference/rest-api.md) reference.
 - Plugin developers: read [Architecture](developer/architecture.md) and
   [Vendor Dispatch](developer/vendor-dispatch.md).
+- Evaluating against NetBox Labs' discovery stack: read
+  [netbox-facts and NetBox Discovery](discovery-and-orb.md).
 
 ## Project status
 
