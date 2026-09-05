@@ -14,6 +14,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 - `CollectionPlan.get_napalm_args` no longer mutates the live `PLUGINS_CONFIG` dict, which leaked one plan's NAPALM arguments (including username/password overrides) into every later plan run in the same worker process. (#58)
 - Credential values (`username`, `password`, `secret`) stored in a plan's NAPALM arguments are now censored in REST API responses and in the edit form; submitting the censored values back preserves the stored real values. (#59)
 - Loading a collection plan during its first-ever run no longer flips its status to `stalled`, which allowed a second concurrent collection to be enqueued against the same devices mid-run. (#60)
+- ARP/NDP collection no longer aborts on standard NAPALM drivers that return neighbor IPs as strings, and execute() no longer disguises collector-body AttributeErrors as NotImplementedError (#43).
+- RPC errors raised while iterating the enhanced Junos generator getters are now translated to NAPALM exceptions and handled per device instead of aborting the whole run (#44).
+- Drivers without get_network_instances (e.g. iosxr) no longer abort ARP/interface collection; VRF context degrades to an empty mapping with an informational log (#45).
+- ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
 
 ### Added
 
@@ -37,13 +41,6 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   and 4.6.10, previously 4.5.8 and 4.5.10), with Renovate keeping the
   matrix pinned to the newest release of each supported minor. The
   README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
-
-### Fixed
-
-- ARP/NDP collection no longer aborts on standard NAPALM drivers that return neighbor IPs as strings, and execute() no longer disguises collector-body AttributeErrors as NotImplementedError (#43).
-- RPC errors raised while iterating the enhanced Junos generator getters are now translated to NAPALM exceptions and handled per device instead of aborting the whole run (#44).
-- Drivers without get_network_instances (e.g. iosxr) no longer abort ARP/interface collection; VRF context degrades to an empty mapping with an informational log (#45).
-- ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
 
 ## [0.1.1] - 2026-05-01
 
