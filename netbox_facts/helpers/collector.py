@@ -804,6 +804,24 @@ class NapalmCollector:
             if installed is not None:
                 modules_by_name[name] = installed
 
+    @staticmethod
+    def _pad_inet_destination(dest):
+        """Restore trailing zero octets Junos trims from inet destinations.
+
+        Junos abbreviates ifa-destination by dropping trailing zero octets
+        ("10/8", "172.16/16", "10.0.0/24"). Pad the network part back to
+        four octets so ip_network() can parse it with the real prefix
+        length. Anything that is not a shortened dotted-decimal form is
+        returned unchanged.
+        """
+        if "/" not in dest:
+            return dest
+        net_part, prefix_len = dest.split("/", 1)
+        octets = net_part.split(".")
+        if len(octets) >= 4 or not all(octet.isdigit() for octet in octets):
+            return dest
+        return ".".join(octets + ["0"] * (4 - len(octets))) + "/" + prefix_len
+
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
 
@@ -1031,10 +1049,8 @@ class NapalmCollector:
                         # Build CIDR
                         try:
                             if dest:
-                                # Handle incomplete inet destinations (3 octets)
-                                if fam_name == "inet" and dest.count(".") == 2:
-                                    net_part, prefix_len = dest.split("/")
-                                    net = ipaddress.ip_network(f"{net_part}.0/{prefix_len}")
+                                if fam_name == "inet":
+                                    net = ipaddress.ip_network(self._pad_inet_destination(dest), strict=False)
                                 else:
                                     net = ipaddress.ip_network(dest, strict=False)
                             else:
