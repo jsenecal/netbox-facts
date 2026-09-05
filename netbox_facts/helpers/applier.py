@@ -116,6 +116,28 @@ def _set_entry_object(entry, obj):
         entry.object_id = obj.pk
 
 
+def get_or_create_asn(as_number):
+    """Get or create an ipam ASN, returning None when it cannot be created.
+
+    ipam.ASN.rir is a non-nullable foreign key, so creating an ASN requires
+    at least one RIR in NetBox. When the ASN does not already exist and no
+    RIR is available, return None instead of letting the insert fail with an
+    IntegrityError; callers decide whether a missing ASN is a warning or an
+    error.
+    """
+    from ipam.models import ASN, RIR
+
+    as_number = int(as_number)
+    nb_asn = ASN.objects.filter(asn=as_number).first()
+    if nb_asn is not None:
+        return nb_asn
+    rir = RIR.objects.first()
+    if rir is None:
+        return None
+    nb_asn, _ = ASN.objects.get_or_create(asn=as_number, defaults={"rir": rir})
+    return nb_asn
+
+
 # --- Per-collector apply handlers ---
 
 
@@ -495,8 +517,6 @@ def _apply_vrf_entry(entry):
 
 def _apply_bgp_entry(entry, now):
     """Apply a BGP peer IP/ASN entry."""
-    from ipam.models import ASN, RIR
-
     if entry.object_repr.startswith("VRF "):
         return _apply_vrf_entry(entry)
     if entry.object_repr.startswith("BGPRouter "):
@@ -534,14 +554,8 @@ def _apply_bgp_entry(entry, now):
         description=f"BGP peer AS{as_number} discovered on {now}",
     )
 
-    if as_number is not None:
-        try:
-            ASN.objects.get_or_create(
-                asn=int(as_number),
-                defaults={"rir": RIR.objects.first()},
-            )
-        except (RIR.DoesNotExist, TypeError):
-            logger.warning("Could not create ASN %s for BGP entry %s (no RIR found)", as_number, entry.pk)
+    if as_number is not None and get_or_create_asn(as_number) is None:
+        logger.warning("No RIR exists in NetBox; cannot create ASN %s for BGP entry %s", as_number, entry.pk)
 
     _set_entry_object(entry, nb_ip)
 
@@ -594,7 +608,6 @@ def _apply_l2_circuits_entry(entry, now):
 
 def _apply_bgp_router_entry(entry):
     """Create a BGPRouter from a detect-only report entry."""
-    from ipam.models import ASN, RIR
     from netbox_routing.models import BGPRouter
 
     local_as = entry.detected_values.get("local_as")
@@ -604,10 +617,9 @@ def _apply_bgp_router_entry(entry):
     device = entry.device
     device_ct = ContentType.objects.get_for_model(device)
 
-    asn_obj, _ = ASN.objects.get_or_create(
-        asn=int(local_as),
-        defaults={"rir": RIR.objects.first()},
-    )
+    asn_obj = get_or_create_asn(local_as)
+    if asn_obj is None:
+        raise ValueError(f"No RIR exists in NetBox; cannot create local ASN {local_as} for the BGPRouter")
     router, created = BGPRouter.objects.get_or_create(
         assigned_object_type=device_ct,
         assigned_object_id=device.pk,
@@ -620,7 +632,6 @@ def _apply_bgp_router_entry(entry):
 
 def _apply_bgp_scope_entry(entry):
     """Create a BGPScope from a detect-only report entry."""
-    from ipam.models import ASN, RIR
     from netbox_routing.models import BGPRouter, BGPScope
 
     dv = entry.detected_values
@@ -629,10 +640,9 @@ def _apply_bgp_scope_entry(entry):
     device = entry.device
     device_ct = ContentType.objects.get_for_model(device)
 
-    asn_obj, _ = ASN.objects.get_or_create(
-        asn=int(local_as),
-        defaults={"rir": RIR.objects.first()},
-    )
+    asn_obj = get_or_create_asn(local_as)
+    if asn_obj is None:
+        raise ValueError(f"No RIR exists in NetBox; cannot create local ASN {local_as} for the BGPScope")
     router, _ = BGPRouter.objects.get_or_create(
         assigned_object_type=device_ct,
         assigned_object_id=device.pk,
@@ -654,7 +664,6 @@ def _apply_bgp_scope_entry(entry):
 
 def _apply_bgp_peer_routing_entry(entry):
     """Create a BGPPeer (netbox-routing) from a detect-only report entry."""
-    from ipam.models import ASN, RIR
     from netbox_routing.models import BGPPeer, BGPRouter, BGPScope
 
     dv = entry.detected_values
@@ -666,10 +675,9 @@ def _apply_bgp_peer_routing_entry(entry):
     device_ct = ContentType.objects.get_for_model(device)
 
     # Build chain: Router -> Scope
-    asn_obj, _ = ASN.objects.get_or_create(
-        asn=int(local_as),
-        defaults={"rir": RIR.objects.first()},
-    )
+    asn_obj = get_or_create_asn(local_as)
+    if asn_obj is None:
+        raise ValueError(f"No RIR exists in NetBox; cannot create local ASN {local_as} for the BGPPeer")
     router, _ = BGPRouter.objects.get_or_create(
         assigned_object_type=device_ct,
         assigned_object_id=device.pk,
@@ -693,10 +701,7 @@ def _apply_bgp_peer_routing_entry(entry):
 
     nb_remote_asn = None
     if as_number is not None:
-        nb_remote_asn, _ = ASN.objects.get_or_create(
-            asn=int(as_number),
-            defaults={"rir": RIR.objects.first()},
-        )
+        nb_remote_asn = get_or_create_asn(as_number)
 
     peer, created = BGPPeer.objects.get_or_create(
         scope=scope,
