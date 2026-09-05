@@ -176,3 +176,91 @@ class ApplierNoRIRRegressionTest(ApplierTestMixin, TestCase):
         entry.refresh_from_db()
         self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
         self.assertIn("No RIR", entry.error_message)
+
+
+class ApplierVRFResolutionRegressionTest(ApplierTestMixin, TestCase):
+    """A detected VRF that no longer resolves must fail the entry (issue #53)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from ipam.models import RIR
+
+        RIR.objects.create(name="VRF-Test-RIR", slug="vrf-test-rir")
+
+    def setUp(self):
+        self.report = FactsReport.objects.create(collection_plan=self.plan)
+
+    def _make_entry(self, collector_type, object_repr, detected_values):
+        return FactsReportEntry.objects.create(
+            report=self.report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=collector_type,
+            device=self.device,
+            object_repr=object_repr,
+            detected_values=detected_values,
+        )
+
+    def _assert_failed_no_ip(self, entry, address):
+        from ipam.models.ip import IPAddress
+
+        applied, failed = apply_entries(self.report, [entry.pk])
+        self.assertEqual(applied, 0)
+        self.assertEqual(failed, 1)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
+        self.assertIn("VRF GONE_VRF not found", entry.error_message)
+        self.assertFalse(IPAddress.objects.filter(address=address).exists())
+
+    def test_arp_entry_with_unresolvable_vrf_fails(self):
+        """An ARP IP entry naming a missing VRF must fail, not go global (issue #53)."""
+        entry = self._make_entry(
+            CollectionTypeChoices.TYPE_ARP,
+            "IPAddress 10.53.0.1/32",
+            {"ip": "10.53.0.1/32", "mac": "AA:BB:CC:DD:EE:53", "interface": "", "vrf": "GONE_VRF"},
+        )
+        self._assert_failed_no_ip(entry, "10.53.0.1/32")
+
+    def test_interfaces_ip_entry_with_unresolvable_vrf_fails(self):
+        """An interfaces IP entry naming a missing VRF must fail, not go global (issue #53)."""
+        from ipam.models.ip import Prefix
+
+        entry = self._make_entry(
+            CollectionTypeChoices.TYPE_INTERFACES,
+            "IPAddress 10.53.1.5/24 on ge-0/0/0.0",
+            {
+                "ip_address": "10.53.1.5/24",
+                "logical_interface": "ge-0/0/0.0",
+                "vrf": "GONE_VRF",
+                "prefix": "10.53.1.0/24",
+            },
+        )
+        self._assert_failed_no_ip(entry, "10.53.1.5/24")
+        self.assertFalse(Prefix.objects.filter(prefix="10.53.1.0/24").exists())
+
+    def test_bgp_entry_with_unresolvable_vrf_fails(self):
+        """A BGP peer entry naming a missing VRF must fail, not go global (issue #53)."""
+        entry = self._make_entry(
+            CollectionTypeChoices.TYPE_BGP,
+            "BGP peer 10.53.2.1 AS65001",
+            {"remote_address": "10.53.2.1", "remote_as": 65001, "vrf": "GONE_VRF"},
+        )
+        self._assert_failed_no_ip(entry, "10.53.2.1/32")
+
+    def test_arp_entry_without_vrf_still_applies_globally(self):
+        """An ARP IP entry with no VRF must keep applying into the global table."""
+        from ipam.models.ip import IPAddress
+
+        entry = self._make_entry(
+            CollectionTypeChoices.TYPE_ARP,
+            "IPAddress 10.53.3.1/32",
+            {"ip": "10.53.3.1/32", "mac": "", "interface": "", "vrf": None},
+        )
+
+        applied, failed = apply_entries(self.report, [entry.pk])
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_APPLIED)
+        nb_ip = IPAddress.objects.get(address="10.53.3.1/32")
+        self.assertIsNone(nb_ip.vrf)

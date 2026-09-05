@@ -181,8 +181,8 @@ def _apply_arp_entry(entry, now):
         if vrf_name:
             try:
                 vrf = resolve_vrf(vrf_name)
-            except VRF.DoesNotExist:
-                logger.warning("VRF %s not found for ARP/NDP entry %s", vrf_name, entry.pk)
+            except VRF.DoesNotExist as exc:
+                raise ValueError(f"VRF {vrf_name} not found; not applying into the global table") from exc
 
         nb_ip, created = get_or_create_ip(
             ip_str,
@@ -384,8 +384,8 @@ def _apply_interfaces_ip(entry, dv, now):
     if vrf_name:
         try:
             vrf = resolve_vrf(vrf_name)
-        except VRF.DoesNotExist:
-            logger.warning("VRF %s not found for interfaces IP entry %s", vrf_name, entry.pk)
+        except VRF.DoesNotExist as exc:
+            raise ValueError(f"VRF {vrf_name} not found; not applying into the global table") from exc
 
     nb_li = get_or_create_interface(entry.device, li_name)
 
@@ -538,8 +538,8 @@ def _apply_bgp_entry(entry, now):
     if vrf_name:
         try:
             nb_vrf = resolve_vrf(vrf_name)
-        except VRF.DoesNotExist:
-            logger.warning("VRF %s not found for BGP entry %s", vrf_name, entry.pk)
+        except VRF.DoesNotExist as exc:
+            raise ValueError(f"VRF {vrf_name} not found; not applying into the global table") from exc
 
     try:
         ip_obj = ipaddress.ip_address(remote_address)
