@@ -5,7 +5,10 @@ import re
 from dcim.models.device_components import Interface
 from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
+from napalm.base.exceptions import ConnectionException
 from unittest.mock import MagicMock
+
+from netbox_facts.constants import AUTO_D_TAG
 
 from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
 from netbox_facts.helpers.applier import apply_entries
@@ -300,3 +303,86 @@ class DetectOnlyInterfaceCreationTest(InterfacesRegressionTestMixin, TestCase):
         self.assertEqual(applied, 1)
         self.assertEqual(failed, 0)
         self.assertTrue(Interface.objects.filter(device=device, name="lo0").exists())
+
+
+class StaleIpScopeTest(InterfacesRegressionTestMixin, TestCase):
+    """The stale-IP sweep must only cover what this run could have seen."""
+
+    def test_failed_ip_collection_skips_stale_sweep(self):
+        """Regression test for issue #49: when get_interfaces_ip fails, the
+        stale sweep must not run -- a transient RPC failure must not
+        unassign every previously discovered IP on the device."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-rpcfail",
+        )
+        device = self._create_device("stale-rpcfail-dev")
+        iface = Interface.objects.create(device=device, name="Ethernet5", type="1000base-t")
+        auto_ip = IPAddress.objects.create(address="10.51.0.1/24", assigned_object=iface)
+        auto_ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet5": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:51",
+            },
+        }
+        driver.get_interfaces_ip.side_effect = ConnectionException("timeout")
+
+        collector.interfaces(driver)
+
+        auto_ip.refresh_from_db()
+        self.assertEqual(auto_ip.assigned_object, iface)
+        self.assertEqual(report.entries.filter(action=EntryActionChoices.ACTION_STALE).count(), 0)
+
+    def test_regex_excluded_interface_not_swept(self):
+        """Regression test for issue #49: an AUTO_D IP on an interface
+        excluded by the configured regex must not be flagged stale."""
+        import re as _re
+
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="Plan-stale-regex",
+        )
+        device = self._create_device("stale-regex-dev")
+        mgmt = Interface.objects.create(device=device, name="Management1", type="1000base-t")
+        auto_ip = IPAddress.objects.create(address="10.52.0.1/24", assigned_object=mgmt)
+        auto_ip.tags.add(AUTO_D_TAG)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._interfaces_re = _re.compile(r"ge-.*")
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:52",
+            },
+        }
+        driver.get_interfaces_ip.return_value = {}
+        driver.get_network_instances.return_value = {}
+
+        collector.interfaces(driver)
+
+        auto_ip.refresh_from_db()
+        self.assertEqual(auto_ip.assigned_object, mgmt)
+        self.assertEqual(report.entries.filter(action=EntryActionChoices.ACTION_STALE).count(), 0)

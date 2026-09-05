@@ -104,6 +104,7 @@ class NapalmCollector:
         self._detect_only: bool = getattr(plan, "detect_only", False)
         self._seen_ips: set = set()
         self._missing_ifaces: set = set()
+        self._skipped_ip_ifaces: set = set()
 
         # Get the NAPALM driver
         try:
@@ -880,6 +881,7 @@ class NapalmCollector:
         """Collect interface data from a device using get_interfaces()."""
         self._seen_ips = set()
         self._missing_ifaces = set()
+        self._skipped_ip_ifaces = set()
         # Always fetch all interfaces and filter client-side with the Python
         # regex.  Passing the regex pattern to the Junos RPC as interface_name
         # causes mismatches because Junos treats '.' as a literal dot while
@@ -989,10 +991,14 @@ class NapalmCollector:
         has_logical = any(iface_data.get("logical_interfaces") for iface_data in ifaces.values())
         if has_logical:
             self._interfaces_logical(device, ifaces)
+            ip_collection_complete = True
         else:
-            self._interfaces_ip_generic(device, driver)
+            ip_collection_complete = self._interfaces_ip_generic(device, driver)
 
-        self._detect_stale_ips(device)
+        if ip_collection_complete:
+            self._detect_stale_ips(device)
+        else:
+            self._log_warning("IP collection did not complete; skipping stale IP detection.")
         self._log_success("Interface collection completed")
 
     def _interfaces_logical(self, device, ifaces):
@@ -1067,9 +1073,11 @@ class NapalmCollector:
                         detected_values={"name": vrf_name},
                         object_repr=f"VRF {vrf_name}",
                     )
+                    self._skipped_ip_ifaces.add(li_name)
                     continue
                 except VRF.MultipleObjectsReturned:
                     self._log_warning(duplicate_object_warning("VRF", vrf_name) + f" Skipping IPs on `{li_name}`.")
+                    self._skipped_ip_ifaces.add(li_name)
                     continue
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
@@ -1110,10 +1118,14 @@ class NapalmCollector:
                         self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
 
     def _interfaces_ip_generic(self, device, driver):
-        """Collect IPs/VRFs using standard NAPALM get_interfaces_ip()."""
+        """Collect IPs/VRFs using standard NAPALM get_interfaces_ip().
+
+        Returns True when IP collection completed, False when the RPC
+        failed and the stale sweep must not run.
+        """
         interfaces_ip = self._napalm_rpc(driver.get_interfaces_ip, "interface IP data")
         if interfaces_ip is None:
-            return
+            return False
 
         network_instances = dict(self._get_network_instances(driver))
 
@@ -1139,11 +1151,21 @@ class NapalmCollector:
                         continue
 
                     self._record_ip_entry(device, nb_li, cidr, net, netbox_vrf)
+        return True
 
     def _detect_stale_ips(self, device):
-        """Detect auto-discovered IPs on a device that weren't seen in this run."""
+        """Detect auto-discovered IPs on a device that weren't seen in this run.
+
+        Only interfaces this run actually inspected are swept: names the
+        configured regex excludes, and interfaces whose IPs were skipped
+        (unresolvable VRF), keep their assignments.
+        """
         iface_ct = ContentType.objects.get_for_model(Interface)
-        device_iface_ids = device.vc_interfaces().values_list("pk", flat=True)
+        device_iface_ids = [
+            pk
+            for pk, name in device.vc_interfaces().values_list("pk", "name")
+            if self._interfaces_re.match(name) and name not in self._skipped_ip_ifaces
+        ]
         stale_ips = IPAddress.objects.filter(
             assigned_object_type=iface_ct,
             assigned_object_id__in=device_iface_ids,
