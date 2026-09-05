@@ -1,16 +1,19 @@
 """Regression tests for ARP/NDP collector portability and VRF round-trip bugs."""
 
 import re
-
 from unittest.mock import MagicMock, patch
 
 from dcim.models.device_components import Interface
 from django.test import TestCase
 from ipam.models.ip import IPAddress, Prefix
+from ipam.models.vrfs import VRF
 from jnpr.junos.exception import ConnectError, RpcError
 from napalm.base.exceptions import CommandErrorException, ConnectionException
 
-from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices
+from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.helpers.netbox import resolve_vrf
+from netbox_facts.models.facts_report import FactsReport
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
 from netbox_facts.napalm.utils import junos_views
@@ -195,6 +198,105 @@ class NetworkInstancesUnsupportedTest(ArpNdpCollectorTestMixin, TestCase):
 
         self.assertTrue(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:40").exists())
         self.assertTrue(IPAddress.objects.filter(address="10.3.0.50/24").exists())
+
+
+class VrfNameRoundTripTest(ArpNdpCollectorTestMixin, TestCase):
+    """Recorded VRF values must round-trip through resolve_vrf on apply."""
+
+    @staticmethod
+    def _l3vrf_instance_for(vrf, interface_name):
+        return {
+            vrf.name: {
+                "name": vrf.name,
+                "type": "L3VRF",
+                "state": {"route_distinguisher": str(vrf.rd)},
+                "interfaces": {"interface": {interface_name: {}}},
+            },
+        }
+
+    def test_detected_vrf_is_name_when_vrf_has_rd(self):
+        """Detected entries store the VRF name, not str(VRF).
+
+        Regression test for issue #52: str(VRF) is 'name (rd)' when a route
+        distinguisher is set, so the applier's resolve_vrf lookup failed on
+        detect-then-apply and the IP landed in the global table.
+        """
+        vrf = VRF.objects.create(name="VRF_RD", rd="65000:1")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            name="Plan-arp-vrf-rd",
+            detect_only=True,
+        )
+        device = self._create_device("arp-vrfrd-dev1")
+        Interface.objects.create(device=device, name="Ethernet5", type="1000base-t")
+        Prefix.objects.create(prefix="10.2.0.0/24", vrf=vrf)
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_arp_table.return_value = [
+            {
+                "interface": "Ethernet5",
+                "mac": "AA:BB:CC:DD:EE:50",
+                "ip": "10.2.0.50",
+                "age": 3.0,
+            },
+        ]
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet5": {"ipv4": {"10.2.0.1": {"prefix_length": 24}}},
+        }
+        driver.get_network_instances.return_value = self._l3vrf_instance_for(vrf, "Ethernet5")
+
+        collector.arp(driver)
+
+        entry = report.entries.first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.detected_values["vrf"], "VRF_RD")
+        self.assertEqual(resolve_vrf(entry.detected_values["vrf"]), vrf)
+
+    def test_stale_current_values_vrf_is_name_when_vrf_has_rd(self):
+        """Stale entries store the VRF name in current_values, not str(VRF) (issue #52)."""
+        vrf = VRF.objects.create(name="VRF_RD2", rd="65000:2")
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            name="Plan-arp-vrf-stale",
+            detect_only=True,
+        )
+        device = self._create_device("arp-vrfstale-dev1")
+        iface = Interface.objects.create(device=device, name="Ethernet6", type="1000base-t")
+        Prefix.objects.create(prefix="10.4.0.0/24", vrf=vrf)
+
+        stale_mac = MACAddress.objects.create(mac_address="AA:BB:CC:DD:EE:60")
+        stale_mac.interfaces.add(iface)
+        stale_ip = IPAddress.objects.create(address="10.4.0.99/24", vrf=vrf)
+        stale_ip.tags.add(AUTO_D_TAG)
+        stale_mac.ip_addresses.add(stale_ip)
+
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+
+        driver = MagicMock()
+        driver.get_arp_table.return_value = [
+            {
+                "interface": "Ethernet6",
+                "mac": "AA:BB:CC:DD:EE:61",
+                "ip": "10.4.0.50",
+                "age": 3.0,
+            },
+        ]
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet6": {"ipv4": {"10.4.0.1": {"prefix_length": 24}}},
+        }
+        driver.get_network_instances.return_value = self._l3vrf_instance_for(vrf, "Ethernet6")
+
+        collector.arp(driver)
+
+        stale_entry = report.entries.get(action=EntryActionChoices.ACTION_STALE)
+        self.assertEqual(stale_entry.current_values["vrf"], "VRF_RD2")
 
 
 class ExecuteDispatchTest(ArpNdpCollectorTestMixin, TestCase):

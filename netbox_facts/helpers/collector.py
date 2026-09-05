@@ -196,9 +196,7 @@ class NapalmCollector:
         instances = self._napalm_rpc(driver.get_network_instances, "network instances")
         if instances is None:
             instances = {}
-        return get_network_instances_by_interface(
-            resolve_napalm_network_instances(parse_network_instances(instances))
-        )
+        return get_network_instances_by_interface(resolve_napalm_network_instances(parse_network_instances(instances)))
 
     def _ip_neighbors(
         self,
@@ -333,7 +331,9 @@ class NapalmCollector:
                 ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
                 seen_ips.add(ip_cache_key)
 
-                vrf_name = str(routing_instance) if routing_instance else None
+                # Store the VRF name (never str(VRF), which appends the route
+                # distinguisher) so the applier's name lookup round-trips.
+                vrf_name = routing_instance.name if routing_instance else None
                 detected = {
                     "mac": arp_entry["mac"],
                     "ip": str(ip_interface_object),
@@ -446,7 +446,7 @@ class NapalmCollector:
                         detected_values={},
                         current_values={
                             "ip": str(ip_obj.address),
-                            "vrf": str(ip_obj.vrf) if ip_obj.vrf else None,
+                            "vrf": ip_obj.vrf.name if ip_obj.vrf else None,
                         },
                         object_instance=ip_obj,
                         object_repr=self._object_repr(ip_obj),

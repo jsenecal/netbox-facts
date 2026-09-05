@@ -31,6 +31,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   matrix pinned to the newest release of each supported minor. The
   README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
 
+### Fixed
+
+- ARP/NDP collection no longer aborts on standard NAPALM drivers that return neighbor IPs as strings, and execute() no longer disguises collector-body AttributeErrors as NotImplementedError (#43).
+- RPC errors raised while iterating the enhanced Junos generator getters are now translated to NAPALM exceptions and handled per device instead of aborting the whole run (#44).
+- Drivers without get_network_instances (e.g. iosxr) no longer abort ARP/interface collection; VRF context degrades to an empty mapping with an informational log (#45).
+- ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
+
 ## [0.1.1] - 2026-05-01
 
 ### Fixed
