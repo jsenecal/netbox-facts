@@ -1639,15 +1639,18 @@ class NapalmCollector:
         device = self._current_device
         device_ct = ContentType.objects.get_for_model(device)
 
-        # Get-or-create local ASN
-        try:
-            local_asn, _ = ASN.objects.get_or_create(
-                asn=data["local_as"],
-                defaults={"rir": RIR.objects.first()},
-            )
-        except (RIR.DoesNotExist, TypeError):
-            self._log_warning(f"No RIR in NetBox. Cannot create local ASN {data['local_as']}.")
-            return
+        # Resolve the local ASN; only apply mode may create it
+        if self._should_apply():
+            try:
+                local_asn, _ = ASN.objects.get_or_create(
+                    asn=data["local_as"],
+                    defaults={"rir": RIR.objects.first()},
+                )
+            except (RIR.DoesNotExist, TypeError):
+                self._log_warning(f"No RIR in NetBox. Cannot create local ASN {data['local_as']}.")
+                return
+        else:
+            local_asn = ASN.objects.filter(asn=data["local_as"]).first()
 
         # BGPRouter
         if self._should_apply():
