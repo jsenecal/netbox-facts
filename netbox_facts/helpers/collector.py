@@ -103,6 +103,7 @@ class NapalmCollector:
         self._report: FactsReport | None = None
         self._detect_only: bool = getattr(plan, "detect_only", False)
         self._seen_ips: set = set()
+        self._missing_ifaces: set = set()
 
         # Get the NAPALM driver
         try:
@@ -828,10 +829,15 @@ class NapalmCollector:
         Uses detect_interface_type() to infer the type and optionally
         populates description/enabled/mtu from iface_data.
         Sub-interfaces (containing '.') get their parent set to the physical interface.
+
+        In detect-only mode nothing is created: a missing interface
+        returns None so the caller can record a pending entry instead.
         """
         try:
             return device.vc_interfaces().get(name=name)
         except Interface.DoesNotExist:
+            if not self._should_apply():
+                return None
             iface_type = detect_interface_type(name)
             kwargs = {"device": device, "name": name, "type": iface_type}
             if "." in name:
@@ -852,9 +858,28 @@ class NapalmCollector:
             self._log_success(f"Auto-created interface `{name}` (type={iface_type}) on {device}.")
             return nb_iface
 
+    def _record_missing_interface(self, device, name, detected_values=None):
+        """Record a pending NEW entry for an interface absent from NetBox.
+
+        Used in detect-only mode, where interfaces are never created; the
+        applier creates the interface when the entry is applied. Each
+        interface is recorded at most once per device run.
+        """
+        if name in self._missing_ifaces:
+            return
+        self._missing_ifaces.add(name)
+        self._record_entry(
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values=detected_values or {"interface": name},
+            object_repr=f"Interface {name}",
+        )
+
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
         self._seen_ips = set()
+        self._missing_ifaces = set()
         # Always fetch all interfaces and filter client-side with the Python
         # regex.  Passing the regex pattern to the Junos RPC as interface_name
         # causes mismatches because Junos treats '.' as a literal dot while
@@ -881,7 +906,6 @@ class NapalmCollector:
                 # avoids creating system pseudo-interfaces like .local.
                 if not iface_data.get("logical_interfaces"):
                     continue
-                nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
                 detected = {
                     "interface": iface_name,
                     "mac_address": "",
@@ -890,6 +914,10 @@ class NapalmCollector:
                     "mtu": iface_data.get("mtu"),
                     "is_up": iface_data.get("is_up"),
                 }
+                nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+                if nb_iface is None:
+                    self._record_missing_interface(device, iface_name, detected)
+                    continue
                 self._record_entry(
                     action=EntryActionChoices.ACTION_CONFIRMED,
                     collector_type=self._collector_type,
@@ -900,8 +928,6 @@ class NapalmCollector:
                 )
                 continue
 
-            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
-
             detected = {
                 "interface": iface_name,
                 "mac_address": mac_addr,
@@ -910,6 +936,11 @@ class NapalmCollector:
                 "mtu": iface_data.get("mtu"),
                 "is_up": iface_data.get("is_up"),
             }
+
+            nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+            if nb_iface is None:
+                self._record_missing_interface(device, iface_name, detected)
+                continue
 
             # Validate MAC address format before querying
             try:
@@ -975,6 +1006,9 @@ class NapalmCollector:
                 continue
 
             nb_iface = self._get_or_create_interface(device, iface_name, iface_data)
+            if nb_iface is None:
+                self._record_missing_interface(device, iface_name)
+                continue
 
             # --- LAG membership ---
             # Check the first logical interface's first family for "aenet"
@@ -1039,6 +1073,9 @@ class NapalmCollector:
                     continue
 
                 nb_li = self._get_or_create_interface(device, li_name, li_data)
+                if nb_li is None:
+                    self._record_missing_interface(device, li_name)
+                    continue
 
                 for fam_name, fam_data in families.items():
                     if fam_name not in ("inet", "inet6"):
@@ -1082,6 +1119,9 @@ class NapalmCollector:
 
         for iface_name, family_data in interfaces_ip.items():
             nb_li = self._get_or_create_interface(device, iface_name)
+            if nb_li is None:
+                self._record_missing_interface(device, iface_name)
+                continue
 
             # Resolve VRF from network instances
             ni_data = network_instances.get(iface_name, {})

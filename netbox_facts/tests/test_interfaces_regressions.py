@@ -147,3 +147,156 @@ class InterfaceMacReassignmentTest(InterfacesRegressionTestMixin, TestCase):
         self.assertIsNone(old_mac.device_interface)
         new_mac = MACAddress.objects.get(mac_address="AA:BB:CC:DD:EE:12")
         self.assertEqual(new_mac.device_interface, iface)
+
+
+class DetectOnlyInterfaceCreationTest(InterfacesRegressionTestMixin, TestCase):
+    """detect_only=True must never create Interface objects."""
+
+    def _detect_only_setup(self, name):
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name=f"DetectOnly-{name}",
+            detect_only=True,
+        )
+        device = self._create_device(name)
+        report = FactsReport.objects.create(collection_plan=plan)
+        collector = self._make_collector(plan)
+        collector._current_device = device
+        collector._report = report
+        return device, report, collector
+
+    def test_detect_only_generic_path_creates_no_interfaces(self):
+        """Regression test for issue #47: a detect-only run against a device
+        with no pre-created interfaces must leave Interface.objects untouched
+        and still record a pending entry for the missing interface."""
+        device, report, collector = self._detect_only_setup("detect-noiface-dev")
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "Ethernet1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:41",
+            },
+        }
+        driver.get_interfaces_ip.return_value = {
+            "Ethernet1": {"ipv4": {"10.41.0.1": {"prefix_length": 24}}},
+        }
+        driver.get_network_instances.return_value = {}
+
+        collector.interfaces(driver)
+
+        self.assertEqual(Interface.objects.filter(device=device).count(), 0)
+        self.assertFalse(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:41").exists())
+        self.assertFalse(IPAddress.objects.filter(address="10.41.0.1/24").exists())
+        entries = report.entries.filter(object_repr="Interface Ethernet1")
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries[0].action, EntryActionChoices.ACTION_NEW)
+        self.assertEqual(entries[0].status, "pending")
+
+    def test_detect_only_logical_path_creates_no_interfaces(self):
+        """Regression test for issue #47: the Junos logical path must not
+        create the physical interface, and must record it exactly once."""
+        device, report, collector = self._detect_only_setup("detect-nolog-dev")
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/1": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:42",
+                "logical_interfaces": {
+                    "ge-0/0/1.0": {
+                        "vrf": "",
+                        "families": {
+                            "inet": {
+                                "addresses": {
+                                    "10.42.0.0/24": {"local": "10.42.0.1", "preferred": True},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        self.assertEqual(Interface.objects.filter(device=device).count(), 0)
+        self.assertFalse(IPAddress.objects.filter(address="10.42.0.1/24").exists())
+        entries = report.entries.filter(object_repr="Interface ge-0/0/1")
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries[0].action, EntryActionChoices.ACTION_NEW)
+
+    def test_detect_only_missing_logical_unit_not_created(self):
+        """Regression test for issue #47: a missing logical unit under an
+        existing physical interface must be recorded, not created."""
+        device, report, collector = self._detect_only_setup("detect-nounit-dev")
+        Interface.objects.create(device=device, name="ge-0/0/2", type="1000base-t")
+
+        driver = MagicMock()
+        driver.get_interfaces.return_value = {
+            "ge-0/0/2": {
+                "is_up": True,
+                "is_enabled": True,
+                "description": "",
+                "last_flapped": -1.0,
+                "speed": 1000.0,
+                "mtu": 1500,
+                "mac_address": "AA:BB:CC:DD:EE:43",
+                "logical_interfaces": {
+                    "ge-0/0/2.0": {
+                        "vrf": "",
+                        "families": {
+                            "inet": {
+                                "addresses": {
+                                    "10.43.0.0/24": {"local": "10.43.0.1", "preferred": True},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+
+        collector.interfaces(driver)
+
+        self.assertEqual(Interface.objects.filter(device=device).count(), 1)
+        self.assertFalse(IPAddress.objects.filter(address="10.43.0.1/24").exists())
+        entries = report.entries.filter(object_repr="Interface ge-0/0/2.0")
+        self.assertEqual(entries.count(), 1)
+        self.assertEqual(entries[0].action, EntryActionChoices.ACTION_NEW)
+
+    def test_applier_creates_interface_from_pending_entry(self):
+        """Regression test for issue #47: the applier must create the
+        interface recorded by a detect-only run, even without a MAC."""
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            name="DetectOnly-apply-iface",
+            detect_only=True,
+        )
+        device = self._create_device("detect-apply-iface-dev")
+        report = FactsReport.objects.create(collection_plan=plan)
+        entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=CollectionTypeChoices.TYPE_INTERFACES,
+            device=device,
+            object_repr="Interface lo0",
+            detected_values={"interface": "lo0", "mac_address": ""},
+            current_values={},
+        )
+
+        applied, failed = apply_entries(report, [entry.pk])
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(failed, 0)
+        self.assertTrue(Interface.objects.filter(device=device, name="lo0").exists())

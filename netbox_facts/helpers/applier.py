@@ -321,17 +321,25 @@ def _apply_interfaces_entry(entry, now):
 
 
 def _apply_interfaces_mac(entry, dv, now):
-    """Apply an interface MAC entry."""
+    """Apply an interface MAC entry, creating the interface if missing."""
     mac_addr = dv.get("mac_address", "")
     iface_name = dv.get("interface", "")
 
+    nb_iface = None
+    if iface_name:
+        nb_iface = get_or_create_interface(entry.device, iface_name)
+
     if not mac_addr:
+        # MAC-less interface entry (detect-only run against a missing
+        # interface, or a logical carrier): creating the interface is
+        # the whole change.
+        if nb_iface is not None:
+            _set_entry_object(entry, nb_iface)
         return
 
     netbox_mac, created = get_or_create_mac(mac_addr)
 
-    if iface_name:
-        nb_iface = get_or_create_interface(entry.device, iface_name)
+    if nb_iface is not None:
         # device_interface is one-to-one: release any other MAC row still
         # holding this interface (hardware MAC change) before claiming it,
         # or save() raises IntegrityError.
