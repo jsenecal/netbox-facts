@@ -156,6 +156,47 @@ class EnhancedJunosRpcTranslationTest(TestCase):
                 list(driver.get_ipv6_neighbors_table())
 
 
+class NetworkInstancesUnsupportedTest(ArpNdpCollectorTestMixin, TestCase):
+    """Drivers without get_network_instances must not abort ARP collection."""
+
+    def test_arp_proceeds_when_get_network_instances_unsupported(self):
+        """arp() completes without VRF context when get_network_instances raises.
+
+        Regression test for issue #45: NAPALM's iosxr drivers do not
+        implement get_network_instances, and the unguarded call let the
+        base class NotImplementedError abort the whole run even though the
+        getters ARP actually needs are implemented.
+        """
+        plan = self._create_plan(
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            name="Plan-arp-no-netinst",
+        )
+        device = self._create_device("arp-noinst-dev1")
+        Interface.objects.create(device=device, name="GigabitEthernet0/0/0/1", type="1000base-t")
+        Prefix.objects.create(prefix="10.3.0.0/24")
+        collector = self._make_collector(plan)
+        collector._current_device = device
+
+        driver = MagicMock()
+        driver.get_network_instances.side_effect = NotImplementedError
+        driver.get_arp_table.return_value = [
+            {
+                "interface": "GigabitEthernet0/0/0/1",
+                "mac": "AA:BB:CC:DD:EE:40",
+                "ip": "10.3.0.50",
+                "age": 5.0,
+            },
+        ]
+        driver.get_interfaces_ip.return_value = {
+            "GigabitEthernet0/0/0/1": {"ipv4": {"10.3.0.1": {"prefix_length": 24}}},
+        }
+
+        collector.arp(driver)
+
+        self.assertTrue(MACAddress.objects.filter(mac_address="AA:BB:CC:DD:EE:40").exists())
+        self.assertTrue(IPAddress.objects.filter(address="10.3.0.50/24").exists())
+
+
 class ExecuteDispatchTest(ArpNdpCollectorTestMixin, TestCase):
     """execute() collector dispatch must not disguise collector-body errors."""
 

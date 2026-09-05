@@ -187,9 +187,17 @@ class NapalmCollector:
         entry.save(update_fields=update_fields)
 
     def _get_network_instances(self, driver: NetworkDriver) -> Generator[tuple[str, dict], None, None]:
-        """Get network instances organized by interface from a device."""
+        """Get network instances organized by interface from a device.
+
+        Drivers without get_network_instances support (e.g. iosxr) yield an
+        empty mapping so the collectors that rely on this data proceed
+        without VRF context instead of aborting the run.
+        """
+        instances = self._napalm_rpc(driver.get_network_instances, "network instances")
+        if instances is None:
+            instances = {}
         return get_network_instances_by_interface(
-            resolve_napalm_network_instances(parse_network_instances(driver.get_network_instances()))
+            resolve_napalm_network_instances(parse_network_instances(instances))
         )
 
     def _ip_neighbors(
