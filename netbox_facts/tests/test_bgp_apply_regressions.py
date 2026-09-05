@@ -247,6 +247,22 @@ class ApplierVRFResolutionRegressionTest(ApplierTestMixin, TestCase):
         )
         self._assert_failed_no_ip(entry, "10.53.2.1/32")
 
+    @unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+    def test_bgp_scope_entry_with_unresolvable_vrf_fails_with_clear_message(self):
+        """A BGPScope entry naming a missing VRF must fail with the canonical message (issue #53)."""
+        entry = self._make_entry(
+            CollectionTypeChoices.TYPE_BGP,
+            f"BGPScope {self.device} GONE_VRF",
+            {"local_as": 65000, "vrf": "GONE_VRF"},
+        )
+
+        applied, failed = apply_entries(self.report, [entry.pk])
+        self.assertEqual(applied, 0)
+        self.assertEqual(failed, 1)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
+        self.assertIn("VRF GONE_VRF not found", entry.error_message)
+
     def test_arp_entry_without_vrf_still_applies_globally(self):
         """An ARP IP entry with no VRF must keep applying into the global table."""
         from ipam.models.ip import IPAddress
