@@ -4,7 +4,7 @@ from dcim.choices import DeviceStatusChoices
 from django.conf import settings
 from django.test import TestCase
 
-from netbox_facts.choices import CollectionTypeChoices
+from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
 from netbox_facts.models import CollectionPlan
 
 
@@ -94,3 +94,28 @@ class GetNapalmArgsIsolationTest(TestCase):
         merged.pop("password")
         merged["timeout"] = 60
         self.assertEqual(self.plugin_config["global_napalm_args"], {"transport": "ssh"})
+
+
+class CheckStalledFirstRunTest(TestCase):
+    """Tests that loading a plan during its first run does not stall it."""
+
+    def test_first_run_working_plan_is_not_marked_stalled(self):
+        """Regression test for issue #60.
+
+        During a plan's first-ever run, status is WORKING while last_run
+        is still None. get_current_job() cannot find the running job
+        without last_run, so check_stalled() flipped the row to STALLED
+        on any model instantiation (list view, API read), defeating the
+        concurrency guard. Genuinely stuck plans are recovered by the
+        recover_stale_jobs management command instead.
+        """
+        plan = _build_plan(name="First Run Plan")
+        plan.save()
+        CollectionPlan.objects.filter(pk=plan.pk).update(status=CollectorStatusChoices.WORKING)
+
+        reloaded = CollectionPlan.objects.get(pk=plan.pk)
+        self.assertEqual(reloaded.status, CollectorStatusChoices.WORKING)
+        self.assertEqual(
+            CollectionPlan.objects.values_list("status", flat=True).get(pk=plan.pk),
+            CollectorStatusChoices.WORKING,
+        )

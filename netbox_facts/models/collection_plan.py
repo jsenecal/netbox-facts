@@ -203,8 +203,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return self.last_run + timedelta(minutes=self.interval)
 
     def check_stalled(self):
-        """Update the status of the collector if stalled."""
-        if self.pk and self.current_job is None and self.status == CollectorStatusChoices.WORKING:
+        """Update the status of the collector if stalled.
+
+        A WORKING plan without a last_run is in its first-ever run:
+        get_current_job() cannot identify the running job without a
+        last_run reference, so this opportunistic check must not touch
+        it. Genuinely stuck first runs are recovered by the
+        recover_stale_jobs management command.
+        """
+        if self.pk and self.last_run and self.current_job is None and self.status == CollectorStatusChoices.WORKING:
             job = self.get_current_job()
             if job is None:
                 self.status = CollectorStatusChoices.STALLED
