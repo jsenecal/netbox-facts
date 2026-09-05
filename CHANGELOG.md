@@ -31,6 +31,12 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   matrix pinned to the newest release of each supported minor. The
   README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
 
+### Fixed
+
+- Detect-only BGP runs no longer create the device's local ASN in NetBox; the BGPRouter report entry is still recorded. (#48)
+- BGP collection and the applier BGP handlers no longer crash with an IntegrityError when NetBox has no RIR: the collector skips ASN creation with a warning, and applier entries that require the ASN fail with a clear message. (#54)
+- Applying an ARP/NDP, interfaces IP, or BGP peer entry whose detected VRF no longer resolves now fails the entry instead of silently writing the IP address into the global routing table. (#53)
+
 ## [0.1.1] - 2026-05-01
 
 ### Fixed
