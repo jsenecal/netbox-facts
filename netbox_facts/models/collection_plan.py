@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from datetime import timedelta
 from typing import Any
@@ -278,12 +279,20 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return napalm_args
 
     def get_napalm_driver(self) -> type[NetworkDriver]:
-        """Return a NAPALM driver instance."""
+        """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+
+        Plugin-local drivers are imported directly because napalm's
+        get_network_driver() rejects dotted module paths outside its own
+        namespaces before attempting any import.
+        """
         try:
-            driver = get_network_driver(f"netbox_facts.napalm.{self.napalm_driver}")
+            module = importlib.import_module(f"netbox_facts.napalm.{self.napalm_driver}")
         except ModuleNotFoundError:
-            driver = get_network_driver(self.napalm_driver)
-        return driver
+            return get_network_driver(self.napalm_driver)
+        for obj in vars(module).values():
+            if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
+                return obj
+        return get_network_driver(self.napalm_driver)
 
     def enqueue_collection_job(self, request):
         """
