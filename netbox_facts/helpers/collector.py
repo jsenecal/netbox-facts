@@ -942,6 +942,12 @@ class NapalmCollector:
                 if created:
                     self._log_success(f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}.")
 
+                # device_interface is one-to-one: release any other MAC row
+                # still holding this interface (hardware MAC change) before
+                # claiming it, or save() raises IntegrityError.
+                MACAddress.objects.filter(device_interface=nb_iface).exclude(pk=netbox_mac.pk).update(
+                    device_interface=None
+                )
                 netbox_mac.device_interface = nb_iface
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
                 netbox_mac.last_seen = self._now
