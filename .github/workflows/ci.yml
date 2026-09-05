@@ -174,7 +174,7 @@ jobs:
           NETBOX_CONFIGURATION: netbox.configuration
         run: |
           cd /opt/netbox/netbox
-          python manage.py makemigrations --check --dry-run
+          python manage.py makemigrations netbox_facts --check --dry-run
 
       - name: Django system check
         env:
