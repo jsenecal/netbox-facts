@@ -6,6 +6,7 @@ while Django itself handles the database abstraction.
 from netbox.api.serializers import NetBoxModelSerializer
 from rest_framework import serializers
 
+from ..helpers.napalm import mask_napalm_credentials, restore_masked_credentials
 from ..models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
 from .nested_serializers import NestedMACVendorSerializer
 
@@ -97,6 +98,19 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
     url = serializers.HyperlinkedIdentityField(
         view_name="plugins-api:netbox_facts-api:collectionplan-detail",
     )
+
+    def to_representation(self, instance):
+        """Censor credential values stored in napalm_args."""
+        data = super().to_representation(instance)
+        if data.get("napalm_args"):
+            data["napalm_args"] = mask_napalm_credentials(data["napalm_args"])
+        return data
+
+    def validate_napalm_args(self, value):
+        """Keep stored credentials when a client round-trips censored values."""
+        if value and self.instance is not None:
+            value = restore_masked_credentials(value, self.instance.napalm_args)
+        return value
 
     class Meta:
         """

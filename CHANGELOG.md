@@ -8,6 +8,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Fixed
+
+- `CollectionPlan.get_napalm_driver` no longer routes plugin-local driver names through napalm's `get_network_driver`, which rejects dotted module paths under napalm 5.2.0 and made every collection run fail before contacting a device. (#42)
+- `CollectionPlan.get_napalm_args` no longer mutates the live `PLUGINS_CONFIG` dict, which leaked one plan's NAPALM arguments (including username/password overrides) into every later plan run in the same worker process. (#58)
+- Credential values (`username`, `password`, `secret`) stored in a plan's NAPALM arguments are now censored in REST API responses and in the edit form; submitting the censored values back preserves the stored real values. (#59)
+- Loading a collection plan during its first-ever run no longer flips its status to `stalled`, which allowed a second concurrent collection to be enqueued against the same devices mid-run. (#60)
+
 ### Added
 
 - `FactsConfig` now declares `min_version = "4.5.0"` and

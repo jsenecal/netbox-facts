@@ -22,6 +22,7 @@ from utilities.forms.widgets.datetime import DateTimePicker
 from utilities.forms.widgets.misc import NumberWithOptions
 
 from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
+from netbox_facts.helpers.napalm import mask_napalm_credentials, restore_masked_credentials
 
 from .choices import (
     CollectionTypeChoices,
@@ -296,6 +297,16 @@ class CollectorForm(NetBoxModelForm):
             ]
         now = local_now().strftime("%Y-%m-%d %H:%M:%S %Z")
         self.fields["scheduled_at"].help_text += _(" (current server time: <strong>{now}</strong>)").format(now=now)
+        # Censor stored credentials instead of rendering them verbatim
+        if self.instance.pk and isinstance(self.instance.napalm_args, dict):
+            self.initial["napalm_args"] = mask_napalm_credentials(self.instance.napalm_args)
+
+    def clean_napalm_args(self):
+        """Keep stored credentials when the censored values are submitted unchanged."""
+        value = self.cleaned_data.get("napalm_args")
+        if value and self.instance.pk and isinstance(value, dict):
+            value = restore_masked_credentials(value, self.instance.napalm_args)
+        return value
 
     def clean(self):
         scheduled_time = self.cleaned_data.get("scheduled_at")
