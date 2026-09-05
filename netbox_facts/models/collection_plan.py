@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib
 import logging
 from datetime import timedelta
@@ -273,8 +274,13 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return Device.objects.filter(q).distinct()
 
     def get_napalm_args(self) -> dict[str, Any]:
-        """Return the NAPALM arguments to use when initiating the driver."""
-        napalm_args = get_plugin_config("netbox_facts", "global_napalm_args", {})
+        """Return the NAPALM arguments to use when initiating the driver.
+
+        The merged result is a deep copy: get_plugin_config() returns the
+        live settings object, and callers pop credentials from and inject
+        keys into the returned dict.
+        """
+        napalm_args = copy.deepcopy(get_plugin_config("netbox_facts", "global_napalm_args", {}) or {})
         napalm_args.update(self.napalm_args if self.napalm_args else {})
         return napalm_args
 
