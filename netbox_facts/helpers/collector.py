@@ -54,6 +54,7 @@ from netbox_facts.helpers.netbox import (
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
     resolve_vrf,
+    update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
@@ -814,15 +815,7 @@ class NapalmCollector:
                 modules_by_name[name] = mod_obj
                 self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
             elif action == EntryActionChoices.ACTION_CHANGED:
-                if installed.module_type_id != module_type.pk:
-                    # A different part now occupies the bay. Module components
-                    # derive from the type, so replace the Module outright
-                    # rather than mutating module_type in place.
-                    installed.delete()
-                    installed = create_module(device, bay, module_type, serial)
-                else:
-                    installed.serial = serial
-                    installed.save(update_fields=["serial"])
+                installed = update_or_replace_module(device, bay, installed, module_type, serial)
                 modules_by_name[name] = installed
                 self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
             else:

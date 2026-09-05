@@ -28,6 +28,7 @@ from netbox_facts.helpers.netbox import (
     get_or_create_mac,
     resolve_device_by_name,
     resolve_vrf,
+    update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
 
@@ -278,15 +279,7 @@ def _apply_module(entry):
         mod = getattr(bay, "installed_module", None)
         if mod is None:
             raise ValueError(f"No installed module in bay {bay.name} to update")
-        if mod.module_type_id != mod_type.pk:
-            # A different part now occupies the bay. Module components derive
-            # from the type, so replace the Module outright rather than
-            # mutating module_type in place.
-            mod.delete()
-            mod = create_module(entry.device, bay, mod_type, serial)
-        else:
-            mod.serial = serial
-            mod.save(update_fields=["serial"])
+        mod = update_or_replace_module(entry.device, bay, mod, mod_type, serial)
 
     _set_entry_object(entry, mod)
 
