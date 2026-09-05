@@ -276,11 +276,17 @@ def _apply_module(entry):
         mod = create_module(entry.device, bay, mod_type, serial)
     elif entry.action == EntryActionChoices.ACTION_CHANGED:
         mod = getattr(bay, "installed_module", None)
-        if mod is not None:
+        if mod is None:
+            raise ValueError(f"No installed module in bay {bay.name} to update")
+        if mod.module_type_id != mod_type.pk:
+            # A different part now occupies the bay. Module components derive
+            # from the type, so replace the Module outright rather than
+            # mutating module_type in place.
+            mod.delete()
+            mod = create_module(entry.device, bay, mod_type, serial)
+        else:
             mod.serial = serial
             mod.save(update_fields=["serial"])
-        else:
-            raise ValueError(f"No installed module in bay {bay.name} to update")
 
     _set_entry_object(entry, mod)
 

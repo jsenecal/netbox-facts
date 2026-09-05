@@ -780,12 +780,12 @@ class NapalmCollector:
         if installed is None:
             action = EntryActionChoices.ACTION_NEW
             current = {}
-        elif installed.serial == serial:
+        elif installed.serial == serial and installed.module_type_id == module_type.pk:
             action = EntryActionChoices.ACTION_CONFIRMED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
         else:
             action = EntryActionChoices.ACTION_CHANGED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
 
         mod_detected = {
             "name": name,
@@ -814,8 +814,15 @@ class NapalmCollector:
                 modules_by_name[name] = mod_obj
                 self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
             elif action == EntryActionChoices.ACTION_CHANGED:
-                installed.serial = serial
-                installed.save(update_fields=["serial"])
+                if installed.module_type_id != module_type.pk:
+                    # A different part now occupies the bay. Module components
+                    # derive from the type, so replace the Module outright
+                    # rather than mutating module_type in place.
+                    installed.delete()
+                    installed = create_module(device, bay, module_type, serial)
+                else:
+                    installed.serial = serial
+                    installed.save(update_fields=["serial"])
                 modules_by_name[name] = installed
                 self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
             else:

@@ -31,6 +31,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   matrix pinned to the newest release of each supported minor. The
   README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
 
+### Fixed
+
+- The stale-module sweep no longer deletes or STALE-flags Modules for hardware that is still installed when the ModuleBay or ModuleType of a reported chassis component cannot be resolved; an unresolved bay now suppresses the sweep for the whole device with a warning. (#50)
+- Swapping the hardware in a module bay for a different part is now detected as CHANGED (even with an unchanged serial), reported with the current module type, and applied by replacing the Module with one of the new ModuleType instead of only updating the serial. (#51)
+
 ## [0.1.1] - 2026-05-01
 
 ### Fixed
