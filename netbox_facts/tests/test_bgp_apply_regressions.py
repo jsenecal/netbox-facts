@@ -3,14 +3,19 @@
 import unittest
 from unittest.mock import MagicMock
 
+from django.apps import apps
 from django.test import TestCase
 
 from netbox_facts.choices import CollectionTypeChoices, EntryActionChoices, EntryStatusChoices
 from netbox_facts.helpers.applier import apply_entries
-from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
 from netbox_facts.models import FactsReport, FactsReportEntry
 from netbox_facts.tests.test_applier import ApplierTestMixin
 from netbox_facts.tests.test_helpers import CollectorTestMixin
+
+# The netbox-routing package can be importable while the plugin is not
+# enabled in the NetBox configuration; its models are only usable in the
+# latter case, so routing-dependent tests gate on the app being installed.
+NETBOX_ROUTING_ENABLED = apps.is_installed("netbox_routing")
 
 
 def _bgp_neighbors_payload(remote_address="10.0.0.1", local_as=65000, remote_as=65001):
@@ -30,7 +35,7 @@ def _bgp_neighbors_payload(remote_address="10.0.0.1", local_as=65000, remote_as=
     }
 
 
-@unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+@unittest.skipUnless(NETBOX_ROUTING_ENABLED, "netbox-routing plugin not enabled")
 class BGPRoutingDetectOnlyRegressionTest(CollectorTestMixin, TestCase):
     """Detect-only BGP runs must not write to NetBox (issue #48)."""
 
@@ -133,7 +138,7 @@ class ApplierNoRIRRegressionTest(ApplierTestMixin, TestCase):
         self.assertTrue(IPAddress.objects.filter(address="10.54.1.1/32").exists())
         self.assertFalse(ASN.objects.exists())
 
-    @unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+    @unittest.skipUnless(NETBOX_ROUTING_ENABLED, "netbox-routing plugin not enabled")
     def test_bgp_router_entry_fails_with_clear_message_when_no_rir(self):
         """A BGPRouter entry with zero RIRs must fail with a clear message (issue #54)."""
         entry = self._make_entry(self.report, f"BGPRouter {self.device}", {"local_as": 65000})
@@ -145,7 +150,7 @@ class ApplierNoRIRRegressionTest(ApplierTestMixin, TestCase):
         self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
         self.assertIn("No RIR", entry.error_message)
 
-    @unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+    @unittest.skipUnless(NETBOX_ROUTING_ENABLED, "netbox-routing plugin not enabled")
     def test_bgp_scope_entry_fails_with_clear_message_when_no_rir(self):
         """A BGPScope entry with zero RIRs must fail with a clear message (issue #54)."""
         entry = self._make_entry(
@@ -161,7 +166,7 @@ class ApplierNoRIRRegressionTest(ApplierTestMixin, TestCase):
         self.assertEqual(entry.status, EntryStatusChoices.STATUS_FAILED)
         self.assertIn("No RIR", entry.error_message)
 
-    @unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+    @unittest.skipUnless(NETBOX_ROUTING_ENABLED, "netbox-routing plugin not enabled")
     def test_bgp_peer_routing_entry_fails_with_clear_message_when_no_rir(self):
         """A BGPPeer routing entry with zero RIRs must fail with a clear message (issue #54)."""
         entry = self._make_entry(
@@ -247,7 +252,7 @@ class ApplierVRFResolutionRegressionTest(ApplierTestMixin, TestCase):
         )
         self._assert_failed_no_ip(entry, "10.53.2.1/32")
 
-    @unittest.skipUnless(HAS_NETBOX_ROUTING, "netbox-routing not installed")
+    @unittest.skipUnless(NETBOX_ROUTING_ENABLED, "netbox-routing plugin not enabled")
     def test_bgp_scope_entry_with_unresolvable_vrf_fails_with_clear_message(self):
         """A BGPScope entry naming a missing VRF must fail with the canonical message (issue #53)."""
         entry = self._make_entry(
