@@ -1,10 +1,17 @@
 """Regression tests for CollectionPlan lifecycle and credential handling."""
 
+import json
+
 from dcim.choices import DeviceStatusChoices
 from django.conf import settings
 from django.test import TestCase
+from netbox.constants import CENSOR_TOKEN
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
+from netbox_facts.api.serializers import CollectionPlanSerializer
 from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
+from netbox_facts.forms import CollectorForm
 from netbox_facts.models import CollectionPlan
 
 
@@ -119,3 +126,89 @@ class CheckStalledFirstRunTest(TestCase):
             CollectionPlan.objects.values_list("status", flat=True).get(pk=plan.pk),
             CollectorStatusChoices.WORKING,
         )
+
+
+class NapalmArgsCredentialExposureTest(TestCase):
+    """Tests that napalm_args credentials are masked on read paths."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.plan = CollectionPlan.objects.create(
+            name="Credential Plan",
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            napalm_driver="junos",
+            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+            napalm_args={"username": "svc-user", "password": "s3cret", "timeout": 15},
+        )
+
+    @staticmethod
+    def _serializer_context():
+        return {"request": Request(APIRequestFactory().get("/"))}
+
+    def test_api_representation_masks_credentials(self):
+        """Regression test for issue #59.
+
+        The REST API serialized napalm_args verbatim, exposing per-plan
+        device credentials to anyone with view permission on the plan.
+        """
+        data = CollectionPlanSerializer(self.plan, context=self._serializer_context()).data
+        self.assertEqual(data["napalm_args"]["username"], CENSOR_TOKEN)
+        self.assertEqual(data["napalm_args"]["password"], CENSOR_TOKEN)
+        self.assertEqual(data["napalm_args"]["timeout"], 15)
+
+    def test_api_update_with_masked_values_preserves_credentials(self):
+        """Regression test for issue #59.
+
+        A PATCH that round-trips the masked representation must not
+        overwrite the stored real credential values.
+        """
+        serializer = CollectionPlanSerializer(
+            self.plan,
+            data={"napalm_args": {"username": CENSOR_TOKEN, "password": CENSOR_TOKEN, "timeout": 30}},
+            partial=True,
+            context=self._serializer_context(),
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        plan = serializer.save()
+        self.assertEqual(plan.napalm_args["username"], "svc-user")
+        self.assertEqual(plan.napalm_args["password"], "s3cret")
+        self.assertEqual(plan.napalm_args["timeout"], 30)
+
+    def test_form_initial_masks_credentials(self):
+        """Regression test for issue #59.
+
+        The edit form rendered the stored napalm_args JSON verbatim,
+        exposing credentials in the UI.
+        """
+        form = CollectorForm(instance=self.plan)
+        self.assertEqual(form.initial["napalm_args"]["username"], CENSOR_TOKEN)
+        self.assertEqual(form.initial["napalm_args"]["password"], CENSOR_TOKEN)
+        self.assertEqual(form.initial["napalm_args"]["timeout"], 15)
+        self.plan.refresh_from_db()
+        self.assertEqual(self.plan.napalm_args["password"], "s3cret")
+
+    def test_form_masked_submission_preserves_credentials(self):
+        """Regression test for issue #59.
+
+        Submitting the edit form with the masked values unchanged must
+        not overwrite the stored real credential values.
+        """
+        form = CollectorForm(
+            data={
+                "name": self.plan.name,
+                "priority": self.plan.priority,
+                "collector_type": self.plan.collector_type,
+                "napalm_driver": self.plan.napalm_driver,
+                "connection_target": self.plan.connection_target,
+                "device_status": [DeviceStatusChoices.STATUS_ACTIVE],
+                "napalm_args": json.dumps(
+                    {"username": CENSOR_TOKEN, "password": CENSOR_TOKEN, "timeout": 30},
+                ),
+            },
+            instance=self.plan,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        plan = form.save()
+        self.assertEqual(plan.napalm_args["username"], "svc-user")
+        self.assertEqual(plan.napalm_args["password"], "s3cret")
+        self.assertEqual(plan.napalm_args["timeout"], 30)
