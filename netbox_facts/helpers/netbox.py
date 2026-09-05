@@ -273,3 +273,20 @@ def create_module(device, module_bay, module_type, serial):
     mod.save()
     mod.tags.add(AUTO_D_TAG)
     return mod
+
+
+def update_or_replace_module(device, bay, installed, module_type, serial):
+    """Update an installed Module's serial, or replace it on a type change.
+
+    When a different part now occupies the bay, the Module's components
+    derive from the type and would be wrong, so the Module is replaced
+    outright via create_module rather than mutating module_type in place.
+    A same-type change only updates the serial. Returns the resulting
+    Module.
+    """
+    if installed.module_type_id != module_type.pk:
+        installed.delete()
+        return create_module(device, bay, module_type, serial)
+    installed.serial = serial
+    installed.save(update_fields=["serial"])
+    return installed

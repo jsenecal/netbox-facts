@@ -6,6 +6,7 @@ import ipaddress
 import re
 from collections.abc import Generator
 from itertools import groupby
+from types import GeneratorType
 from typing import TYPE_CHECKING, Any
 
 import django.core.exceptions
@@ -55,6 +56,7 @@ from netbox_facts.helpers.netbox import (
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
     resolve_vrf,
+    update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
@@ -189,10 +191,16 @@ class NapalmCollector:
         entry.save(update_fields=update_fields)
 
     def _get_network_instances(self, driver: NetworkDriver) -> Generator[tuple[str, dict], None, None]:
-        """Get network instances organized by interface from a device."""
-        return get_network_instances_by_interface(
-            resolve_napalm_network_instances(parse_network_instances(driver.get_network_instances()))
-        )
+        """Get network instances organized by interface from a device.
+
+        Drivers without get_network_instances support (e.g. iosxr) yield an
+        empty mapping so the collectors that rely on this data proceed
+        without VRF context instead of aborting the run.
+        """
+        instances = self._napalm_rpc(driver.get_network_instances, "network instances")
+        if instances is None:
+            instances = {}
+        return get_network_instances_by_interface(resolve_napalm_network_instances(parse_network_instances(instances)))
 
     def _ip_neighbors(
         self,
@@ -274,10 +282,14 @@ class NapalmCollector:
                     # Skip unreachable ARP entries
                     continue
 
-                # Build a proper ip_interface_object from the IP and prefix length
+                # Build a proper ip_interface_object from the IP and prefix length.
+                # Standard NAPALM drivers return ip values as str while the
+                # enhanced Junos driver yields ipaddress objects; normalize once
+                # so the network membership test works for both shapes.
                 ip_interface_object = None
                 routing_instance = None
                 netbox_prefix_qs = Prefix.objects.none()
+                arp_ip = ipaddress.ip_address(str(arp_entry["ip"]))
                 for data in interface_ip_data.values():
                     routing_instance = data.get("netbox_vrf", False)
 
@@ -288,8 +300,8 @@ class NapalmCollector:
                         )
                         continue
 
-                    if arp_entry["ip"] in data["ip_interface_object"].network:
-                        ip_interface_object = ipaddress.ip_interface(f"{arp_entry['ip']}/{data['prefix_length']}")
+                    if arp_ip in data["ip_interface_object"].network:
+                        ip_interface_object = ipaddress.ip_interface(f"{arp_ip}/{data['prefix_length']}")
                         routing_instance = data.get("netbox_vrf")
                         netbox_prefix_qs = data.get("netbox_prefixes")
                         break
@@ -323,7 +335,9 @@ class NapalmCollector:
                 ip_action = EntryActionChoices.ACTION_CONFIRMED if existing_ip else EntryActionChoices.ACTION_NEW
                 seen_ips.add(ip_cache_key)
 
-                vrf_name = str(routing_instance) if routing_instance else None
+                # Store the VRF name (never str(VRF), which appends the route
+                # distinguisher) so the applier's name lookup round-trips.
+                vrf_name = routing_instance.name if routing_instance else None
                 detected = {
                     "mac": arp_entry["mac"],
                     "ip": str(ip_interface_object),
@@ -436,7 +450,7 @@ class NapalmCollector:
                         detected_values={},
                         current_values={
                             "ip": str(ip_obj.address),
-                            "vrf": str(ip_obj.vrf) if ip_obj.vrf else None,
+                            "vrf": ip_obj.vrf.name if ip_obj.vrf else None,
                         },
                         object_instance=ip_obj,
                         object_repr=self._object_repr(ip_obj),
@@ -546,6 +560,9 @@ class NapalmCollector:
         # Track Modules by name for sub-module parent bay lookups
         modules_by_name = {}
         seen_module_bay_ids = set()
+        # Components whose ModuleBay could not be resolved; any such
+        # component makes the stale-module sweep unsafe for this device.
+        unresolved_bay_components = []
 
         for mod in modules:
             name = mod["name"]
@@ -632,7 +649,7 @@ class NapalmCollector:
                     self._mark_entry_applied(entry, existing)
 
             # --- Module creation logic ---
-            self._collect_chassis_module(
+            bay_resolved = self._collect_chassis_module(
                 device,
                 manufacturer,
                 name,
@@ -644,6 +661,8 @@ class NapalmCollector:
                 modules_by_name,
                 seen_module_bay_ids,
             )
+            if not bay_resolved:
+                unresolved_bay_components.append(component_name)
 
         # Detect stale discovered items (hardware no longer present)
         stale_items = InventoryItem.objects.filter(
@@ -670,7 +689,17 @@ class NapalmCollector:
                 stale_item.delete()
                 self._mark_entry_applied(stale_entry, device)
 
-        # Detect stale auto-discovered Modules
+        # Detect stale auto-discovered Modules. When any reported component's
+        # bay could not be resolved, the set of seen bays is incomplete and a
+        # sweep could delete Modules for hardware that is still installed, so
+        # skip it entirely for this device.
+        if unresolved_bay_components:
+            self._log_warning(
+                "Skipping stale module detection: could not resolve module bays for "
+                + ", ".join(unresolved_bay_components)
+            )
+            return
+
         stale_modules = Module.objects.filter(
             device=device,
             tags__name=AUTO_D_TAG,
@@ -712,6 +741,10 @@ class NapalmCollector:
 
         Called after the InventoryItem entry for each module. Only creates a
         Module when a matching ModuleBay and ModuleType exist in NetBox.
+
+        Returns True when the ModuleBay was resolved (even if the ModuleType
+        was not), False when no ModuleBay could be found for the component.
+        The caller uses this to decide whether the stale-module sweep is safe.
         """
         # Resolve parent Module for sub-module bay lookups
         parent_module = None
@@ -736,7 +769,12 @@ class NapalmCollector:
 
         if bay is None:
             self._log_warning(f"No ModuleBay found for {component_name}")
-            return
+            return False
+
+        # The hardware is demonstrably present in this bay; record it as seen
+        # before any further resolution so a lookup failure below can never
+        # make the stale-module sweep treat the bay as empty.
+        seen_module_bay_ids.add(bay.pk)
 
         # Find ModuleType — part_number takes precedence over model
         module_type = ModuleType.objects.filter(
@@ -751,9 +789,7 @@ class NapalmCollector:
 
         if module_type is None:
             self._log_warning(f"No ModuleType found for part {part_id}")
-            return
-
-        seen_module_bay_ids.add(bay.pk)
+            return True
 
         # Check existing module in bay
         installed = getattr(bay, "installed_module", None)
@@ -761,12 +797,12 @@ class NapalmCollector:
         if installed is None:
             action = EntryActionChoices.ACTION_NEW
             current = {}
-        elif installed.serial == serial:
+        elif installed.serial == serial and installed.module_type_id == module_type.pk:
             action = EntryActionChoices.ACTION_CONFIRMED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
         else:
             action = EntryActionChoices.ACTION_CHANGED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
 
         mod_detected = {
             "name": name,
@@ -795,8 +831,7 @@ class NapalmCollector:
                 modules_by_name[name] = mod_obj
                 self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
             elif action == EntryActionChoices.ACTION_CHANGED:
-                installed.serial = serial
-                installed.save(update_fields=["serial"])
+                installed = update_or_replace_module(device, bay, installed, module_type, serial)
                 modules_by_name[name] = installed
                 self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
             else:
@@ -806,6 +841,8 @@ class NapalmCollector:
             # Track for stale detection even in detect-only mode
             if installed is not None:
                 modules_by_name[name] = installed
+
+        return True
 
     @staticmethod
     def _pad_inet_destination(dest):
@@ -1983,6 +2020,12 @@ class NapalmCollector:
         )
 
         try:
+            # Resolve the collection method up front so an unknown collector
+            # type surfaces as NotImplementedError without hiding genuine
+            # AttributeErrors raised while a collector runs.
+            collect = getattr(self, self._collector_type, None)
+            if collect is None:
+                raise NotImplementedError(f"Collector type '{self._collector_type}' is not implemented.")
             for device in self._devices:
                 self._current_device = device
                 self._log_prefix = get_absolute_url_markdown(device, bold=True)
@@ -2010,12 +2053,9 @@ class NapalmCollector:
                             self._napalm_password,
                             optional_args=self._napalm_args,
                         ) as driver:
-                            # Lookup the collection method and call it
-                            getattr(self, self._collector_type)(driver)
+                            collect(driver)
                         connected = True
                         break
-                    except AttributeError as exc:
-                        raise NotImplementedError from exc
                     except ConnectionException as exc:
                         detail = exc.__cause__ or exc
                         self._log_warning(f"Connection failed via {label} IP `{ip}`: {detail}")
@@ -2046,10 +2086,16 @@ class NapalmCollector:
     def _napalm_rpc(self, call, label, *args, **kwargs):
         """Execute a NAPALM RPC call with standard error handling.
 
-        Returns the call result, or None if the call failed.
+        Returns the call result, or None if the call failed. Generator
+        results are materialized here because generator getters only run
+        their RPC at iteration time; without this, iteration-time errors
+        would escape the callers and abort the whole run.
         """
         try:
-            return call(*args, **kwargs)
+            result = call(*args, **kwargs)
+            if isinstance(result, GeneratorType):
+                result = list(result)
+            return result
         except (CommandErrorException, CommandTimeoutException, ConnectionException) as exc:
             self._log_failure(f"Failed to retrieve {label}: {exc}")
             return None
