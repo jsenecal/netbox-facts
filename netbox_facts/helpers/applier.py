@@ -22,6 +22,7 @@ from netbox_facts.choices import (
 )
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.netbox import (
+    claim_device_interface,
     create_module,
     get_or_create_interface,
     get_or_create_ip,
@@ -340,11 +341,7 @@ def _apply_interfaces_mac(entry, dv, now):
     netbox_mac, created = get_or_create_mac(mac_addr)
 
     if nb_iface is not None:
-        # device_interface is one-to-one: release any other MAC row still
-        # holding this interface (hardware MAC change) before claiming it,
-        # or save() raises IntegrityError.
-        MACAddress.objects.filter(device_interface=nb_iface).exclude(pk=netbox_mac.pk).update(device_interface=None)
-        netbox_mac.device_interface = nb_iface
+        claim_device_interface(netbox_mac, nb_iface)
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
     netbox_mac.last_seen = now

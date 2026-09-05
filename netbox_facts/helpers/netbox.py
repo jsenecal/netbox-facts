@@ -219,6 +219,20 @@ def get_or_create_mac(mac_addr):
     return netbox_mac, created
 
 
+def claim_device_interface(netbox_mac, nb_iface):
+    """Point a MACAddress row's device_interface at an interface.
+
+    device_interface is one-to-one: any other MACAddress row still holding
+    the interface (hardware MAC change) is released first with a single
+    targeted update, or saving the claim would raise IntegrityError.
+    Does not save; callers keep their own save flow.
+    """
+    from netbox_facts.models.mac import MACAddress
+
+    MACAddress.objects.filter(device_interface=nb_iface).exclude(pk=netbox_mac.pk).update(device_interface=None)
+    netbox_mac.device_interface = nb_iface
+
+
 def get_or_create_ip(address, vrf=None, **defaults):
     """Get or create an IPAddress, tagging with AUTO_D_TAG if created.
 

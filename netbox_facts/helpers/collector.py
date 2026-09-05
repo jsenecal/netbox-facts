@@ -43,6 +43,7 @@ from netbox_facts.helpers.napalm import (
     parse_network_instances,
 )
 from netbox_facts.helpers.netbox import (
+    claim_device_interface,
     create_module,
     detect_interface_type,
     duplicate_object_warning,
@@ -877,6 +878,24 @@ class NapalmCollector:
             object_repr=f"Interface {name}",
         )
 
+    def _record_missing_vrf(self, device, vrf_name, iface_name):
+        """Warn about a device VRF absent from NetBox and record a pending entry.
+
+        The entry payload (detected name plus 'VRF <name>' repr) is the
+        contract the applier's VRF handler consumes to create the VRF on
+        apply. The interface's IPs are skipped, so it is also excluded
+        from the stale sweep.
+        """
+        self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{iface_name}`.")
+        self._record_entry(
+            action=EntryActionChoices.ACTION_NEW,
+            collector_type=self._collector_type,
+            device=device,
+            detected_values={"name": vrf_name},
+            object_repr=f"VRF {vrf_name}",
+        )
+        self._skipped_ip_ifaces.add(iface_name)
+
     def interfaces(self, driver: NetworkDriver):
         """Collect interface data from a device using get_interfaces()."""
         self._seen_ips = set()
@@ -975,13 +994,7 @@ class NapalmCollector:
                 if created:
                     self._log_success(f"Created MAC address {get_absolute_url_markdown(netbox_mac, bold=True)}.")
 
-                # device_interface is one-to-one: release any other MAC row
-                # still holding this interface (hardware MAC change) before
-                # claiming it, or save() raises IntegrityError.
-                MACAddress.objects.filter(device_interface=nb_iface).exclude(pk=netbox_mac.pk).update(
-                    device_interface=None
-                )
-                netbox_mac.device_interface = nb_iface
+                claim_device_interface(netbox_mac, nb_iface)
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
@@ -1065,15 +1078,7 @@ class NapalmCollector:
                 try:
                     netbox_vrf = resolve_vrf(vrf_name)
                 except VRF.DoesNotExist:
-                    self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{li_name}`.")
-                    self._record_entry(
-                        action=EntryActionChoices.ACTION_NEW,
-                        collector_type=self._collector_type,
-                        device=device,
-                        detected_values={"name": vrf_name},
-                        object_repr=f"VRF {vrf_name}",
-                    )
-                    self._skipped_ip_ifaces.add(li_name)
+                    self._record_missing_vrf(device, vrf_name, li_name)
                     continue
                 except VRF.MultipleObjectsReturned:
                     self._log_warning(duplicate_object_warning("VRF", vrf_name) + f" Skipping IPs on `{li_name}`.")
@@ -1147,16 +1152,7 @@ class NapalmCollector:
                 self._skipped_ip_ifaces.add(iface_name)
                 continue
             if ni_data and "netbox_vrf" not in ni_data:
-                vrf_name = ni_data.get("name", "")
-                self._log_warning(f"VRF `{vrf_name}` not found in NetBox. Skipping IPs on `{iface_name}`.")
-                self._record_entry(
-                    action=EntryActionChoices.ACTION_NEW,
-                    collector_type=self._collector_type,
-                    device=device,
-                    detected_values={"name": vrf_name},
-                    object_repr=f"VRF {vrf_name}",
-                )
-                self._skipped_ip_ifaces.add(iface_name)
+                self._record_missing_vrf(device, ni_data.get("name", ""), iface_name)
                 continue
             netbox_vrf = ni_data.get("netbox_vrf")
 
