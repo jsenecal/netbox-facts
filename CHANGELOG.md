@@ -18,6 +18,8 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 - RPC errors raised while iterating the enhanced Junos generator getters are now translated to NAPALM exceptions and handled per device instead of aborting the whole run (#44).
 - Drivers without get_network_instances (e.g. iosxr) no longer abort ARP/interface collection; VRF context degrades to an empty mapping with an informational log (#45).
 - ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
+- The stale-module sweep no longer deletes or STALE-flags Modules for hardware that is still installed when the ModuleBay or ModuleType of a reported chassis component cannot be resolved; an unresolved bay now suppresses the sweep for the whole device with a warning. (#50)
+- Swapping the hardware in a module bay for a different part is now detected as CHANGED (even with an unchanged serial), reported with the current module type, and applied by replacing the Module with one of the new ModuleType instead of only updating the serial. (#51)
 
 ### Added
 

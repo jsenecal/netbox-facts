@@ -55,6 +55,7 @@ from netbox_facts.helpers.netbox import (
     resolve_napalm_interfaces_ip_addresses,
     resolve_napalm_network_instances,
     resolve_vrf,
+    update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
@@ -556,6 +557,9 @@ class NapalmCollector:
         # Track Modules by name for sub-module parent bay lookups
         modules_by_name = {}
         seen_module_bay_ids = set()
+        # Components whose ModuleBay could not be resolved; any such
+        # component makes the stale-module sweep unsafe for this device.
+        unresolved_bay_components = []
 
         for mod in modules:
             name = mod["name"]
@@ -642,7 +646,7 @@ class NapalmCollector:
                     self._mark_entry_applied(entry, existing)
 
             # --- Module creation logic ---
-            self._collect_chassis_module(
+            bay_resolved = self._collect_chassis_module(
                 device,
                 manufacturer,
                 name,
@@ -654,6 +658,8 @@ class NapalmCollector:
                 modules_by_name,
                 seen_module_bay_ids,
             )
+            if not bay_resolved:
+                unresolved_bay_components.append(component_name)
 
         # Detect stale discovered items (hardware no longer present)
         stale_items = InventoryItem.objects.filter(
@@ -680,7 +686,17 @@ class NapalmCollector:
                 stale_item.delete()
                 self._mark_entry_applied(stale_entry, device)
 
-        # Detect stale auto-discovered Modules
+        # Detect stale auto-discovered Modules. When any reported component's
+        # bay could not be resolved, the set of seen bays is incomplete and a
+        # sweep could delete Modules for hardware that is still installed, so
+        # skip it entirely for this device.
+        if unresolved_bay_components:
+            self._log_warning(
+                "Skipping stale module detection: could not resolve module bays for "
+                + ", ".join(unresolved_bay_components)
+            )
+            return
+
         stale_modules = Module.objects.filter(
             device=device,
             tags__name=AUTO_D_TAG,
@@ -722,6 +738,10 @@ class NapalmCollector:
 
         Called after the InventoryItem entry for each module. Only creates a
         Module when a matching ModuleBay and ModuleType exist in NetBox.
+
+        Returns True when the ModuleBay was resolved (even if the ModuleType
+        was not), False when no ModuleBay could be found for the component.
+        The caller uses this to decide whether the stale-module sweep is safe.
         """
         # Resolve parent Module for sub-module bay lookups
         parent_module = None
@@ -746,7 +766,12 @@ class NapalmCollector:
 
         if bay is None:
             self._log_warning(f"No ModuleBay found for {component_name}")
-            return
+            return False
+
+        # The hardware is demonstrably present in this bay; record it as seen
+        # before any further resolution so a lookup failure below can never
+        # make the stale-module sweep treat the bay as empty.
+        seen_module_bay_ids.add(bay.pk)
 
         # Find ModuleType — part_number takes precedence over model
         module_type = ModuleType.objects.filter(
@@ -761,9 +786,7 @@ class NapalmCollector:
 
         if module_type is None:
             self._log_warning(f"No ModuleType found for part {part_id}")
-            return
-
-        seen_module_bay_ids.add(bay.pk)
+            return True
 
         # Check existing module in bay
         installed = getattr(bay, "installed_module", None)
@@ -771,12 +794,12 @@ class NapalmCollector:
         if installed is None:
             action = EntryActionChoices.ACTION_NEW
             current = {}
-        elif installed.serial == serial:
+        elif installed.serial == serial and installed.module_type_id == module_type.pk:
             action = EntryActionChoices.ACTION_CONFIRMED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
         else:
             action = EntryActionChoices.ACTION_CHANGED
-            current = {"serial": installed.serial}
+            current = {"serial": installed.serial, "module_type_id": installed.module_type_id}
 
         mod_detected = {
             "name": name,
@@ -805,8 +828,7 @@ class NapalmCollector:
                 modules_by_name[name] = mod_obj
                 self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
             elif action == EntryActionChoices.ACTION_CHANGED:
-                installed.serial = serial
-                installed.save(update_fields=["serial"])
+                installed = update_or_replace_module(device, bay, installed, module_type, serial)
                 modules_by_name[name] = installed
                 self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
             else:
@@ -816,6 +838,8 @@ class NapalmCollector:
             # Track for stale detection even in detect-only mode
             if installed is not None:
                 modules_by_name[name] = installed
+
+        return True
 
     def _get_or_create_interface(self, device, name, iface_data=None):
         """Look up an interface on a device, creating it if missing.
