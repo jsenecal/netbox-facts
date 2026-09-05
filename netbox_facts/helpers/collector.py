@@ -271,10 +271,14 @@ class NapalmCollector:
                     # Skip unreachable ARP entries
                     continue
 
-                # Build a proper ip_interface_object from the IP and prefix length
+                # Build a proper ip_interface_object from the IP and prefix length.
+                # Standard NAPALM drivers return ip values as str while the
+                # enhanced Junos driver yields ipaddress objects; normalize once
+                # so the network membership test works for both shapes.
                 ip_interface_object = None
                 routing_instance = None
                 netbox_prefix_qs = Prefix.objects.none()
+                arp_ip = ipaddress.ip_address(str(arp_entry["ip"]))
                 for data in interface_ip_data.values():
                     routing_instance = data.get("netbox_vrf", False)
 
@@ -285,8 +289,8 @@ class NapalmCollector:
                         )
                         continue
 
-                    if arp_entry["ip"] in data["ip_interface_object"].network:
-                        ip_interface_object = ipaddress.ip_interface(f"{arp_entry['ip']}/{data['prefix_length']}")
+                    if arp_ip in data["ip_interface_object"].network:
+                        ip_interface_object = ipaddress.ip_interface(f"{arp_ip}/{data['prefix_length']}")
                         routing_instance = data.get("netbox_vrf")
                         netbox_prefix_qs = data.get("netbox_prefixes")
                         break
@@ -1882,6 +1886,12 @@ class NapalmCollector:
         )
 
         try:
+            # Resolve the collection method up front so an unknown collector
+            # type surfaces as NotImplementedError without hiding genuine
+            # AttributeErrors raised while a collector runs.
+            collect = getattr(self, self._collector_type, None)
+            if collect is None:
+                raise NotImplementedError(f"Collector type '{self._collector_type}' is not implemented.")
             for device in self._devices:
                 self._current_device = device
                 self._log_prefix = get_absolute_url_markdown(device, bold=True)
@@ -1909,12 +1919,9 @@ class NapalmCollector:
                             self._napalm_password,
                             optional_args=self._napalm_args,
                         ) as driver:
-                            # Lookup the collection method and call it
-                            getattr(self, self._collector_type)(driver)
+                            collect(driver)
                         connected = True
                         break
-                    except AttributeError as exc:
-                        raise NotImplementedError from exc
                     except ConnectionException as exc:
                         detail = exc.__cause__ or exc
                         self._log_warning(f"Connection failed via {label} IP `{ip}`: {detail}")
