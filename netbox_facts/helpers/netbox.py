@@ -258,6 +258,21 @@ def resolve_vrf(name):
     return VRF.objects.get(name=name)
 
 
+def resolve_vrf_or_fail(name):
+    """Resolve a VRF by name, failing loudly when it does not exist.
+
+    Returns None for empty/global/default names, mirroring resolve_vrf.
+    Raises ValueError for a missing VRF so callers fail the operation
+    instead of silently falling back to the global routing table.
+    """
+    if not name:
+        return None
+    try:
+        return resolve_vrf(name)
+    except VRF.DoesNotExist as exc:
+        raise ValueError(f"VRF {name} not found; not applying into the global table") from exc
+
+
 def create_module(device, module_bay, module_type, serial):
     """Create a Module with adopt/disable-replication flags, tagged with AUTO_D_TAG."""
     from dcim.models.modules import Module

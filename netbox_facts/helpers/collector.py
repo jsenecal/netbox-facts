@@ -1635,7 +1635,7 @@ class NapalmCollector:
 
     def bgp(self, driver: NetworkDriver):
         """Collect BGP data from a device using get_bgp_neighbors_detail()."""
-        from ipam.models import ASN, RIR
+        from netbox_facts.helpers.applier import NO_RIR_MESSAGE, get_or_create_asn
 
         bgp_data = self._napalm_rpc(driver.get_bgp_neighbors_detail, "BGP data")
         if bgp_data is None:
@@ -1701,17 +1701,10 @@ class NapalmCollector:
                     )
 
                     if self._should_apply():
-                        # Try to get or create ASN (requires an RIR)
-                        nb_asn = None
-                        try:
-                            nb_asn, _ = ASN.objects.get_or_create(
-                                asn=int(as_number),
-                                defaults={"rir": RIR.objects.first()},
-                            )
-                        except (RIR.DoesNotExist, TypeError):
-                            self._log_warning(f"No RIR exists in NetBox. Cannot create ASN {as_number}.")
-                        except ASN.MultipleObjectsReturned:
-                            self._log_warning(duplicate_object_warning("ASN", as_number))
+                        # Get or create the remote ASN (requires an RIR)
+                        nb_asn = get_or_create_asn(as_number)
+                        if nb_asn is None:
+                            self._log_warning(NO_RIR_MESSAGE.format(as_number=as_number))
 
                         try:
                             nb_ip, created = get_or_create_ip(
@@ -1772,20 +1765,21 @@ class NapalmCollector:
             return
 
         from django.contrib.contenttypes.models import ContentType
-        from ipam.models import ASN, RIR
+        from ipam.models import ASN
+
+        from netbox_facts.helpers.applier import NO_RIR_MESSAGE, get_or_create_asn
 
         device = self._current_device
         device_ct = ContentType.objects.get_for_model(device)
 
-        # Get-or-create local ASN
-        try:
-            local_asn, _ = ASN.objects.get_or_create(
-                asn=data["local_as"],
-                defaults={"rir": RIR.objects.first()},
-            )
-        except (RIR.DoesNotExist, TypeError):
-            self._log_warning(f"No RIR in NetBox. Cannot create local ASN {data['local_as']}.")
-            return
+        # Resolve the local ASN; only apply mode may create it
+        if self._should_apply():
+            local_asn = get_or_create_asn(data["local_as"])
+            if local_asn is None:
+                self._log_warning(NO_RIR_MESSAGE.format(as_number=data["local_as"]))
+                return
+        else:
+            local_asn = ASN.objects.filter(asn=data["local_as"]).first()
 
         # BGPRouter
         if self._should_apply():

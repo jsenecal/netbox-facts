@@ -125,7 +125,7 @@ jobs:
           SECRET_KEY = "ci-only-secret-key-do-not-use-in-production-aaaaaaaaaaaaaaaaaaaa"
           API_TOKEN_PEPPERS = {1: (SECRET_KEY * 2)[:50]}
 
-          PLUGINS = ["netbox_facts"]
+          PLUGINS = ["netbox_facts", "netbox_routing"]
           PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
           EOF_CFG
 
@@ -174,7 +174,7 @@ jobs:
           NETBOX_CONFIGURATION: netbox.configuration
         run: |
           cd /opt/netbox/netbox
-          python manage.py makemigrations --check --dry-run
+          python manage.py makemigrations netbox_facts --check --dry-run
 
       - name: Django system check
         env:

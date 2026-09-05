@@ -26,6 +26,9 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 - ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
 - The stale-module sweep no longer deletes or STALE-flags Modules for hardware that is still installed when the ModuleBay or ModuleType of a reported chassis component cannot be resolved; an unresolved bay now suppresses the sweep for the whole device with a warning. (#50)
 - Swapping the hardware in a module bay for a different part is now detected as CHANGED (even with an unchanged serial), reported with the current module type, and applied by replacing the Module with one of the new ModuleType instead of only updating the serial. (#51)
+- Detect-only BGP runs no longer create the device's local ASN in NetBox; the BGPRouter report entry is still recorded. (#48)
+- BGP collection and the applier BGP handlers no longer crash with an IntegrityError when NetBox has no RIR: the collector skips ASN creation with a warning, and applier entries that require the ASN fail with a clear message. (#54)
+- Applying an ARP/NDP, interfaces IP, or BGP peer entry whose detected VRF no longer resolves now fails the entry instead of silently writing the IP address into the global routing table. (#53)
 
 ### Added
 
