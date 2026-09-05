@@ -22,6 +22,8 @@ class FactsConfig(PluginConfig):
     base_url = "facts"
     author = "Jonathan Senecal"
     author_email = "contact@jonathansenecal.com"
+    min_version = "4.5.0"
+    max_version = "4.7.99"
     default_settings = {
         "top_level_menu": True,
         "napalm_username": "",

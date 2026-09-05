@@ -817,7 +817,6 @@ wheels = [
 name = "netbox-facts"
 source = { editable = "." }
 dependencies = [
-    { name = "django" },
     { name = "napalm" },
     { name = "requests" },
 ]
@@ -842,7 +841,6 @@ routing = [
 [package.metadata]
 requires-dist = [
     { name = "bump-my-version", marker = "extra == 'dev'" },
-    { name = "django", specifier = ">=5.2,<5.3" },
     { name = "napalm", specifier = "~=5.2.0" },
     { name = "netbox-routing", marker = "extra == 'dev'" },
     { name = "netbox-routing", marker = "extra == 'routing'" },

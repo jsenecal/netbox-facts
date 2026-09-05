@@ -42,6 +42,6 @@ re-run on a configurable interval.
 
 ## Project status
 
-Alpha. Compatible with NetBox 4.5.x. Source on
+Alpha. Compatible with NetBox 4.5.x through 4.7.x. Source on
 [GitHub](https://github.com/jsenecal/netbox-facts), released to PyPI as
 `netbox-facts`.
