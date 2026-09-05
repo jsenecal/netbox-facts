@@ -22,6 +22,7 @@ from netbox_facts.choices import (
 )
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.helpers.netbox import (
+    claim_device_interface,
     create_module,
     get_or_create_interface,
     get_or_create_ip,
@@ -29,6 +30,7 @@ from netbox_facts.helpers.netbox import (
     resolve_device_by_name,
     resolve_vrf,
     resolve_vrf_or_fail,
+    update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
 
@@ -295,11 +297,9 @@ def _apply_module(entry):
         mod = create_module(entry.device, bay, mod_type, serial)
     elif entry.action == EntryActionChoices.ACTION_CHANGED:
         mod = getattr(bay, "installed_module", None)
-        if mod is not None:
-            mod.serial = serial
-            mod.save(update_fields=["serial"])
-        else:
+        if mod is None:
             raise ValueError(f"No installed module in bay {bay.name} to update")
+        mod = update_or_replace_module(entry.device, bay, mod, mod_type, serial)
 
     _set_entry_object(entry, mod)
 
@@ -340,18 +340,26 @@ def _apply_interfaces_entry(entry, now):
 
 
 def _apply_interfaces_mac(entry, dv, now):
-    """Apply an interface MAC entry."""
+    """Apply an interface MAC entry, creating the interface if missing."""
     mac_addr = dv.get("mac_address", "")
     iface_name = dv.get("interface", "")
 
+    nb_iface = None
+    if iface_name:
+        nb_iface = get_or_create_interface(entry.device, iface_name)
+
     if not mac_addr:
+        # MAC-less interface entry (detect-only run against a missing
+        # interface, or a logical carrier): creating the interface is
+        # the whole change.
+        if nb_iface is not None:
+            _set_entry_object(entry, nb_iface)
         return
 
     netbox_mac, created = get_or_create_mac(mac_addr)
 
-    if iface_name:
-        nb_iface = get_or_create_interface(entry.device, iface_name)
-        netbox_mac.device_interface = nb_iface
+    if nb_iface is not None:
+        claim_device_interface(netbox_mac, nb_iface)
 
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
     netbox_mac.last_seen = now

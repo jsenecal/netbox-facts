@@ -8,6 +8,28 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Fixed
+
+- Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
+- The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
+- A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)
+- Junos inet destinations abbreviated below three octets (such as `10/8` and `172.16/16`) keep their real prefix length instead of being recorded and created as /32 host routes. (#56)
+- The generic IP path skips addresses in a device VRF that has no NetBox counterpart, recording a pending missing-VRF entry instead of booking them into the global table or stealing existing global IPs. (#57)
+- Duplicate VRF names in NetBox no longer abort the entire collection run with MultipleObjectsReturned; the affected instance's IPs are skipped with a warning. (#46)
+- `CollectionPlan.get_napalm_driver` no longer routes plugin-local driver names through napalm's `get_network_driver`, which rejects dotted module paths under napalm 5.2.0 and made every collection run fail before contacting a device. (#42)
+- `CollectionPlan.get_napalm_args` no longer mutates the live `PLUGINS_CONFIG` dict, which leaked one plan's NAPALM arguments (including username/password overrides) into every later plan run in the same worker process. (#58)
+- Credential values (`username`, `password`, `secret`) stored in a plan's NAPALM arguments are now censored in REST API responses and in the edit form; submitting the censored values back preserves the stored real values. (#59)
+- Loading a collection plan during its first-ever run no longer flips its status to `stalled`, which allowed a second concurrent collection to be enqueued against the same devices mid-run. (#60)
+- ARP/NDP collection no longer aborts on standard NAPALM drivers that return neighbor IPs as strings, and execute() no longer disguises collector-body AttributeErrors as NotImplementedError (#43).
+- RPC errors raised while iterating the enhanced Junos generator getters are now translated to NAPALM exceptions and handled per device instead of aborting the whole run (#44).
+- Drivers without get_network_instances (e.g. iosxr) no longer abort ARP/interface collection; VRF context degrades to an empty mapping with an informational log (#45).
+- ARP/NDP report entries now record the VRF name instead of str(VRF), so detect-then-apply resolves the VRF instead of silently writing IPs into the global table when the VRF has a route distinguisher (#52).
+- The stale-module sweep no longer deletes or STALE-flags Modules for hardware that is still installed when the ModuleBay or ModuleType of a reported chassis component cannot be resolved; an unresolved bay now suppresses the sweep for the whole device with a warning. (#50)
+- Swapping the hardware in a module bay for a different part is now detected as CHANGED (even with an unchanged serial), reported with the current module type, and applied by replacing the Module with one of the new ModuleType instead of only updating the serial. (#51)
+- Detect-only BGP runs no longer create the device's local ASN in NetBox; the BGPRouter report entry is still recorded. (#48)
+- BGP collection and the applier BGP handlers no longer crash with an IntegrityError when NetBox has no RIR: the collector skips ASN creation with a warning, and applier entries that require the ASN fail with a clear message. (#54)
+- Applying an ARP/NDP, interfaces IP, or BGP peer entry whose detected VRF no longer resolves now fails the entry instead of silently writing the IP address into the global routing table. (#53)
+
 ### Added
 
 - `FactsConfig` now declares `min_version = "4.5.0"` and
@@ -30,12 +52,6 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   and 4.6.10, previously 4.5.8 and 4.5.10), with Renovate keeping the
   matrix pinned to the newest release of each supported minor. The
   README compatibility matrix now lists NetBox 4.5.x and 4.6.x.
-
-### Fixed
-
-- Detect-only BGP runs no longer create the device's local ASN in NetBox; the BGPRouter report entry is still recorded. (#48)
-- BGP collection and the applier BGP handlers no longer crash with an IntegrityError when NetBox has no RIR: the collector skips ASN creation with a warning, and applier entries that require the ASN fail with a clear message. (#54)
-- Applying an ARP/NDP, interfaces IP, or BGP peer entry whose detected VRF no longer resolves now fails the entry instead of silently writing the IP address into the global routing table. (#53)
 
 ## [0.1.1] - 2026-05-01
 

@@ -1,14 +1,32 @@
 import re
 from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any
 
 import napalm.base.helpers
+from jnpr.junos.exception import ConnectError, RpcError
+from napalm.base.exceptions import CommandErrorException, ConnectionException
 from napalm.junos import JunOSDriver
 
 from .helpers import ip_object
 from .utils import junos_views
 
 __all__ = ("EnhancedJunOSDriver",)
+
+
+@contextmanager
+def _translate_pyez_errors():
+    """Translate PyEZ transport errors into their NAPALM equivalents.
+
+    The collector's RPC wrapper only degrades NAPALM exceptions into a
+    per-device failure; raw PyEZ errors would abort the whole run.
+    """
+    try:
+        yield
+    except ConnectError as exc:
+        raise ConnectionException(str(exc)) from exc
+    except RpcError as exc:
+        raise CommandErrorException(str(exc)) from exc
 
 
 def _module_to_dict(module, parent_name=None):
@@ -38,7 +56,8 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
             raise NotImplementedError(msg)
 
         arp_table_raw = junos_views.junos_arp_table(self.device)
-        arp_table_raw.get()
+        with _translate_pyez_errors():
+            arp_table_raw.get()
         arp_table_items = arp_table_raw.items()
 
         for arp_table_entry in arp_table_items:
@@ -50,7 +69,8 @@ class EnhancedJunOSDriver(JunOSDriver):  # pylint: disable=abstract-method
     def get_ipv6_neighbors_table(self) -> Generator[dict[str, Any], None, None]:
         """Return the IPv6 neighbors table with the ip address object."""
         ipv6_neighbors_table_raw = junos_views.junos_ipv6_neighbors_table(self.device)
-        ipv6_neighbors_table_raw.get()
+        with _translate_pyez_errors():
+            ipv6_neighbors_table_raw.get()
         ipv6_neighbors_table_items = ipv6_neighbors_table_raw.items()
 
         for ipv6_table_entry in ipv6_neighbors_table_items:

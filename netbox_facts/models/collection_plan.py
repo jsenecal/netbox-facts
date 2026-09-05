@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import importlib
 import logging
 from datetime import timedelta
 from typing import Any
@@ -201,8 +203,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return self.last_run + timedelta(minutes=self.interval)
 
     def check_stalled(self):
-        """Update the status of the collector if stalled."""
-        if self.pk and self.current_job is None and self.status == CollectorStatusChoices.WORKING:
+        """Update the status of the collector if stalled.
+
+        A WORKING plan without a last_run is in its first-ever run:
+        get_current_job() cannot identify the running job without a
+        last_run reference, so this opportunistic check must not touch
+        it. Genuinely stuck first runs are recovered by the
+        recover_stale_jobs management command.
+        """
+        if self.pk and self.last_run and self.current_job is None and self.status == CollectorStatusChoices.WORKING:
             job = self.get_current_job()
             if job is None:
                 self.status = CollectorStatusChoices.STALLED
@@ -272,18 +281,31 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return Device.objects.filter(q).distinct()
 
     def get_napalm_args(self) -> dict[str, Any]:
-        """Return the NAPALM arguments to use when initiating the driver."""
-        napalm_args = get_plugin_config("netbox_facts", "global_napalm_args", {})
+        """Return the NAPALM arguments to use when initiating the driver.
+
+        The merged result is a deep copy: get_plugin_config() returns the
+        live settings object, and callers pop credentials from and inject
+        keys into the returned dict.
+        """
+        napalm_args = copy.deepcopy(get_plugin_config("netbox_facts", "global_napalm_args", {}) or {})
         napalm_args.update(self.napalm_args if self.napalm_args else {})
         return napalm_args
 
     def get_napalm_driver(self) -> type[NetworkDriver]:
-        """Return a NAPALM driver instance."""
+        """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+
+        Plugin-local drivers are imported directly because napalm's
+        get_network_driver() rejects dotted module paths outside its own
+        namespaces before attempting any import.
+        """
         try:
-            driver = get_network_driver(f"netbox_facts.napalm.{self.napalm_driver}")
+            module = importlib.import_module(f"netbox_facts.napalm.{self.napalm_driver}")
         except ModuleNotFoundError:
-            driver = get_network_driver(self.napalm_driver)
-        return driver
+            return get_network_driver(self.napalm_driver)
+        for obj in vars(module).values():
+            if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
+                return obj
+        return get_network_driver(self.napalm_driver)
 
     def enqueue_collection_job(self, request):
         """
