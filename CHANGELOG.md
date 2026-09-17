@@ -48,6 +48,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- MACVendor detail, edit, delete, instances, changelog, and journal routes
+  are now generated via `register_model_view` + `get_model_urls` instead of
+  being spelled out manually in `urls.py`; the nonstandard `macvendor_detail`
+  route name is retired in favor of `macvendor` (matching the MACAddress
+  and CollectionPlan convention). The manually wired changelog/journal
+  routes for MACAddress and MACVendor are also removed, since NetBox
+  already auto-registers them for every model. (#162)
 - NetBox 4.7 support. CI adds a 4.7.0 lane alongside 4.5.10 and 4.6.10,
   Renovate keeps a `4.7.x` lane pinned to the newest release of that
   minor, and the coverage upload now runs on the 4.7 lane. The README
