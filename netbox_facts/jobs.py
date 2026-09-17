@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 
 from core.choices import JobStatusChoices
 from django.db import DatabaseError
@@ -6,12 +7,24 @@ from netbox.context_managers import event_tracking
 from netbox.jobs import JobRunner
 from netbox.plugins.utils import get_plugin_config
 
-from netbox_facts.choices import CollectorStatusChoices, EntryStatusChoices
+from netbox_facts.choices import CollectorStatusChoices
 
 logger = logging.getLogger(__name__)
 
 
-class CollectionJobRunner(JobRunner):
+class FactsJobRunner(JobRunner):
+    """Base JobRunner applying the plugin's shared job defaults."""
+
+    @classmethod
+    def enqueue(cls, *args, **kwargs):
+        """Enqueue a job, applying the plugin's default job timeout if not explicitly set."""
+        if "job_timeout" not in kwargs:
+            kwargs["job_timeout"] = get_plugin_config("netbox_facts", "job_timeout", 1800)
+
+        return super().enqueue(*args, **kwargs)
+
+
+class CollectionJobRunner(FactsJobRunner):
     """JobRunner for NetBox Facts collection jobs."""
 
     class Meta:
@@ -21,10 +34,6 @@ class CollectionJobRunner(JobRunner):
     def enqueue(cls, *args, **kwargs):
         """Enqueue a collection job, setting the plan status to QUEUED."""
         from netbox_facts.models import CollectionPlan
-
-        # Apply default job timeout from plugin settings if not explicitly set
-        if "job_timeout" not in kwargs:
-            kwargs["job_timeout"] = get_plugin_config("netbox_facts", "job_timeout", 1800)
 
         job = super().enqueue(*args, **kwargs)
 
@@ -65,7 +74,7 @@ class CollectionJobRunner(JobRunner):
                 )
 
 
-class ApplyEntriesJobRunner(JobRunner):
+class ApplyEntriesJobRunner(FactsJobRunner):
     """JobRunner that applies every pending entry of a FactsReport."""
 
     class Meta:
@@ -76,21 +85,13 @@ class ApplyEntriesJobRunner(JobRunner):
         """Return the apply jobs for this report that are queued, scheduled, or running."""
         return cls.get_jobs(report).filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES)
 
-    @classmethod
-    def enqueue(cls, *args, **kwargs):
-        """Enqueue an apply job, applying the plugin's default job timeout."""
-        if "job_timeout" not in kwargs:
-            kwargs["job_timeout"] = get_plugin_config("netbox_facts", "job_timeout", 1800)
-
-        return super().enqueue(*args, **kwargs)
-
     def run(self, request=None, *args, **kwargs):
         """Apply the report's pending entries, resolving them from the report itself."""
         from netbox_facts.helpers.applier import apply_entries
         from netbox_facts.models.facts_report import FactsReport
 
         report = FactsReport.objects.get(pk=self.job.object_id)
-        entry_pks = list(report.entries.filter(status=EntryStatusChoices.STATUS_PENDING).values_list("pk", flat=True))
+        entry_pks = list(report.pending_entries.values_list("pk", flat=True))
 
         if not entry_pks:
             self.logger.info("No pending entries to apply for report %s.", report.pk)
@@ -101,10 +102,7 @@ class ApplyEntriesJobRunner(JobRunner):
 
         # Reuse the request captured at enqueue time so object changes made by the
         # job are attributed to the user who confirmed the apply.
-        if request is not None:
-            with event_tracking(request):
-                applied, failed = apply_entries(report, entry_pks)
-        else:
+        with event_tracking(request) if request is not None else nullcontext():
             applied, failed = apply_entries(report, entry_pks)
 
         self.job.data = {"applied": applied, "failed": failed}

@@ -396,7 +396,7 @@ class FactsReportView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         entries = instance.entries.all()
-        pending_count = entries.filter(status=EntryStatusChoices.STATUS_PENDING).count()
+        pending_count = instance.pending_entries.count()
         applied_count = entries.filter(status=EntryStatusChoices.STATUS_APPLIED).count()
         skipped_count = entries.filter(status=EntryStatusChoices.STATUS_SKIPPED).count()
         failed_count = entries.filter(status=EntryStatusChoices.STATUS_FAILED).count()
@@ -507,7 +507,7 @@ class FactsReportApplyView(BaseObjectView):
 
         from .jobs import ApplyEntriesJobRunner
 
-        pending_count = report.entries.filter(status=EntryStatusChoices.STATUS_PENDING).count()
+        pending_count = report.pending_entries.count()
         if not pending_count:
             messages.warning(request, _("No pending entries to apply."))
             return redirect("plugins:netbox_facts:factsreport", pk=report.pk)

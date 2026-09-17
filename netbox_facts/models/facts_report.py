@@ -74,6 +74,11 @@ class FactsReport(BaseModel):
     def get_status_color(self):
         return ReportStatusChoices.colors.get(self.status)
 
+    @property
+    def pending_entries(self):
+        """Return this report's entries that are still awaiting apply."""
+        return self.entries.filter(status=EntryStatusChoices.STATUS_PENDING)
+
     def update_summary(self):
         """Recompute cached summary counts from entries."""
         from django.db.models import Count
