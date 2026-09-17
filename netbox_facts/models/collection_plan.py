@@ -167,6 +167,10 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         ordering = ["priority", "name"]
         verbose_name = _("Collection Plan")
         verbose_name_plural = _("Collection Plans")
+        permissions = [
+            ("run_collector", "Can run a collection plan"),
+            ("view_collector_results", "Can view collection plan run results"),
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -187,10 +191,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     @property
     def ready(self):
         """Return True if the collector is ready to be run."""
-        return self.enabled and self.status not in (
-            CollectorStatusChoices.QUEUED,
-            CollectorStatusChoices.WORKING,
-        )
+        return not self.run_disabled_reason
 
     @property
     def run_disabled_reason(self):
