@@ -41,6 +41,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- "Apply All Pending" on a facts report now asks for confirmation and runs
+  as a background job (`Facts Report Apply`) instead of applying inline in
+  the web request. The button posts a single flag and the pending entries
+  are resolved server-side, so the report page no longer renders one hidden
+  input per entry and large reports no longer risk a request timeout. Only
+  one apply job may be in flight per report. Applying a tick-selected subset
+  of entries is unchanged and still runs inline. (#134)
 - NetBox 4.7 support. CI adds a 4.7.0 lane alongside 4.5.10 and 4.6.10,
   Renovate keeps a `4.7.x` lane pinned to the newest release of that
   minor, and the coverage upload now runs on the 4.7 lane. The README
