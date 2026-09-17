@@ -193,6 +193,18 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         )
 
     @property
+    def run_disabled_reason(self):
+        """Return why the collection plan cannot currently be run."""
+        if not self.enabled:
+            return _("Plan is disabled")
+        if self.status in (
+            CollectorStatusChoices.QUEUED,
+            CollectorStatusChoices.WORKING,
+        ):
+            return _("A run is already queued or in progress")
+        return ""
+
+    @property
     def result(self):
         """Return the last created job"""
         return self.jobs.all().order_by("-created").first()
