@@ -99,7 +99,10 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
     url = serializers.HyperlinkedIdentityField(
         view_name="plugins-api:netbox_facts-api:collectionplan-detail",
     )
-    run_as = UserSerializer(nested=True, required=False, allow_null=True)
+    # Read-only: scheduled runs are enqueued as run_as unconditionally, while
+    # the interactive path only honors it for superusers. Letting any account
+    # with change permission set it would hand them another user's credentials.
+    run_as = UserSerializer(nested=True, read_only=True)
 
     def to_representation(self, instance):
         """Censor credential values stored in napalm_args."""

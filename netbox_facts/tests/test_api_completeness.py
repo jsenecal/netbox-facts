@@ -48,8 +48,33 @@ class CollectionPlanSerializerFieldsTest(TestCase):
     def test_schedule_is_writable(self):
         """A client can set the schedule fields when creating or updating a plan."""
         fields = CollectionPlanSerializer().fields
-        for field_name in ("interval", "scheduled_at", "run_as", "connection_target"):
+        for field_name in ("interval", "scheduled_at", "connection_target"):
             self.assertFalse(fields[field_name].read_only, msg=field_name)
+
+    def test_run_as_cannot_be_set_through_the_api(self):
+        """Scheduled runs are enqueued as run_as with no superuser check, so a
+        plan editor must not be able to pick whose credentials they run under.
+        """
+        plan = CollectionPlan.objects.create(
+            name="Attribution Plan",
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            napalm_driver="junos",
+            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+        )
+        target = User.objects.create_user(username="attribution-target")
+
+        serializer = CollectionPlanSerializer(
+            instance=plan,
+            data={"run_as": target.pk, "interval": 30},
+            partial=True,
+            context={"request": Request(APIRequestFactory().get("/"))},
+        )
+        self.assertTrue(serializer.is_valid(), msg=serializer.errors)
+        serializer.save()
+
+        plan.refresh_from_db()
+        self.assertIsNone(plan.run_as)
+        self.assertEqual(plan.interval, 30)
 
 
 class CollectionPlanCredentialMaskingTest(TestCase):
@@ -142,22 +167,30 @@ class FactsReportEntryAPITest(APITestCase):
             napalm_driver="junos",
             device_status=[DeviceStatusChoices.STATUS_ACTIVE],
         )
-        report = FactsReport.objects.create(collection_plan=plan)
+        cls.report = FactsReport.objects.create(collection_plan=plan)
         cls.pending_entry = FactsReportEntry.objects.create(
-            report=report,
+            report=cls.report,
             action=EntryActionChoices.ACTION_NEW,
             status=EntryStatusChoices.STATUS_PENDING,
             collector_type=CollectionTypeChoices.TYPE_ARP,
             device=device,
             object_repr="MACAddress AA:BB:CC:DD:EE:01",
         )
-        FactsReportEntry.objects.create(
-            report=report,
+        cls.applied_entry = FactsReportEntry.objects.create(
+            report=cls.report,
             action=EntryActionChoices.ACTION_NEW,
             status=EntryStatusChoices.STATUS_APPLIED,
             collector_type=CollectionTypeChoices.TYPE_ARP,
             device=device,
             object_repr="MACAddress AA:BB:CC:DD:EE:02",
+        )
+        FactsReportEntry.objects.create(
+            report=FactsReport.objects.create(collection_plan=plan),
+            action=EntryActionChoices.ACTION_NEW,
+            status=EntryStatusChoices.STATUS_APPLIED,
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            device=device,
+            object_repr="MACAddress AA:BB:CC:DD:EE:03",
         )
 
     def test_list_entries_filtered_by_status(self):
@@ -167,6 +200,18 @@ class FactsReportEntryAPITest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([entry["id"] for entry in response.data["results"]], [self.pending_entry.pk])
+
+    def test_entries_are_filtered_by_report(self):
+        """Listing the entries of one report is what the endpoint exists for."""
+        filtered = FactsReportEntryFilterSet(
+            {"report": str(self.report.pk)},
+            queryset=FactsReportEntry.objects.all(),
+        ).qs
+
+        self.assertCountEqual(
+            [entry.pk for entry in filtered],
+            [self.pending_entry.pk, self.applied_entry.pk],
+        )
 
 
 class GraphQLReportEntryPermissionTest(TestCase):
