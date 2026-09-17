@@ -173,6 +173,28 @@ class CollectionPlanModelTest(TestCase):
         plan = self._create_plan(status=CollectorStatusChoices.QUEUED)
         self.assertFalse(plan.ready)
 
+    def test_run_disabled_reason_when_disabled(self):
+        plan = self._create_plan(enabled=False)
+        self.assertEqual(str(plan.run_disabled_reason), "Plan is disabled")
+
+    def test_run_disabled_reason_when_working(self):
+        plan = self._create_plan(status=CollectorStatusChoices.WORKING)
+        self.assertEqual(
+            str(plan.run_disabled_reason),
+            "A run is already queued or in progress",
+        )
+
+    def test_run_disabled_reason_when_queued(self):
+        plan = self._create_plan(status=CollectorStatusChoices.QUEUED)
+        self.assertEqual(
+            str(plan.run_disabled_reason),
+            "A run is already queued or in progress",
+        )
+
+    def test_run_disabled_reason_when_ready(self):
+        plan = self._create_plan()
+        self.assertEqual(plan.run_disabled_reason, "")
+
     def test_get_devices_queryset_all(self):
         """With no filters, all devices should be returned."""
         d1 = self._create_device("dev1")

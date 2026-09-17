@@ -9,8 +9,8 @@ declares in `netbox_facts/__init__.py`.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `top_level_menu` | bool | `True` | Render the plugin as an **Operational Facts** top-level menu. When `False`, entries appear under **Plugins**. |
-| `napalm_username` | str | `""` | Default NAPALM username for device connections. Empty disables device login unless overridden per plan. |
-| `napalm_password` | str | `""` | Default NAPALM password. Empty disables device login unless overridden per plan. |
+| `napalm_username` | str | `""` | Default NAPALM username for device connections. If left empty and not overridden per plan, an empty username is passed to NAPALM and the connection fails per device. |
+| `napalm_password` | str | `""` | Default NAPALM password. If left empty and not overridden per plan, an empty password is passed to NAPALM and the connection fails per device. |
 | `napalm_timeout` | int | `60` | Connection timeout passed to the NAPALM driver as `optional_args["timeout"]` when the per-plan `napalm_args` does not already set it. |
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |
@@ -72,14 +72,20 @@ depending on network conditions. Each attempt logs the IP and the label
 ## Permissions
 
 The plugin ships standard Django permissions for each model
-(`view_*`, `add_*`, `change_*`, `delete_*`) plus a custom permission used
-by the apply workflow:
+(`view_*`, `add_*`, `change_*`, `delete_*`) plus custom permissions for
+actions that are not plain CRUD:
 
 - `netbox_facts.apply_factsreport` -- required to apply or skip pending
   entries on a `FactsReport`.
+- `netbox_facts.run_collector` -- required to trigger a run of a
+  `CollectionPlan` (the "Run" button and the run view).
+- `netbox_facts.view_collector_results` -- required to view the Results
+  tab on a `CollectionPlan`, which shows the outcome of its most recent
+  run.
 
-Grant the permission via the standard NetBox permission system to the user
-or group that should be allowed to mutate NetBox from a detect-only run.
+Grant these permissions via the standard NetBox permission system to the
+user or group that should be allowed to mutate NetBox from a detect-only
+run, trigger collection runs, or review run results.
 
 ## Job timeout vs NAPALM timeout
 
