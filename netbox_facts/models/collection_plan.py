@@ -191,10 +191,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     @property
     def ready(self):
         """Return True if the collector is ready to be run."""
-        return self.enabled and self.status not in (
-            CollectorStatusChoices.QUEUED,
-            CollectorStatusChoices.WORKING,
-        )
+        return self.not_ready_reason is None
 
     @property
     def not_ready_reason(self):
