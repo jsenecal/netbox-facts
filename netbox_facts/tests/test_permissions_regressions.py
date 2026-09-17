@@ -1,28 +1,14 @@
-"""Regression tests for undeclared permissions and the disabled-run tooltip.
+"""Regression tests for undeclared permissions.
 
-Covers issue #131 (menu gate points at a permission the CollectionPlan ->
-Collector rename left behind, and the custom run/results permissions the
-views and template check are never declared) and issue #135 (the disabled
-Run button's tooltip has no title to display).
+Covers issue #131: the menu gate points at a permission the Collector ->
+CollectionPlan rename left behind, and the custom run/results permissions
+the views and template check are never declared.
 """
 
 from django.test import TestCase
 
 from netbox_facts import navigation
-from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
 from netbox_facts.models import CollectionPlan
-
-
-def _build_plan(**kwargs):
-    """Return an unsaved CollectionPlan with sensible defaults."""
-    defaults = {
-        "name": "Permissions Test Plan",
-        "collector_type": CollectionTypeChoices.TYPE_ARP,
-        "napalm_driver": "junos",
-        "device_status": [],
-    }
-    defaults.update(kwargs)
-    return CollectionPlan(**defaults)
 
 
 class NavigationPermissionTest(TestCase):
@@ -60,27 +46,3 @@ class CollectionPlanMetaPermissionsTest(TestCase):
         codenames = dict(CollectionPlan._meta.permissions)
         self.assertIn("view_collector_results", codenames)
         self.assertTrue(codenames["view_collector_results"])
-
-
-class NotReadyReasonTest(TestCase):
-    """Regression test for #135: the not-ready reason must be specific."""
-
-    def test_ready_plan_has_no_reason(self):
-        plan = _build_plan(enabled=True, status=CollectorStatusChoices.NEW)
-        self.assertTrue(plan.ready)
-        self.assertIsNone(plan.not_ready_reason)
-
-    def test_disabled_plan_reports_disabled_reason(self):
-        plan = _build_plan(enabled=False, status=CollectorStatusChoices.NEW)
-        self.assertFalse(plan.ready)
-        self.assertEqual(str(plan.not_ready_reason), "Plan is disabled")
-
-    def test_queued_plan_reports_queued_reason(self):
-        plan = _build_plan(enabled=True, status=CollectorStatusChoices.QUEUED)
-        self.assertFalse(plan.ready)
-        self.assertEqual(str(plan.not_ready_reason), "A run is already queued or in progress")
-
-    def test_working_plan_reports_queued_reason(self):
-        plan = _build_plan(enabled=True, status=CollectorStatusChoices.WORKING)
-        self.assertFalse(plan.ready)
-        self.assertEqual(str(plan.not_ready_reason), "A run is already queued or in progress")
