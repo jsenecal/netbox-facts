@@ -10,6 +10,14 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The Collection Plans menu item now checks `view_collectionplan` instead of
+  the nonexistent `view_collector`, and the `run_collector` and
+  `view_collector_results` permissions checked by the Run button, run view,
+  and Results tab are now declared on `CollectionPlan.Meta.permissions`, so
+  these actions can be granted to non-superusers through Django groups. (#131)
+- The disabled Run button's tooltip now shows the actual reason a
+  `CollectionPlan` cannot be run ("Plan is disabled" or "A run is already
+  queued or in progress") instead of an empty tooltip. (#135)
 - Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
 - The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
 - A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)

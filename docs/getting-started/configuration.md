@@ -72,14 +72,20 @@ depending on network conditions. Each attempt logs the IP and the label
 ## Permissions
 
 The plugin ships standard Django permissions for each model
-(`view_*`, `add_*`, `change_*`, `delete_*`) plus a custom permission used
-by the apply workflow:
+(`view_*`, `add_*`, `change_*`, `delete_*`) plus custom permissions for
+actions that are not plain CRUD:
 
 - `netbox_facts.apply_factsreport` -- required to apply or skip pending
   entries on a `FactsReport`.
+- `netbox_facts.run_collector` -- required to trigger a run of a
+  `CollectionPlan` (the "Run" button and the run view).
+- `netbox_facts.view_collector_results` -- required to view the Results
+  tab on a `CollectionPlan`, which shows the outcome of its most recent
+  run.
 
-Grant the permission via the standard NetBox permission system to the user
-or group that should be allowed to mutate NetBox from a detect-only run.
+Grant these permissions via the standard NetBox permission system to the
+user or group that should be allowed to mutate NetBox from a detect-only
+run, trigger collection runs, or review run results.
 
 ## Job timeout vs NAPALM timeout
 
