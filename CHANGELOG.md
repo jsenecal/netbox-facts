@@ -32,6 +32,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- `CollectionPlanSerializer` now exposes the scheduling and connection fields
+  (`interval`, `scheduled_at`, `last_run`, `run_as`, `connection_target`), so
+  recurring collection plans can be created and inspected over REST. `last_run`
+  is read-only; NAPALM credentials stay censored. (#151)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template
