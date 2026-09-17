@@ -33,5 +33,4 @@ the first 2000 characters of the raw `show evpn mac-table` output.
   encapsulation context out of the EVPN output.
 - Only Junos is supported. Adding another vendor requires implementing
   `_evpn_<vendor>(self, driver)` and registering the driver in the
-  `vendor_map` inside `_get_vendor_method()`. See
-  [Vendor Dispatch](../developer/vendor-dispatch.md).
+  `vendor_map` inside `_get_vendor_method()`.
