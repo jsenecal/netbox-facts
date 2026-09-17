@@ -6,7 +6,6 @@ other installed plugin, so each type here carries a "Facts" prefix.
 
 import strawberry_django
 from netbox.graphql.types import BaseObjectType, NetBoxObjectType
-from utilities.querysets import RestrictedQuerySet
 
 from netbox_facts import models
 
@@ -82,13 +81,4 @@ class FactsReportType(BaseObjectType):
     pagination=True,
 )
 class FactsReportEntryType(BaseObjectType):
-    @classmethod
-    def get_queryset(cls, queryset, info, **kwargs):
-        """Restrict entries to those the requesting user may view.
-
-        The inherited implementation relies on the queryset carrying
-        RestrictedQuerySet.restrict(), which the entry model's default
-        manager does not provide.
-        """
-        permitted = RestrictedQuerySet(model=models.FactsReportEntry).restrict(info.context.request.user, "view")
-        return queryset.filter(pk__in=permitted.values("pk"))
+    pass

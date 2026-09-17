@@ -62,10 +62,45 @@ state.
   pending entries. Body: `{"entries": [pk, ...]}`.
 - `POST /api/plugins/facts/factsreports/<id>/skip/` -- bulk-skip selected
   pending entries. Same body.
+- `GET /api/plugins/facts/factsreportentries/` -- list/filter entries.
+- `GET /api/plugins/facts/factsreportentries/<id>/` -- single entry.
 
 The `apply` and `skip` endpoints validate that all submitted entry PKs
 belong to the report (returns `400` if not) and are throttled to 30
 requests per minute per user.
+
+The entry endpoint is read-only: entries are produced by a collection run
+and resolved through the report-level `apply` and `skip` actions, never
+created or edited directly. It is how an API client discovers the entry
+PKs to pass in those request bodies, for example:
+
+```
+GET /api/plugins/facts/factsreportentries/?report=12&status=pending
+```
+
+Supported filters are `report`, `action`, `status`, `collector_type`, and
+`device`. `action`, `status`, and `collector_type` accept multiple values
+(repeat the parameter). Results are limited to the entries the requesting
+user is permitted to view.
+
+## GraphQL
+
+The plugin contributes five object types to NetBox's GraphQL schema. Type
+names share a global namespace with core and every other plugin, so each
+one carries a `Facts` prefix:
+
+| Type | Query fields |
+|---|---|
+| `FactsMACAddressType` | `facts_mac_address`, `facts_mac_address_list` |
+| `FactsMACVendorType` | `facts_mac_vendor`, `facts_mac_vendor_list` |
+| `FactsCollectionPlanType` | `facts_collection_plan`, `facts_collection_plan_list` |
+| `FactsReportType` | `facts_report`, `facts_report_list` |
+| `FactsReportEntryType` | `facts_report_entry`, `facts_report_entry_list` |
+
+`napalm_args` is excluded from `FactsCollectionPlanType`: it holds
+connection credentials, which are never exposed through GraphQL. Queries
+are filtered by the requesting user's object permissions, the same as the
+REST endpoints.
 
 ## Filters
 

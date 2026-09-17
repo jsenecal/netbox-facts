@@ -141,7 +141,54 @@ class FactsReportEntryViewSetWiringTest(TestCase):
         self.assertTrue(hasattr(FactsReportEntryViewSet.queryset, "restrict"))
 
 
-class FactsReportEntryAPITest(APITestCase):
+class ReportEntryFixtureMixin:
+    """Builds the device/plan/report chain the entry tests hang their entries off.
+
+    The REST and GraphQL entry suites need the same scaffolding and differ only
+    in the entries they create, so both build it from here.
+    """
+
+    @classmethod
+    def create_report(cls, prefix):
+        """Create a device, plan and report. Returns (device, report)."""
+        slug = prefix.lower()
+        site = Site.objects.create(name=f"{prefix} Site", slug=f"{slug}-site")
+        manufacturer = Manufacturer.objects.create(name=f"{prefix}Mfg", slug=f"{slug}mfg")
+        device_type = DeviceType.objects.create(
+            manufacturer=manufacturer,
+            model=f"{prefix}Model",
+            slug=f"{slug}model",
+        )
+        role = DeviceRole.objects.create(name=f"{prefix}Role", slug=f"{slug}role")
+        device = Device.objects.create(
+            name=f"{slug}-dev",
+            site=site,
+            device_type=device_type,
+            role=role,
+            status=DeviceStatusChoices.STATUS_ACTIVE,
+        )
+        plan = CollectionPlan.objects.create(
+            name=f"{prefix} Plan",
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            napalm_driver="junos",
+            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+        )
+        return device, FactsReport.objects.create(collection_plan=plan)
+
+    @staticmethod
+    def create_entry(report, device, status, object_repr):
+        """Create a single 'new' ARP entry on the given report."""
+        return FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            status=status,
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            device=device,
+            object_repr=object_repr,
+        )
+
+
+class FactsReportEntryAPITest(ReportEntryFixtureMixin, APITestCase):
     """The entry list endpoint must expose filterable entries to API clients (#151)."""
 
     model = FactsReportEntry
@@ -150,47 +197,24 @@ class FactsReportEntryAPITest(APITestCase):
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="Entry Site", slug="entry-site")
-        manufacturer = Manufacturer.objects.create(name="EntryMfg", slug="entrymfg")
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="EntryModel", slug="entrymodel")
-        role = DeviceRole.objects.create(name="EntryRole", slug="entryrole")
-        device = Device.objects.create(
-            name="entry-dev",
-            site=site,
-            device_type=device_type,
-            role=role,
-            status=DeviceStatusChoices.STATUS_ACTIVE,
+        device, cls.report = cls.create_report("Entry")
+        cls.pending_entry = cls.create_entry(
+            cls.report,
+            device,
+            EntryStatusChoices.STATUS_PENDING,
+            "MACAddress AA:BB:CC:DD:EE:01",
         )
-        plan = CollectionPlan.objects.create(
-            name="Entry Plan",
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            napalm_driver="junos",
-            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+        cls.applied_entry = cls.create_entry(
+            cls.report,
+            device,
+            EntryStatusChoices.STATUS_APPLIED,
+            "MACAddress AA:BB:CC:DD:EE:02",
         )
-        cls.report = FactsReport.objects.create(collection_plan=plan)
-        cls.pending_entry = FactsReportEntry.objects.create(
-            report=cls.report,
-            action=EntryActionChoices.ACTION_NEW,
-            status=EntryStatusChoices.STATUS_PENDING,
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            device=device,
-            object_repr="MACAddress AA:BB:CC:DD:EE:01",
-        )
-        cls.applied_entry = FactsReportEntry.objects.create(
-            report=cls.report,
-            action=EntryActionChoices.ACTION_NEW,
-            status=EntryStatusChoices.STATUS_APPLIED,
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            device=device,
-            object_repr="MACAddress AA:BB:CC:DD:EE:02",
-        )
-        FactsReportEntry.objects.create(
-            report=FactsReport.objects.create(collection_plan=plan),
-            action=EntryActionChoices.ACTION_NEW,
-            status=EntryStatusChoices.STATUS_APPLIED,
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            device=device,
-            object_repr="MACAddress AA:BB:CC:DD:EE:03",
+        cls.create_entry(
+            FactsReport.objects.create(collection_plan=cls.report.collection_plan),
+            device,
+            EntryStatusChoices.STATUS_APPLIED,
+            "MACAddress AA:BB:CC:DD:EE:03",
         )
 
     def test_list_entries_filtered_by_status(self):
@@ -214,40 +238,21 @@ class FactsReportEntryAPITest(APITestCase):
         )
 
 
-class GraphQLReportEntryPermissionTest(TestCase):
+class GraphQLReportEntryPermissionTest(ReportEntryFixtureMixin, TestCase):
     """GraphQL entry queries must honor object permissions (#151).
 
-    FactsReportEntry keeps Django's default manager, so the object type has to
-    restrict the queryset itself.
+    The entry model's default manager yields a RestrictedQuerySet, so the
+    inherited BaseObjectType.get_queryset does the filtering.
     """
 
     @classmethod
     def setUpTestData(cls):
-        site = Site.objects.create(name="GraphQL Site", slug="graphql-site")
-        manufacturer = Manufacturer.objects.create(name="GraphQLMfg", slug="graphqlmfg")
-        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="GraphQLModel", slug="graphqlmodel")
-        role = DeviceRole.objects.create(name="GraphQLRole", slug="graphqlrole")
-        device = Device.objects.create(
-            name="graphql-dev",
-            site=site,
-            device_type=device_type,
-            role=role,
-            status=DeviceStatusChoices.STATUS_ACTIVE,
-        )
-        plan = CollectionPlan.objects.create(
-            name="GraphQL Plan",
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            napalm_driver="junos",
-            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
-        )
-        report = FactsReport.objects.create(collection_plan=plan)
-        FactsReportEntry.objects.create(
-            report=report,
-            action=EntryActionChoices.ACTION_NEW,
-            status=EntryStatusChoices.STATUS_PENDING,
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            device=device,
-            object_repr="MACAddress AA:BB:CC:DD:EE:03",
+        device, report = cls.create_report("GraphQL")
+        cls.create_entry(
+            report,
+            device,
+            EntryStatusChoices.STATUS_PENDING,
+            "MACAddress AA:BB:CC:DD:EE:03",
         )
 
     def test_entries_are_hidden_from_users_without_permission(self):

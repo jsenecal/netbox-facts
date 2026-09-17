@@ -4,7 +4,6 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
-from utilities.querysets import RestrictedQuerySet
 
 from .. import filtersets, models
 from ..exceptions import OperationNotSupported
@@ -135,11 +134,9 @@ class FactsReportEntryViewSet(NetBoxReadOnlyModelViewSet):
 
     Entries are never created or edited directly: they are produced by a
     collection run and resolved through the report-level apply/skip actions.
-    The queryset is built from a RestrictedQuerySet so that object-level
-    permissions are enforced, which the model's default manager cannot do.
     """
 
-    queryset = RestrictedQuerySet(model=models.FactsReportEntry).select_related(
+    queryset = models.FactsReportEntry.objects.select_related(
         "report",
         "device",
         "object_type",
