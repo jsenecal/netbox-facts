@@ -32,13 +32,17 @@ class FactsConfig(PluginConfig):
         "global_napalm_args": {},
         "valid_interfaces_re": ".*",
         "job_timeout": 1800,
+        "report_retention_days": 0,
     }
 
     def ready(self):
         super().ready()
-        from netbox_facts import (
+        # Imported for their side effects: signals connects the model receivers
+        # and retention registers the report pruning job as a NetBox system job.
+        from netbox_facts import (  # pylint: disable=import-outside-toplevel,unused-import # noqa: F401
+            retention,
             signals,
-        )  # pylint: disable=import-outside-toplevel,unused-import
+        )
 
         logger.info("%s plugin loaded", self.name)
 
