@@ -1,10 +1,12 @@
 import logging
 
+from core.choices import JobStatusChoices
 from django.db import DatabaseError
+from netbox.context_managers import event_tracking
 from netbox.jobs import JobRunner
 from netbox.plugins.utils import get_plugin_config
 
-from netbox_facts.choices import CollectorStatusChoices
+from netbox_facts.choices import CollectorStatusChoices, EntryStatusChoices
 
 logger = logging.getLogger(__name__)
 
@@ -61,3 +63,49 @@ class CollectionJobRunner(JobRunner):
                     plan.pk,
                     exc_info=True,
                 )
+
+
+class ApplyEntriesJobRunner(JobRunner):
+    """JobRunner that applies every pending entry of a FactsReport."""
+
+    class Meta:
+        name = "Facts Report Apply"
+
+    @classmethod
+    def get_active_jobs(cls, report):
+        """Return the apply jobs for this report that are queued, scheduled, or running."""
+        return cls.get_jobs(report).filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES)
+
+    @classmethod
+    def enqueue(cls, *args, **kwargs):
+        """Enqueue an apply job, applying the plugin's default job timeout."""
+        if "job_timeout" not in kwargs:
+            kwargs["job_timeout"] = get_plugin_config("netbox_facts", "job_timeout", 1800)
+
+        return super().enqueue(*args, **kwargs)
+
+    def run(self, request=None, *args, **kwargs):
+        """Apply the report's pending entries, resolving them from the report itself."""
+        from netbox_facts.helpers.applier import apply_entries
+        from netbox_facts.models.facts_report import FactsReport
+
+        report = FactsReport.objects.get(pk=self.job.object_id)
+        entry_pks = list(report.entries.filter(status=EntryStatusChoices.STATUS_PENDING).values_list("pk", flat=True))
+
+        if not entry_pks:
+            self.logger.info("No pending entries to apply for report %s.", report.pk)
+            self.job.data = {"applied": 0, "failed": 0}
+            return
+
+        self.logger.info("Applying %s pending entries for report %s.", len(entry_pks), report.pk)
+
+        # Reuse the request captured at enqueue time so object changes made by the
+        # job are attributed to the user who confirmed the apply.
+        if request is not None:
+            with event_tracking(request):
+                applied, failed = apply_entries(report, entry_pks)
+        else:
+            applied, failed = apply_entries(report, entry_pks)
+
+        self.job.data = {"applied": applied, "failed": failed}
+        self.logger.info("Applied %s entries; %s failed.", applied, failed)
