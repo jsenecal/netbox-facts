@@ -32,7 +32,7 @@ class MACAddressTable(DatedNetboxTable):
 
     mac_address = tables.Column(linkify=True)
     vendor = tables.Column(linkify=True)
-    occurences = tables.Column(accessor="occurences", verbose_name=_("Occurences"))
+    occurences = tables.Column(accessor="occurences", verbose_name=_("Occurrences"))
     last_seen = DateTimeColumn()
 
     class Meta(NetBoxTable.Meta):
