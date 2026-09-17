@@ -1,0 +1,30 @@
+{% extends 'generic/confirmation_form.html' %}
+{% load i18n %}
+
+{% comment %}
+Confirmation step for "Apply All Pending" on a facts report.
+
+Context:
+  - object:         The FactsReport whose pending entries will be applied
+  - pending_count:  Number of entries that will be applied
+  - form:           ConfirmationForm
+  - return_url:     URL to return to on cancel
+{% endcomment %}
+
+{% block title %}{% trans "Apply All Pending Entries" %}?{% endblock %}
+
+{% block confirmation_title %}{% trans "Confirm Apply All Pending" %}{% endblock %}
+
+{% block message %}
+  {# Re-posted so the confirmed submission takes the apply-all path. #}
+  <input type="hidden" name="apply_all" value="1">
+  <p>
+    {% blocktrans trimmed with count=pending_count report=object %}
+      This will apply <strong>{{ count }}</strong> pending entries from {{ report }} to NetBox,
+      creating and updating objects. Entries that fail are marked failed and left for review.
+    {% endblocktrans %}
+  </p>
+  <p class="text-muted mb-0">
+    {% trans "The apply runs as a background job; you will be returned to the report with a link to it." %}
+  </p>
+{% endblock %}
