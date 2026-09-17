@@ -200,6 +200,17 @@ class FactsReportEntryTable(NetBoxTable):
             "error_message",
         )
 
+    def _visible_labeled_keys(self, keys):
+        """Yield (key, label) pairs for sorted keys, skipping SKIP_FIELDS.
+
+        Shared by every render_details loop so the skip/label preamble is
+        defined once instead of repeated per diff group.
+        """
+        for key in sorted(keys):
+            if key in self.SKIP_FIELDS:
+                continue
+            yield key, self.LABEL_MAP.get(key, key)
+
     def render_details(self, record):
         detected = record.detected_values or {}
         current = record.current_values or {}
@@ -209,34 +220,19 @@ class FactsReportEntryTable(NetBoxTable):
             detected_keys = set(detected)
             current_keys = set(current)
 
-            for key in sorted(detected_keys & current_keys):
-                if key in self.SKIP_FIELDS:
-                    continue
+            for key, label in self._visible_labeled_keys(detected_keys & current_keys):
                 old, new = current[key], detected[key]
                 if str(old) != str(new):
-                    label = self.LABEL_MAP.get(key, key)
                     lines.append(f"**{label}**: {old} → {new}")
-            for key in sorted(detected_keys - current_keys):
-                if key in self.SKIP_FIELDS:
-                    continue
-                label = self.LABEL_MAP.get(key, key)
+            for key, label in self._visible_labeled_keys(detected_keys - current_keys):
                 lines.append(f"**{label}**: {self.ABSENT} → {detected[key]}")
-            for key in sorted(current_keys - detected_keys):
-                if key in self.SKIP_FIELDS:
-                    continue
-                label = self.LABEL_MAP.get(key, key)
+            for key, label in self._visible_labeled_keys(current_keys - detected_keys):
                 lines.append(f"**{label}**: {current[key]} → {self.ABSENT}")
         elif record.action == EntryActionChoices.ACTION_NEW:
-            for key in sorted(detected):
-                if key in self.SKIP_FIELDS:
-                    continue
-                label = self.LABEL_MAP.get(key, key)
+            for key, label in self._visible_labeled_keys(detected):
                 lines.append(f"**{label}**: {detected[key]}")
         elif record.action == EntryActionChoices.ACTION_STALE:
-            for key in sorted(current):
-                if key in self.SKIP_FIELDS:
-                    continue
-                label = self.LABEL_MAP.get(key, key)
+            for key, label in self._visible_labeled_keys(current):
                 lines.append(f"**{label}**: {current[key]}")
 
         return "  \n".join(lines)
