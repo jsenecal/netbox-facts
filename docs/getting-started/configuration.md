@@ -103,6 +103,8 @@ automatically.
 Set the value to a positive number of days to enable the **Facts Report
 Retention** job. It is registered with NetBox as a system job and runs once
 per day from the RQ worker; no cron entry or extra configuration is needed.
+The schedule itself is created when the RQ worker starts, so restart the
+worker after installing or upgrading the plugin for the job to appear.
 Each pass deletes the reports (and their entries, by cascade) that were
 created strictly more than `report_retention_days` ago. A report aged exactly
 that many days is kept until the next pass.
