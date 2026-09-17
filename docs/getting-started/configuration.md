@@ -9,8 +9,8 @@ declares in `netbox_facts/__init__.py`.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `top_level_menu` | bool | `True` | Render the plugin as an **Operational Facts** top-level menu. When `False`, entries appear under **Plugins**. |
-| `napalm_username` | str | `""` | Default NAPALM username for device connections. Empty disables device login unless overridden per plan. |
-| `napalm_password` | str | `""` | Default NAPALM password. Empty disables device login unless overridden per plan. |
+| `napalm_username` | str | `""` | Default NAPALM username for device connections. If left empty and not overridden per plan, an empty username is passed to NAPALM and the connection fails per device. |
+| `napalm_password` | str | `""` | Default NAPALM password. If left empty and not overridden per plan, an empty password is passed to NAPALM and the connection fails per device. |
 | `napalm_timeout` | int | `60` | Connection timeout passed to the NAPALM driver as `optional_args["timeout"]` when the per-plan `napalm_args` does not already set it. |
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |

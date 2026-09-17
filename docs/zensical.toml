@@ -34,19 +34,6 @@ nav = [
     { "BGP" = "collectors/bgp.md" },
     { "OSPF" = "collectors/ospf.md" },
   ] },
-  { "Reference" = [
-    { "Models" = "reference/models.md" },
-    { "REST API" = "reference/rest-api.md" },
-    { "Settings" = "reference/settings.md" },
-    { "Choices" = "reference/choices.md" },
-    { "Tags and Markers" = "reference/tags.md" },
-  ] },
-  { "Developer Guide" = [
-    { "Architecture" = "developer/architecture.md" },
-    { "Vendor Dispatch" = "developer/vendor-dispatch.md" },
-    { "netbox-routing Integration" = "developer/netbox-routing.md" },
-    { "Testing" = "developer/testing.md" },
-  ] },
   { "Contributing" = "contributing.md" },
   { "Changelog" = "changelog.md" },
 ]

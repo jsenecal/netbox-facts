@@ -35,5 +35,6 @@ L2 circuit data collected:
 
 - No structured circuit objects are created (NetBox core does not yet
   ship a generic L2 circuit model that this plugin can target).
-- Only Junos is supported. See
-  [Vendor Dispatch](../developer/vendor-dispatch.md) for adding a vendor.
+- Only Junos is supported. Adding another vendor requires implementing a
+  new vendor-specific collection method and registering it in the
+  collector's vendor dispatch map.

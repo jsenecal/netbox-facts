@@ -34,9 +34,12 @@ re-run on a configurable interval.
   [Quick Start](getting-started/quick-start.md).
 - Operators: read [Collection Plans](user-guide/collection-plans.md) and
   [Detect-Only Workflow](user-guide/detect-only.md).
-- Integrators: read the [REST API](reference/rest-api.md) reference.
-- Plugin developers: read [Architecture](developer/architecture.md) and
-  [Vendor Dispatch](developer/vendor-dispatch.md).
+- Integrators: the plugin exposes its models through NetBox's standard
+  REST API and browsable API explorer at `/api/plugins/facts/`; there is
+  no separate reference doc yet.
+- Plugin developers: read the [Collectors Overview](collectors/index.md)
+  and browse `netbox_facts/helpers/collector.py` for the vendor dispatch
+  pattern used by each collector.
 - Evaluating against NetBox Labs' discovery stack: read
   [netbox-facts and NetBox Discovery](discovery-and-orb.md).
 
