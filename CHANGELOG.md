@@ -32,6 +32,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Optional Facts Report retention: the new `report_retention_days` plugin
+  setting (default `0`, meaning keep forever) enables a daily
+  "Facts Report Retention" system job that deletes reports older than the
+  configured window. Reports holding pending entries are never pruned, so
+  work awaiting review cannot age out. (#152)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template
