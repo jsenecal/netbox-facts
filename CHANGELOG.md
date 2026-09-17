@@ -10,6 +10,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
 - The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
 - A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)

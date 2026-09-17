@@ -164,6 +164,7 @@ class FactsReportEntryTable(NetBoxTable):
         "remote_address": "peer",
         "remote_as": "AS",
     }
+    ABSENT = "(not set)"
 
     pk = ToggleColumn()
     action = ChoiceFieldColumn()
@@ -205,13 +206,26 @@ class FactsReportEntryTable(NetBoxTable):
         lines = []
 
         if record.action == EntryActionChoices.ACTION_CHANGED:
-            for key in sorted(set(detected) & set(current)):
+            detected_keys = set(detected)
+            current_keys = set(current)
+
+            for key in sorted(detected_keys & current_keys):
                 if key in self.SKIP_FIELDS:
                     continue
                 old, new = current[key], detected[key]
                 if str(old) != str(new):
                     label = self.LABEL_MAP.get(key, key)
                     lines.append(f"**{label}**: {old} → {new}")
+            for key in sorted(detected_keys - current_keys):
+                if key in self.SKIP_FIELDS:
+                    continue
+                label = self.LABEL_MAP.get(key, key)
+                lines.append(f"**{label}**: {self.ABSENT} → {detected[key]}")
+            for key in sorted(current_keys - detected_keys):
+                if key in self.SKIP_FIELDS:
+                    continue
+                label = self.LABEL_MAP.get(key, key)
+                lines.append(f"**{label}**: {current[key]} → {self.ABSENT}")
         elif record.action == EntryActionChoices.ACTION_NEW:
             for key in sorted(detected):
                 if key in self.SKIP_FIELDS:
