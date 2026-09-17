@@ -2,8 +2,6 @@
 
 from datetime import timedelta
 
-from dcim.choices import DeviceStatusChoices
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.conf import settings
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
@@ -13,13 +11,14 @@ from netbox_facts.choices import (
     EntryActionChoices,
     EntryStatusChoices,
 )
-from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
+from netbox_facts.models import FactsReport, FactsReportEntry
 from netbox_facts.retention import (
     FactsReportRetentionJob,
     get_prunable_reports,
     get_retention_days,
     prune_reports,
 )
+from netbox_facts.tests.test_helpers import CollectorTestMixin
 
 RETENTION_DAYS = 30
 
@@ -63,27 +62,17 @@ class ReportRetentionSettingTest(SimpleTestCase):
                 self.assertEqual(get_retention_days(), 0)
 
 
-class ReportRetentionSelectionTest(TestCase):
+class ReportRetentionSelectionTest(CollectorTestMixin, TestCase):
     """Tests for the pure selection helper used by the retention job."""
 
     @classmethod
     def setUpTestData(cls):
-        cls.site = Site.objects.create(name="Retention Site", slug="retention-site")
-        cls.manufacturer = Manufacturer.objects.create(name="RetMfg", slug="retmfg")
-        cls.device_type = DeviceType.objects.create(manufacturer=cls.manufacturer, model="RetModel", slug="retmodel")
-        cls.role = DeviceRole.objects.create(name="RetRole", slug="retrole")
-        cls.device = Device.objects.create(
-            name="retention-dev",
-            site=cls.site,
-            device_type=cls.device_type,
-            role=cls.role,
-            status=DeviceStatusChoices.STATUS_ACTIVE,
-        )
-        cls.plan = CollectionPlan.objects.create(
+        super().setUpTestData()
+        cls.device = cls._create_device(cls, "retention-dev")
+        cls.plan = cls._create_plan(
+            cls,
             name="Retention Plan",
             collector_type=CollectionTypeChoices.TYPE_ARP,
-            napalm_driver="junos",
-            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
         )
 
     def setUp(self):

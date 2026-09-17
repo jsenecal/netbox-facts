@@ -29,12 +29,18 @@ RETENTION_SETTING = "report_retention_days"
 # after years of collection does not assemble one enormous cascade delete.
 PRUNE_BATCH_SIZE = 1000
 
+# Shared with FactsReportRetentionJob.run() so the module logger and the job
+# logger always report the same outcome in the same words.
+DISABLED_MESSAGE = "Facts report retention is disabled (%s = 0); no reports deleted"
+PRUNE_SUMMARY_MESSAGE = "Pruned %d facts report(s) older than %d day(s) (created before %s)"
+
 
 class PruneResult(NamedTuple):
     """Outcome of a single pruning pass."""
 
     deleted: int
     cutoff: datetime | None
+    days: int
 
 
 def get_retention_days() -> int:
@@ -90,7 +96,7 @@ def prune_reports(retention_days: int | None = None, now: datetime | None = None
     cutoff = get_retention_cutoff(days, now=now)
     if cutoff is None:
         logger.debug("Facts report retention is disabled; nothing pruned")
-        return PruneResult(deleted=0, cutoff=None)
+        return PruneResult(deleted=0, cutoff=None, days=0)
 
     queryset = get_prunable_reports(days, now=now)
     deleted = 0
@@ -98,13 +104,8 @@ def prune_reports(retention_days: int | None = None, now: datetime | None = None
         FactsReport.objects.filter(pk__in=batch).delete()
         deleted += len(batch)
 
-    logger.info(
-        "Pruned %d facts report(s) older than %d day(s) (created before %s)",
-        deleted,
-        days,
-        cutoff.isoformat(),
-    )
-    return PruneResult(deleted=deleted, cutoff=cutoff)
+    logger.info(PRUNE_SUMMARY_MESSAGE, deleted, days, cutoff.isoformat())
+    return PruneResult(deleted=deleted, cutoff=cutoff, days=days)
 
 
 @system_job(interval=JobIntervalChoices.INTERVAL_DAILY)
@@ -115,18 +116,9 @@ class FactsReportRetentionJob(JobRunner):
         name = "Facts Report Retention"
 
     def run(self, *args, **kwargs):
-        days = get_retention_days()
-        if days <= 0:
-            self.logger.info(
-                "Facts report retention is disabled (%s = 0); no reports deleted",
-                RETENTION_SETTING,
-            )
+        result = prune_reports()
+        if result.cutoff is None:
+            self.logger.info(DISABLED_MESSAGE, RETENTION_SETTING)
             return
 
-        result = prune_reports(days)
-        self.logger.info(
-            "Deleted %d facts report(s) older than %d day(s) (created before %s)",
-            result.deleted,
-            days,
-            result.cutoff.isoformat(),
-        )
+        self.logger.info(PRUNE_SUMMARY_MESSAGE, result.deleted, result.days, result.cutoff.isoformat())
