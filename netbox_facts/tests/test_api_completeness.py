@@ -1,14 +1,24 @@
 """Tests for REST API completeness (regression tests for #151)."""
 
 from dcim.choices import DeviceStatusChoices
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.test import TestCase
 from netbox.constants import CENSOR_TOKEN
+from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from utilities.testing import APITestCase
 
-from netbox_facts.api.serializers import CollectionPlanSerializer
-from netbox_facts.choices import CollectionTypeChoices, ConnectionTargetChoices
-from netbox_facts.models import CollectionPlan
+from netbox_facts.api.serializers import CollectionPlanSerializer, FactsReportEntrySerializer
+from netbox_facts.api.views import FactsReportEntryViewSet
+from netbox_facts.choices import (
+    CollectionTypeChoices,
+    ConnectionTargetChoices,
+    EntryActionChoices,
+    EntryStatusChoices,
+)
+from netbox_facts.filtersets import FactsReportEntryFilterSet
+from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
 
 
 class CollectionPlanSerializerFieldsTest(TestCase):
@@ -80,3 +90,75 @@ class CollectionPlanCredentialMaskingTest(TestCase):
         self.assertEqual(plan.napalm_args["username"], "admin")
         self.assertEqual(plan.napalm_args["password"], "s3cret")
         self.assertEqual(plan.interval, 120)
+
+
+class FactsReportEntryViewSetWiringTest(TestCase):
+    """The entry viewset must be read-only and reuse the existing API plumbing (#151)."""
+
+    def test_viewset_reuses_existing_serializer_and_filterset(self):
+        """The viewset is bound to the entry model, serializer and filterset."""
+        self.assertIs(FactsReportEntryViewSet.queryset.model, FactsReportEntry)
+        self.assertIs(FactsReportEntryViewSet.serializer_class, FactsReportEntrySerializer)
+        self.assertIs(FactsReportEntryViewSet.filterset_class, FactsReportEntryFilterSet)
+
+    def test_viewset_exposes_no_write_handlers(self):
+        """Entries are mutated through the report apply/skip actions only."""
+        for handler in ("create", "update", "partial_update", "destroy", "bulk_update", "bulk_destroy"):
+            self.assertFalse(hasattr(FactsReportEntryViewSet, handler), msg=handler)
+
+    def test_queryset_is_restrictable(self):
+        """Object-level permission enforcement requires a restrictable queryset."""
+        self.assertTrue(hasattr(FactsReportEntryViewSet.queryset, "restrict"))
+
+
+class FactsReportEntryAPITest(APITestCase):
+    """The entry list endpoint must expose filterable entries to API clients (#151)."""
+
+    model = FactsReportEntry
+    view_namespace = "plugins-api:netbox_facts"
+    user_permissions = ("netbox_facts.view_factsreportentry",)
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="Entry Site", slug="entry-site")
+        manufacturer = Manufacturer.objects.create(name="EntryMfg", slug="entrymfg")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="EntryModel", slug="entrymodel")
+        role = DeviceRole.objects.create(name="EntryRole", slug="entryrole")
+        device = Device.objects.create(
+            name="entry-dev",
+            site=site,
+            device_type=device_type,
+            role=role,
+            status=DeviceStatusChoices.STATUS_ACTIVE,
+        )
+        plan = CollectionPlan.objects.create(
+            name="Entry Plan",
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            napalm_driver="junos",
+            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+        )
+        report = FactsReport.objects.create(collection_plan=plan)
+        cls.pending_entry = FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            status=EntryStatusChoices.STATUS_PENDING,
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            device=device,
+            object_repr="MACAddress AA:BB:CC:DD:EE:01",
+        )
+        FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            status=EntryStatusChoices.STATUS_APPLIED,
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            device=device,
+            object_repr="MACAddress AA:BB:CC:DD:EE:02",
+        )
+
+    def test_list_entries_filtered_by_status(self):
+        """Clients can discover the PKs of pending entries to apply or skip."""
+        url = f"{self._get_list_url()}?status={EntryStatusChoices.STATUS_PENDING}"
+        response = self.client.get(url, **self.header)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([entry["id"] for entry in response.data["results"]], [self.pending_entry.pk])

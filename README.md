@@ -17,7 +17,7 @@ Gather operational facts from supported NetBox Devices using [NAPALM](https://na
 - **Detect-only mode**: Collection plans can produce a report without modifying NetBox objects — changes can be reviewed and selectively applied or skipped
 - **Auto-scheduling**: Interval-based recurring collection via NetBox's JobRunner framework, with priority queues (high/default/low)
 - **MAC address tracking**: Discovered MAC addresses linked to interfaces and IP addresses, with automatic OUI vendor lookup
-- **REST API**: Full CRUD endpoints for MAC addresses, MAC vendors, collection plans, and facts reports
+- **REST API**: Full CRUD endpoints for MAC addresses, MAC vendors, collection plans, and facts reports, plus a read-only endpoint for report entries
 - **Optional BGP integration**: Works with the [netbox-routing](https://github.com/netbox-community/netbox-routing) plugin for BGP session data
 - **Vendor-specific NAPALM drivers**: Extended Junos driver with enhanced ARP/NDP collection
 

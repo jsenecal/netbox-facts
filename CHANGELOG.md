@@ -32,6 +32,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Read-only REST endpoint `/api/plugins/facts/factsreportentries/` listing the
+  entries of a facts report, so API clients can discover the entry PKs that the
+  report-level apply and skip actions take. Entries can be filtered by action,
+  status, collector type, and device. (#151)
 - `CollectionPlanSerializer` now exposes the scheduling and connection fields
   (`interval`, `scheduled_at`, `last_run`, `run_as`, `connection_target`), so
   recurring collection plans can be created and inspected over REST. `last_run`
