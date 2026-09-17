@@ -4,7 +4,6 @@ from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from dcim.filtersets import InterfaceFilterSet
 from dcim.models import Interface
-from dcim.tables import InterfaceTable
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, OuterRef, Q, Subquery
@@ -17,7 +16,6 @@ from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
 from netbox import object_actions
-from netbox.tables.columns import DateTimeColumn
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
 from utilities.htmx import htmx_partial
@@ -78,16 +76,6 @@ def _annotate_interface_last_seen(queryset, mac_address):
     return queryset.annotate(last_seen=Subquery(last_seen.values("last_updated")[:1]))
 
 
-class MACInterfaceTable(InterfaceTable):
-    """Interface table extended with the MAC-to-interface link timestamp."""
-
-    last_seen = DateTimeColumn(verbose_name=_("Last Seen"))
-
-    class Meta(InterfaceTable.Meta):
-        fields = InterfaceTable.Meta.fields + ("last_seen",)
-        default_columns = ("pk", "name", "device", "type", "last_seen")
-
-
 @register_model_view(models.MACAddress, "interfaces")
 class MACInterfacesView(generic.ObjectChildrenView):
     """View for MACAddress instances, Interfaces."""
@@ -95,7 +83,7 @@ class MACInterfacesView(generic.ObjectChildrenView):
     queryset = models.MACAddress.objects.all()
     template_name = "generic/object_children.html"
     child_model = Interface
-    table = MACInterfaceTable
+    table = tables.MACInterfaceTable
     filterset = InterfaceFilterSet
     tab = ViewTab(
         label=_("Interfaces"),
