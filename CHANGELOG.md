@@ -37,6 +37,8 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   alongside the fields already shown in the table, and gains the standard
   plugin_left_page/plugin_right_page/plugin_full_width_page hook blocks
   that the MAC Vendor detail page already had. (#162)
+- MAC Address detail page gains an "Interfaces" tab listing the interfaces
+  this MAC has been seen on (device, interface, last seen). (#162)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template

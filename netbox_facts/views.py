@@ -2,9 +2,12 @@
 
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
+from dcim.filtersets import InterfaceFilterSet
+from dcim.models import Interface
+from dcim.tables import InterfaceTable
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
@@ -14,6 +17,7 @@ from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
 from ipam.tables.ip import IPAddressTable
 from netbox import object_actions
+from netbox.tables.columns import DateTimeColumn
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
 from utilities.htmx import htmx_partial
@@ -56,6 +60,60 @@ class MACIPAddressesView(generic.ObjectChildrenView):
                 .filter(mac_addresses=parent)
                 .prefetch_related("tags")
             )
+
+
+def _annotate_interface_last_seen(queryset, mac_address):
+    """Annotate an Interface queryset with the MAC-to-interface link timestamp.
+
+    MACAddressInterfaceRelation rows are inserted once per (mac_address,
+    interface) pair and never touched again on rediscovery, so this
+    timestamp reflects when the pairing was first observed rather than a
+    continuously refreshed heartbeat -- it is still the closest available
+    signal for "when was this MAC last seen on this interface".
+    """
+    last_seen = models.MACAddressInterfaceRelation.objects.filter(
+        mac_address=mac_address,
+        interface=OuterRef("pk"),
+    ).order_by("-last_updated")
+    return queryset.annotate(last_seen=Subquery(last_seen.values("last_updated")[:1]))
+
+
+class MACInterfaceTable(InterfaceTable):
+    """Interface table extended with the MAC-to-interface link timestamp."""
+
+    last_seen = DateTimeColumn(verbose_name=_("Last Seen"))
+
+    class Meta(InterfaceTable.Meta):
+        fields = InterfaceTable.Meta.fields + ("last_seen",)
+        default_columns = ("pk", "name", "device", "type", "last_seen")
+
+
+@register_model_view(models.MACAddress, "interfaces")
+class MACInterfacesView(generic.ObjectChildrenView):
+    """View for MACAddress instances, Interfaces."""
+
+    queryset = models.MACAddress.objects.all()
+    template_name = "generic/object_children.html"
+    child_model = Interface
+    table = MACInterfaceTable
+    filterset = InterfaceFilterSet
+    tab = ViewTab(
+        label=_("Interfaces"),
+        badge=lambda x: x.interfaces.all().count(),
+        permission="dcim.view_interface",
+        weight=490,
+    )
+
+    def get_children(self, request, parent):
+        if self.child_model is not None:
+            # NetBox's own dcim.MACAddress model claims the "mac_addresses" reverse
+            # accessor on Interface (its GenericRelation to native MAC objects), so
+            # filtering on that name here would resolve to the wrong model entirely.
+            # Cross the plugin's own through model instead.
+            queryset = self.child_model.objects.restrict(request.user, "view").filter(
+                macaddressinterfacerelation__mac_address=parent
+            )
+            return _annotate_interface_last_seen(queryset, parent).prefetch_related("tags", "device")
 
 
 class MACAddressListView(generic.ObjectListView):
