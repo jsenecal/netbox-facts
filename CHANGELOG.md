@@ -40,6 +40,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   (`interval`, `scheduled_at`, `last_run`, `run_as`, `connection_target`), so
   recurring collection plans can be created and inspected over REST. `last_run`
   is read-only; NAPALM credentials stay censored. (#151)
+- GraphQL support: MAC addresses, MAC vendors, collection plans, facts reports,
+  and facts report entries are exposed in NetBox's GraphQL schema. A plan's
+  `napalm_args` is excluded from the GraphQL type because it holds connection
+  credentials. (#151)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template

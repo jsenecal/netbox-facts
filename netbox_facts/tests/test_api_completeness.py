@@ -1,12 +1,16 @@
-"""Tests for REST API completeness (regression tests for #151)."""
+"""Tests for REST and GraphQL API completeness (regression tests for #151)."""
+
+from types import SimpleNamespace
 
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.test import TestCase
 from netbox.constants import CENSOR_TOKEN
+from netbox.graphql.schema import schema as root_schema
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from users.models import User
 from utilities.testing import APITestCase
 
 from netbox_facts.api.serializers import CollectionPlanSerializer, FactsReportEntrySerializer
@@ -18,6 +22,7 @@ from netbox_facts.choices import (
     EntryStatusChoices,
 )
 from netbox_facts.filtersets import FactsReportEntryFilterSet
+from netbox_facts.graphql.types import FactsReportEntryType
 from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
 
 
@@ -162,3 +167,72 @@ class FactsReportEntryAPITest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([entry["id"] for entry in response.data["results"]], [self.pending_entry.pk])
+
+
+class GraphQLReportEntryPermissionTest(TestCase):
+    """GraphQL entry queries must honor object permissions (#151).
+
+    FactsReportEntry keeps Django's default manager, so the object type has to
+    restrict the queryset itself.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name="GraphQL Site", slug="graphql-site")
+        manufacturer = Manufacturer.objects.create(name="GraphQLMfg", slug="graphqlmfg")
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model="GraphQLModel", slug="graphqlmodel")
+        role = DeviceRole.objects.create(name="GraphQLRole", slug="graphqlrole")
+        device = Device.objects.create(
+            name="graphql-dev",
+            site=site,
+            device_type=device_type,
+            role=role,
+            status=DeviceStatusChoices.STATUS_ACTIVE,
+        )
+        plan = CollectionPlan.objects.create(
+            name="GraphQL Plan",
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            napalm_driver="junos",
+            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
+        )
+        report = FactsReport.objects.create(collection_plan=plan)
+        FactsReportEntry.objects.create(
+            report=report,
+            action=EntryActionChoices.ACTION_NEW,
+            status=EntryStatusChoices.STATUS_PENDING,
+            collector_type=CollectionTypeChoices.TYPE_ARP,
+            device=device,
+            object_repr="MACAddress AA:BB:CC:DD:EE:03",
+        )
+
+    def test_entries_are_hidden_from_users_without_permission(self):
+        """A user without view permission sees no entries."""
+        user = User.objects.create_user(username="graphqluser")
+        info = SimpleNamespace(context=SimpleNamespace(request=SimpleNamespace(user=user)))
+
+        queryset = FactsReportEntryType.get_queryset(FactsReportEntry.objects.all(), info)
+
+        self.assertEqual(queryset.count(), 0)
+
+
+class GraphQLSchemaTest(TestCase):
+    """The plugin models must be queryable through NetBox's GraphQL schema (#151)."""
+
+    PLUGIN_TYPE_NAMES = (
+        "FactsMACAddressType",
+        "FactsMACVendorType",
+        "FactsCollectionPlanType",
+        "FactsReportType",
+        "FactsReportEntryType",
+    )
+
+    def test_plugin_types_are_registered(self):
+        """Every plugin model is exposed as a GraphQL object type."""
+        for type_name in self.PLUGIN_TYPE_NAMES:
+            self.assertIsNotNone(root_schema.get_type_by_name(type_name), msg=type_name)
+
+    def test_napalm_args_are_not_exposed(self):
+        """Stored NAPALM credentials never reach the GraphQL schema."""
+        plan_type = root_schema.get_type_by_name("FactsCollectionPlanType")
+        self.assertIsNotNone(plan_type)
+        self.assertNotIn("napalm_args", [field.name for field in plan_type.fields])
