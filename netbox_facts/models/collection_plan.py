@@ -12,6 +12,7 @@ from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.choices import DeviceStatusChoices
 from dcim.models import Device
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
@@ -280,8 +281,8 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
         return Device.objects.filter(q).distinct()
 
-    def get_napalm_args(self) -> dict[str, Any]:
-        """Return the NAPALM arguments to use when initiating the driver.
+    def _merge_napalm_args(self) -> dict[str, Any]:
+        """Merge global and per-plan NAPALM arguments without filtering.
 
         The merged result is a deep copy: get_plugin_config() returns the
         live settings object, and callers pop credentials from and inject
@@ -289,6 +290,19 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """
         napalm_args = copy.deepcopy(get_plugin_config("netbox_facts", "global_napalm_args", {}) or {})
         napalm_args.update(self.napalm_args if self.napalm_args else {})
+        return napalm_args
+
+    def get_napalm_args(self) -> dict[str, Any]:
+        """Return the NAPALM arguments to use when initiating the driver.
+
+        The free-form napalm_args field is user-reachable by anyone with
+        change permission on the plan, so any key that controls in-process
+        behavior rather than the NAPALM connection itself must never reach
+        the driver. The debug key is stripped here unconditionally; only
+        run() may act on it, and only under its own explicit gate.
+        """
+        napalm_args = self._merge_napalm_args()
+        napalm_args.pop("debug", None)
         return napalm_args
 
     def get_napalm_driver(self) -> type[NetworkDriver]:
@@ -340,13 +354,11 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         self.status = CollectorStatusChoices.WORKING
         CollectionPlan.objects.filter(pk=self.pk).update(status=self.status)
 
-        napalm_args = self.get_napalm_args()
-        if napalm_args and napalm_args.get("debug", False):
+        if settings.DEBUG and self._merge_napalm_args().get("debug", False):
             import debugpy  # pylint: disable=import-outside-toplevel
 
-            debugpy.listen(("0.0.0.0", 5678))
+            debugpy.listen(("127.0.0.1", 5678))
             debugpy.wait_for_client()  # blocks execution until client is attached
-            self.napalm_args.pop("debug")
 
         # Create a new NapalmCollector instance
         try:
