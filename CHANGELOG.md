@@ -60,6 +60,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- "Apply All Pending" on a facts report now asks for confirmation and runs
+  as a background job (`Facts Report Apply`) instead of applying inline in
+  the web request. The button posts a single flag and the pending entries
+  are resolved server-side, so the report page no longer renders one hidden
+  input per entry and large reports no longer risk a request timeout. Only
+  one apply job may be in flight per report. Applying a tick-selected subset
+  of entries is unchanged and still runs inline. (#134)
 - MACVendor detail, edit, delete, instances, changelog, and journal routes
   are now generated via `register_model_view` + `get_model_urls` instead of
   being spelled out manually in `urls.py`; the nonstandard `macvendor_detail`

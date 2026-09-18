@@ -54,6 +54,29 @@ The entry table indexes `(report, action)`, `(report, status)`, and
 `completed_at` is stamped whenever the status reaches a non-`Pending`
 state.
 
+## Applying entries from the UI
+
+A report offers two apply paths:
+
+- **Apply Selected** (entry tabs) -- tick the pending entries you want and
+  submit. The selected entries are applied inline, in the web request, and
+  the result is reported immediately. Use it for a handful of entries.
+- **Apply All Pending** (report detail) -- applies every pending entry in
+  the report. The button submits a single flag; the server resolves the
+  pending entries itself, so nothing about the report size is carried in
+  the request. You are first shown a confirmation page stating how many
+  entries will be applied. Nothing is mutated until you confirm.
+
+Confirming **Apply All Pending** enqueues a background job
+(`Facts Report Apply`) and returns you to the report with a message
+linking to that job. Progress, log output, and the final
+`{"applied": N, "failed": N}` counts are visible on the job. Only one
+apply job may be queued, scheduled, or running per report: submitting
+again while one is in flight is refused with a warning rather than
+queueing a second pass over the same entries.
+
+Both paths require the `netbox_facts.apply_factsreport` permission.
+
 ## REST endpoints
 
 - `GET /api/plugins/facts/factsreports/` -- list/filter reports.
