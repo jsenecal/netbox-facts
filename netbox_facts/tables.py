@@ -1,4 +1,5 @@
 import django_tables2 as tables
+from dcim.tables import InterfaceTable
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable
@@ -9,6 +10,7 @@ from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, M
 
 __all__ = [
     "MACAddressTable",
+    "MACInterfaceTable",
     "MACVendorTable",
     "CollectorTable",
     "FactsReportTable",
@@ -32,7 +34,7 @@ class MACAddressTable(DatedNetboxTable):
 
     mac_address = tables.Column(linkify=True)
     vendor = tables.Column(linkify=True)
-    occurences = tables.Column(accessor="occurences", verbose_name=_("Occurences"))
+    occurences = tables.Column(accessor="occurences", verbose_name=_("Occurrences"))
     last_seen = DateTimeColumn()
 
     class Meta(NetBoxTable.Meta):
@@ -54,6 +56,16 @@ class MACAddressTable(DatedNetboxTable):
             "description",
             "last_seen",
         )
+
+
+class MACInterfaceTable(InterfaceTable):
+    """Interface table extended with the MAC-to-interface link timestamp."""
+
+    last_seen = DateTimeColumn(verbose_name=_("Last Seen"))
+
+    class Meta(InterfaceTable.Meta):
+        fields = InterfaceTable.Meta.fields + ("last_seen",)
+        default_columns = ("pk", "name", "device", "type", "last_seen")
 
 
 class MACVendorTable(DatedNetboxTable):

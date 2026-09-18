@@ -10,6 +10,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
 - The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
 - The Collection Plans menu item now checks `view_collectionplan` instead of
@@ -44,6 +45,12 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- MAC Address detail page now shows Last Seen and Discovery Method
+  alongside the fields already shown in the table, and gains the standard
+  plugin_left_page/plugin_right_page/plugin_full_width_page hook blocks
+  that the MAC Vendor detail page already had. (#162)
+- MAC Address detail page gains an "Interfaces" tab listing the interfaces
+  this MAC has been seen on (device, interface, last seen). (#162)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template
@@ -53,6 +60,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- MACVendor detail, edit, delete, instances, changelog, and journal routes
+  are now generated via `register_model_view` + `get_model_urls` instead of
+  being spelled out manually in `urls.py`; the nonstandard `macvendor_detail`
+  route name is retired in favor of `macvendor` (matching the MACAddress
+  and CollectionPlan convention). The manually wired changelog/journal
+  routes for MACAddress and MACVendor are also removed, since NetBox
+  already auto-registers them for every model. (#162)
 - NetBox 4.7 support. CI adds a 4.7.0 lane alongside 4.5.10 and 4.6.10,
   Renovate keeps a `4.7.x` lane pinned to the newest release of that
   minor, and the coverage upload now runs on the 4.7 lane. The README
