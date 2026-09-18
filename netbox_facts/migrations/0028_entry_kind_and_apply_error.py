@@ -1,6 +1,30 @@
 from django.db import migrations, models
 from django.db.models import Q
 
+# Deliberate frozen copy of the apply-dispatch prefixes and the fallback kind
+# as they stand at this migration. A data migration describes a one-time
+# transformation of rows that existed then, so it must not change meaning when
+# netbox_facts.choices later gains, renames or reorders a kind: this table is
+# not imported from there on purpose.
+ENTRY_KIND_REPR_PREFIXES = (
+    ("MACAddress", "mac_address"),
+    ("IPAddress", "ip_address"),
+    ("InventoryItem", "inventory_item"),
+    ("Module", "module"),
+    ("Interface", "interface"),
+    ("VRF", "vrf"),
+    ("LAG", "lag"),
+    ("Cable", "cable"),
+    ("Device", "device"),
+    ("BGPRouter", "bgp_router"),
+    ("BGPScope", "bgp_scope"),
+    ("BGPPeer", "bgp_peer"),
+    ("BGP peer", "bgp_peer_ip"),
+    ("OSPF neighbor", "ospf_neighbor"),
+    ("L2 circuit data", "l2_circuit"),
+)
+KIND_OTHER = "other"
+
 
 def backfill_entry_kind(apps, schema_editor):
     """Resolve a kind for entries recorded before the field existed.
@@ -10,14 +34,12 @@ def backfill_entry_kind(apps, schema_editor):
     which dispatches exactly as the unprefixed fall-through did, so a label
     that matches nothing can never make the backfill fail.
     """
-    from netbox_facts.choices import ENTRY_KIND_REPR_PREFIXES, EntryKindChoices
-
     entries = apps.get_model("netbox_facts", "FactsReportEntry").objects
     for prefix, kind in ENTRY_KIND_REPR_PREFIXES:
         entries.filter(entry_kind="").filter(Q(object_repr=prefix) | Q(object_repr__startswith=f"{prefix} ")).update(
             entry_kind=kind
         )
-    entries.filter(entry_kind="").update(entry_kind=EntryKindChoices.KIND_OTHER)
+    entries.filter(entry_kind="").update(entry_kind=KIND_OTHER)
 
 
 class Migration(migrations.Migration):
