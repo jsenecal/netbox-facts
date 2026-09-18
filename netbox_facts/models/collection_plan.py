@@ -56,23 +56,32 @@ class ScopeDimension(NamedTuple):
     """ORM lookup applied to Device by get_devices_queryset()."""
     url_param: str
     """Query parameter understood by the NetBox device list."""
+    label: str
+    """Display title for this dimension in the plan detail panel."""
     url_value: str = "pk"
     """Attribute of the related object carried in that query parameter."""
 
 
+#: Panel and URL order: matches the historical Assignment panel layout.
 SCOPE_DIMENSIONS: tuple[ScopeDimension, ...] = (
-    ScopeDimension("devices", "pk__in", "id"),
-    ScopeDimension("regions", "region__in", "region_id"),
-    ScopeDimension("site_groups", "site__group__in", "site_group_id"),
-    ScopeDimension("sites", "site__in", "site_id"),
-    ScopeDimension("locations", "location__in", "location_id"),
-    ScopeDimension("device_types", "device_type__in", "device_type_id"),
-    ScopeDimension("roles", "role__in", "role_id"),
-    ScopeDimension("platforms", "platform__in", "platform_id"),
-    ScopeDimension("tenant_groups", "tenant__group__in", "tenant_group_id"),
-    ScopeDimension("tenants", "tenant__in", "tenant_id"),
-    ScopeDimension("tags", "tags__in", "tag", "slug"),
+    ScopeDimension("regions", "region__in", "region_id", "Regions"),
+    ScopeDimension("site_groups", "site__group__in", "site_group_id", "Site Groups"),
+    ScopeDimension("sites", "site__in", "site_id", "Sites"),
+    ScopeDimension("locations", "location__in", "location_id", "Locations"),
+    ScopeDimension("devices", "pk__in", "id", "Devices"),
+    ScopeDimension("device_types", "device_type__in", "device_type_id", "Device Types"),
+    ScopeDimension("roles", "role__in", "role_id", "Roles"),
+    ScopeDimension("platforms", "platform__in", "platform_id", "Platforms"),
+    ScopeDimension("tenant_groups", "tenant__group__in", "tenant_group_id", "Tenant Groups"),
+    ScopeDimension("tenants", "tenant__in", "tenant_id", "Tenants"),
+    ScopeDimension("tags", "tags__in", "tag", "Tags", "slug"),
 )
+
+#: Per-dimension cap on pks serialized into get_devices_list_url()'s query
+#: string. A plan pinning thousands of objects in one dimension would
+#: otherwise emit a multi-hundred-KB href that exceeds browser and server
+#: URL length limits.
+MAX_URL_PKS_PER_DIMENSION = 100
 
 
 def scope_warning_threshold() -> int:
@@ -381,17 +390,25 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         queryset = self.get_devices_queryset().exclude(connection_ip_filter(self.connection_target))
         return queryset[:limit] if limit else queryset
 
-    def get_devices_list_url(self) -> str:
+    def get_devices_list_url(self) -> str | None:
         """Return a device list URL filtered by this plan's scope.
 
         This is a browsing aid rather than the resolved queryset: the device
         list ANDs multiple tags and includes the descendants of a selected
-        region, site group or location, while the plan ORs tags and matches
-        those objects exactly.
+        region, site group, location or tenant group, while the plan ORs
+        tags and matches those objects exactly.
+
+        Returns None when any dimension pins more than
+        MAX_URL_PKS_PER_DIMENSION objects, since serializing that many pks
+        into a query string would produce a href too long for browsers and
+        proxies to handle. Callers should render the matched count unlinked
+        in that case.
         """
         params = QueryDict(mutable=True)
         for dimension in SCOPE_DIMENSIONS:
             values = list(getattr(self, dimension.field).values_list(dimension.url_value, flat=True))
+            if len(values) > MAX_URL_PKS_PER_DIMENSION:
+                return None
             if values:
                 params.setlist(dimension.url_param, [str(value) for value in values])
         if self.device_status:

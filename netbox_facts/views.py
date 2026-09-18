@@ -26,6 +26,7 @@ from utilities.views import (
 
 from . import filtersets, forms, models, tables
 from .choices import EntryActionChoices, EntryStatusChoices
+from .models.collection_plan import SCOPE_DIMENSIONS
 
 
 @register_model_view(models.MACAddress)
@@ -283,19 +284,11 @@ class CollectionPlanView(generic.ObjectView):
 
         A plan may pin thousands of devices, so each dimension is capped and
         the overflow reported as a count rather than rendered row by row.
+        Rows are derived from SCOPE_DIMENSIONS so a dimension added there
+        automatically gains a row here.
         """
         assigned_objects = [
-            ("Regions", instance.regions.all()),
-            ("Site Groups", instance.site_groups.all()),
-            ("Sites", instance.sites.all()),
-            ("Locations", instance.locations.all()),
-            ("Devices", instance.devices.all()),
-            ("Device Types", instance.device_types.all()),
-            ("Roles", instance.roles.all()),
-            ("Platforms", instance.platforms.all()),
-            ("Tenant Groups", instance.tenant_groups.all()),
-            ("Tenants", instance.tenants.all()),
-            ("Tags", instance.tags.all()),
+            (dimension.label, getattr(instance, dimension.field).all()) for dimension in SCOPE_DIMENSIONS
         ]
 
         rows = []

@@ -21,6 +21,7 @@ from netbox_facts.choices import CollectionTypeChoices, ConnectionTargetChoices
 from netbox_facts.forms import CollectionPlanImportForm, CollectorForm
 from netbox_facts.models import CollectionPlan
 from netbox_facts.models.collection_plan import (
+    MAX_URL_PKS_PER_DIMENSION,
     SCOPE_DIMENSIONS,
     exceeds_scope_warning_threshold,
 )
@@ -271,6 +272,37 @@ class ScopeReadinessTest(ScopeFixtureMixin, TestCase):
 
         with override_settings(PLUGINS_CONFIG=plugins_config(scope_warning_threshold=500)):
             self.assertEqual(plan.get_scope_warning(), "")
+
+
+class ScopeLinkCapTest(ScopeFixtureMixin, TestCase):
+    """get_devices_list_url() must not serialize an unbounded pk list into a URL (#145)."""
+
+    def test_small_plan_still_yields_the_filtered_url(self):
+        plan = self._create_plan(name="Small Scope", device_status=[])
+        plan.sites.set([self.site])
+
+        url = plan.get_devices_list_url()
+
+        self.assertIsNotNone(url)
+        self.assertIn(f"site_id={self.site.pk}", url)
+
+    def test_plan_exceeding_the_cap_returns_no_url(self):
+        devices = Device.objects.bulk_create(
+            [
+                Device(
+                    name=f"cap-device-{i}",
+                    site=self.site,
+                    device_type=self.device_type,
+                    role=self.role,
+                    status=DeviceStatusChoices.STATUS_ACTIVE,
+                )
+                for i in range(MAX_URL_PKS_PER_DIMENSION + 1)
+            ]
+        )
+        plan = self._create_plan(name="Huge Scope", device_status=[])
+        plan.devices.set(devices)
+
+        self.assertIsNone(plan.get_devices_list_url())
 
 
 class CollectionPlanImportFormTest(ScopeFixtureMixin, TestCase):

@@ -64,8 +64,10 @@ The plan detail page shows a **Resolved scope** panel:
   currently resolves to, linking to the device list filtered by the plan's
   scope. The link is a browsing aid, not the queryset: the device list ANDs
   multiple tags and includes the descendants of a selected region, site
-  group or location, while the plan ORs tags and matches those objects
-  exactly.
+  group, location or tenant group, while the plan ORs tags and matches
+  those objects exactly. When any dimension pins more than 100 objects, the
+  count is shown unlinked instead, since that many pks would no longer fit
+  in a URL.
 - **Connection target** -- the address the run will dial.
 - **Missing a usable IP** -- how many matched devices have no address for
   that target, with the first few named in a tooltip. These are exactly the

@@ -80,7 +80,13 @@
                 <table class="table table-hover attr-table">
                     <tr>
                         <th scope="row">{% trans "Matched devices" %}</th>
-                        <td><a href="{{ scope.devices_url }}">{{ scope.matched_count }}</a></td>
+                        <td>
+                            {% if scope.devices_url %}
+                            <a href="{{ scope.devices_url }}">{{ scope.matched_count }}</a>
+                            {% else %}
+                            {{ scope.matched_count }}
+                            {% endif %}
+                        </td>
                     </tr>
                     <tr>
                         <th scope="row">{% trans "Connection target" %}</th>
