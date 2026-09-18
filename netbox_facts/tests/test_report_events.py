@@ -9,8 +9,6 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 from core.models import ObjectType
-from dcim.choices import DeviceStatusChoices
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from netbox.context import events_queue
@@ -25,7 +23,8 @@ from netbox_facts.choices import (
 )
 from netbox_facts.events import REPORT_READY, enqueue_report_ready, register_event_types
 from netbox_facts.helpers.collector import NapalmCollector
-from netbox_facts.models import CollectionPlan, FactsReport, FactsReportEntry
+from netbox_facts.models import FactsReport, FactsReportEntry
+from netbox_facts.tests.test_helpers import CollectorTestMixin
 
 
 def _collect_two_entries(self, driver):  # pylint: disable=unused-argument
@@ -72,34 +71,13 @@ class ReportReadyEventTypeTest(TestCase):
         self.assertIn("event_rules", get_model_features(FactsReport))
 
 
-class ReportCompletionEventTest(TestCase):
+class ReportCompletionEventTest(CollectorTestMixin, TestCase):
     """Tests for the event queued when a collection run finalizes its report."""
 
     @classmethod
     def setUpTestData(cls):
+        super().setUpTestData()
         cls.user = get_user_model().objects.create_user(username="facts-events")
-        cls.site = Site.objects.create(name="Event Site", slug="event-site")
-        cls.manufacturer = Manufacturer.objects.create(name="EMfg", slug="emfg")
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=cls.manufacturer,
-            model="EModel",
-            slug="emodel",
-        )
-        cls.role = DeviceRole.objects.create(name="ERole", slug="erole")
-        cls.device = Device.objects.create(
-            name="event-dev",
-            site=cls.site,
-            device_type=cls.device_type,
-            role=cls.role,
-            status=DeviceStatusChoices.STATUS_ACTIVE,
-        )
-        cls.plan = CollectionPlan.objects.create(
-            name="Event Plan",
-            collector_type=CollectionTypeChoices.TYPE_ARP,
-            napalm_driver="junos",
-            device_status=[DeviceStatusChoices.STATUS_ACTIVE],
-            detect_only=True,
-        )
 
     def setUp(self):
         # post_migrate stamps the model's feature list onto its ObjectType row,
@@ -109,6 +87,9 @@ class ReportCompletionEventTest(TestCase):
         object_type.features = get_model_features(FactsReport)
         object_type.save()
 
+        self.device = self._create_device("event-dev")
+        self.plan = self._create_plan(CollectionTypeChoices.TYPE_ARP, detect_only=True)
+
     def _make_request(self):
         request = RequestFactory().get("/")
         request.id = uuid.uuid4()
@@ -116,6 +97,11 @@ class ReportCompletionEventTest(TestCase):
         return request
 
     def _make_collector(self):
+        """Build a collector through __init__, unlike the mixin's variant.
+
+        These tests drive the real execute(), which touches attributes the
+        mixin's hand-assembled collector leaves unset.
+        """
         collector = NapalmCollector(self.plan)
         collector._devices = [self.device]
         collector._napalm_driver = MagicMock()
