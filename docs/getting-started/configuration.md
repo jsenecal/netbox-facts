@@ -16,6 +16,7 @@ declares in `netbox_facts/__init__.py`.
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |
 | `job_timeout` | int | `1800` | Maximum runtime in seconds passed to RQ when enqueuing a `CollectionJobRunner` job. |
 | `report_retention_days` | int | `0` | Age in days after which Facts Reports are deleted by the daily retention job. `0` disables pruning and keeps every report forever. Reports holding pending entries are never deleted, whatever their age. |
+| `scope_warning_threshold` | int | `500` | Number of devices above which saving a Collection Plan warns that its scope is large. The plan is still saved; `0` disables the warning. See [Device scoping](../user-guide/collection-plans.md#device-scoping). |
 
 ## Example
 

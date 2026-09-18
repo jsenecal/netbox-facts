@@ -6,6 +6,7 @@ from typing import Any
 
 from dcim.models.device_components import Interface
 from dcim.models.devices import Device
+from django.db.models import Q
 from ipam.models import IPAddress
 from ipam.models.ip import Prefix
 from ipam.models.vrfs import VRF
@@ -36,36 +37,57 @@ def get_primary_ip(instance: Device) -> str:
     raise ValueError(f"Device {instance} does not have a primary IP address.")
 
 
+def get_connection_ip_sources(target: str) -> tuple[str, ...]:
+    """Return the labeled IP sources a connection target dials, in dial order.
+
+    Single source of truth for what "usable IP" means: both the per-device
+    resolution in get_connection_ips() and the queryset-level readiness
+    filter in connection_ip_filter() derive from this mapping.
+    """
+    from netbox_facts.choices import ConnectionTargetChoices
+
+    return {
+        ConnectionTargetChoices.TARGET_PRIMARY: ("primary",),
+        ConnectionTargetChoices.TARGET_OOB: ("oob",),
+        ConnectionTargetChoices.TARGET_PRIMARY_THEN_OOB: ("primary", "oob"),
+        ConnectionTargetChoices.TARGET_OOB_THEN_PRIMARY: ("oob", "primary"),
+    }.get(target, ("primary",))
+
+
 def get_connection_ips(instance: Device, target: str) -> list[tuple[str, str]]:
     """Return a list of (ip, label) tuples to try for connecting to a device.
 
     ``target`` is a ConnectionTargetChoices value.
     """
-    from netbox_facts.choices import ConnectionTargetChoices
+    addresses = {"primary": instance.primary_ip, "oob": instance.oob_ip}
 
-    primary = None
-    if instance.primary_ip is not None:
-        primary = (str(instance.primary_ip.address.ip), "primary")
-
-    oob = None
-    if instance.oob_ip is not None:
-        oob = (str(instance.oob_ip.address.ip), "oob")
-
-    if target == ConnectionTargetChoices.TARGET_PRIMARY:
-        candidates = [primary]
-    elif target == ConnectionTargetChoices.TARGET_OOB:
-        candidates = [oob]
-    elif target == ConnectionTargetChoices.TARGET_PRIMARY_THEN_OOB:
-        candidates = [primary, oob]
-    elif target == ConnectionTargetChoices.TARGET_OOB_THEN_PRIMARY:
-        candidates = [oob, primary]
-    else:
-        candidates = [primary]
-
-    result = [c for c in candidates if c is not None]
+    result = [
+        (str(addresses[source].address.ip), source)
+        for source in get_connection_ip_sources(target)
+        if addresses[source] is not None
+    ]
     if not result:
         raise ValueError(f"Device {instance} has no usable IP address for target '{target}'.")
     return result
+
+
+def connection_ip_filter(target: str) -> Q:
+    """Return a Device filter matching devices get_connection_ips() can dial.
+
+    Dial order is irrelevant at the queryset level: a device is reachable
+    as soon as one of the sources the target would try is populated. The
+    primary address is stored in two columns because Device.primary_ip
+    resolves either family.
+    """
+    source_filters = {
+        "primary": Q(primary_ip4__isnull=False) | Q(primary_ip6__isnull=False),
+        "oob": Q(oob_ip__isnull=False),
+    }
+
+    device_filter = Q()
+    for source in get_connection_ip_sources(target):
+        device_filter |= source_filters[source]
+    return device_filter
 
 
 def resolve_napalm_network_instances(

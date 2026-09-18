@@ -64,32 +64,78 @@
             </div>
         </div>
         <div class="card">
+            <h5 class="card-header">{% trans "Resolved scope" %}</h5>
+            <div class="card-body">
+                {% if scope.unscoped %}
+                <div class="alert alert-warning" role="alert">
+                    <i class="mdi mdi-alert" aria-hidden="true"></i>
+                    {% trans "This plan has no scope and targets every device in NetBox." %}
+                </div>
+                {% endif %}
+                {% if scope.warning %}
+                <div class="alert alert-warning" role="alert">
+                    <i class="mdi mdi-alert" aria-hidden="true"></i> {{ scope.warning }}
+                </div>
+                {% endif %}
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">{% trans "Matched devices" %}</th>
+                        <td><a href="{{ scope.devices_url }}">{{ scope.matched_count }}</a></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Connection target" %}</th>
+                        <td>{{ object.get_connection_target_display }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Missing a usable IP" %}</th>
+                        <td>
+                            {% if scope.unready_count %}
+                            <span class="text-warning" tabindex="0" data-bs-toggle="tooltip" data-bs-delay="100"
+                                title="{{ scope.unready_names }}">
+                                {{ scope.unready_count }}
+                            </span>
+                            {% else %}
+                            <span class="text-success">0</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        <div class="card">
             <h5 class="card-header">{% trans "Assignment" %}</h5>
             <div class="card-body">
                 <table class="table table-hover attr-table">
-                    {% for title, values, is_qs in assigned_objects %}
+                    {% for dimension in assigned_objects %}
                     <tr>
-                        <th scope="row">{{ title }}</th>
+                        <th scope="row">{{ dimension.title }}</th>
                         <td>
                             <ul class="list-unstyled mb-0">
-                                {% for object in values %}
+                                {% for value in dimension.values %}
                                 <li>
-                                    {% if is_qs %}
-                                    {{ object|linkify }}</li>
-                                {% else %}
-                                <span
-                                    class="badge bg-primary border border-primary-subtle text-primary-emphasis rounded-pill">
-                                    {{ object }}
-                                </span>
-                                {% endif %}
+                                    {% if dimension.linkify %}
+                                    {{ value|linkify }}
+                                    {% else %}
+                                    <span
+                                        class="badge bg-primary border border-primary-subtle text-primary-emphasis rounded-pill">
+                                        {{ value }}
+                                    </span>
+                                    {% endif %}
                                 </li>
                                 {% empty %}
                                 <li class="text-muted">{% trans "None" %}</li>
                                 {% endfor %}
+                                {% if dimension.remainder %}
+                                <li class="text-muted">{% blocktrans with count=dimension.remainder %}and {{ count }} more{% endblocktrans %}</li>
+                                {% endif %}
                             </ul>
                         </td>
                     </tr>
                     {% endfor %}
+                    <tr>
+                        <th scope="row">{% trans "Allow unscoped" %}</th>
+                        <td>{% checkmark object.allow_unscoped %}</td>
+                    </tr>
                 </table>
             </div>
         </div>

@@ -6,7 +6,7 @@ import copy
 import importlib
 import logging
 from datetime import timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 from core.choices import JobStatusChoices
 from core.models import Job
@@ -17,7 +17,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
+from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -42,6 +45,49 @@ from ..choices import (
 from ..helpers import NapalmCollector
 
 logger = logging.getLogger("netbox_facts")
+
+
+class ScopeDimension(NamedTuple):
+    """One device-scoping field and how it maps onto the device list."""
+
+    field: str
+    """Name of the many-to-many field on CollectionPlan."""
+    lookup: str
+    """ORM lookup applied to Device by get_devices_queryset()."""
+    url_param: str
+    """Query parameter understood by the NetBox device list."""
+    url_value: str = "pk"
+    """Attribute of the related object carried in that query parameter."""
+
+
+SCOPE_DIMENSIONS: tuple[ScopeDimension, ...] = (
+    ScopeDimension("devices", "pk__in", "id"),
+    ScopeDimension("regions", "region__in", "region_id"),
+    ScopeDimension("site_groups", "site__group__in", "site_group_id"),
+    ScopeDimension("sites", "site__in", "site_id"),
+    ScopeDimension("locations", "location__in", "location_id"),
+    ScopeDimension("device_types", "device_type__in", "device_type_id"),
+    ScopeDimension("roles", "role__in", "role_id"),
+    ScopeDimension("platforms", "platform__in", "platform_id"),
+    ScopeDimension("tenant_groups", "tenant__group__in", "tenant_group_id"),
+    ScopeDimension("tenants", "tenant__in", "tenant_id"),
+    ScopeDimension("tags", "tags__in", "tag", "slug"),
+)
+
+
+def scope_warning_threshold() -> int:
+    """Return the device count above which a plan's scope is worth flagging."""
+    return get_plugin_config("netbox_facts", "scope_warning_threshold", 500) or 0
+
+
+def exceeds_scope_warning_threshold(count: int) -> bool:
+    """Return True when a resolved device count is above the threshold.
+
+    A threshold of 0 disables the warning entirely; a count equal to the
+    threshold is still considered acceptable.
+    """
+    threshold = scope_warning_threshold()
+    return bool(threshold) and count > threshold
 
 
 class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
@@ -77,6 +123,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     tenant_groups = models.ManyToManyField(to="tenancy.TenantGroup", related_name="+", blank=True)
     tenants = models.ManyToManyField(to="tenancy.Tenant", related_name="+", blank=True)
     tags = models.ManyToManyField(to="extras.Tag", related_name="+", blank=True)
+
+    allow_unscoped = models.BooleanField(
+        verbose_name=_("allow unscoped"),
+        default=False,
+        help_text=_(
+            "Allow this plan to run without any scoping. A plan with no scope resolves to every device in NetBox, "
+            "so every run dials the whole fleet; enable this only for a deliberate fleet-wide plan."
+        ),
+    )
 
     collector_type = models.CharField(_("Collector Type"), max_length=50, choices=CollectionTypeChoices)
 
@@ -160,6 +215,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "interval",
         "detect_only",
         "connection_target",
+        "allow_unscoped",
     )
 
     class Meta:
@@ -188,6 +244,16 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """Clean the object."""
         if isinstance(self.napalm_args, str):
             self.napalm_args = dict()
+
+        if not self.allow_unscoped and not self.has_scope():
+            raise ValidationError(
+                _(
+                    "This plan has no scope, so it would target every device in NetBox. Select at least one of "
+                    "devices, regions, site groups, sites, locations, device types, roles, platforms, tenant "
+                    "groups, tenants, tags or device statuses -- or enable 'allow unscoped' to run it fleet-wide "
+                    "on purpose."
+                )
+            )
 
     @property
     def ready(self):
@@ -267,32 +333,86 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
     # pylint: disable=no-member
     def get_devices_queryset(self):
         """Return a queryset of devices matching the collection plan."""
-        from django.db.models import Q
-
         q = Q()
         # Each populated filter narrows the result (AND logic across dimensions)
-        m2m_filters = [
-            ("devices", "pk__in"),
-            ("regions", "region__in"),
-            ("site_groups", "site__group__in"),
-            ("sites", "site__in"),
-            ("locations", "location__in"),
-            ("device_types", "device_type__in"),
-            ("roles", "role__in"),
-            ("platforms", "platform__in"),
-            ("tenant_groups", "tenant__group__in"),
-            ("tenants", "tenant__in"),
-            ("tags", "tags__in"),
-        ]
-        for field_name, lookup in m2m_filters:
-            pks = getattr(self, field_name).values_list("pk", flat=True)
+        for dimension in SCOPE_DIMENSIONS:
+            pks = getattr(self, dimension.field).values_list("pk", flat=True)
             if pks:
-                q &= Q(**{lookup: pks})
+                q &= Q(**{dimension.lookup: pks})
 
         if self.device_status:
             q &= Q(status__in=self.device_status)
 
         return Device.objects.filter(q).distinct()
+
+    def get_scope_values(self, dimension: ScopeDimension):
+        """Return the objects currently assigned to one scoping dimension.
+
+        Many-to-many assignments only exist once the plan has been saved,
+        so validation of a new or re-scoped plan reads the values staged on
+        _m2m_values instead -- the attribute NetBox's model forms and API
+        serializers populate before they call full_clean().
+        """
+        staged = getattr(self, "_m2m_values", None) or {}
+        if dimension.field in staged:
+            return staged[dimension.field]
+        if self.pk is None:
+            return []
+        return getattr(self, dimension.field).all()
+
+    def has_scope(self) -> bool:
+        """Return True when at least one scoping dimension is populated."""
+        if self.device_status:
+            return True
+        return any(self.get_scope_values(dimension) for dimension in SCOPE_DIMENSIONS)
+
+    def get_matched_device_count(self) -> int:
+        """Return how many devices the plan's scope currently resolves to."""
+        return self.get_devices_queryset().count()
+
+    def get_unready_devices(self, limit: int | None = None):
+        """Return matched devices with no usable IP for connection_target.
+
+        These are the devices a run would skip with a warning. Callers pass
+        a limit to name a handful of offenders without loading the scope.
+        """
+        from netbox_facts.helpers.netbox import connection_ip_filter
+
+        queryset = self.get_devices_queryset().exclude(connection_ip_filter(self.connection_target))
+        return queryset[:limit] if limit else queryset
+
+    def get_devices_list_url(self) -> str:
+        """Return a device list URL filtered by this plan's scope.
+
+        This is a browsing aid rather than the resolved queryset: the device
+        list ANDs multiple tags and includes the descendants of a selected
+        region, site group or location, while the plan ORs tags and matches
+        those objects exactly.
+        """
+        params = QueryDict(mutable=True)
+        for dimension in SCOPE_DIMENSIONS:
+            values = list(getattr(self, dimension.field).values_list(dimension.url_value, flat=True))
+            if values:
+                params.setlist(dimension.url_param, [str(value) for value in values])
+        if self.device_status:
+            params.setlist("status", list(self.device_status))
+
+        url = reverse("dcim:device_list")
+        return f"{url}?{params.urlencode()}" if params else url
+
+    def get_scope_warning(self) -> str:
+        """Return a warning when the resolved scope is larger than expected.
+
+        Empty when the plan stays at or below the configured
+        scope_warning_threshold, or when the threshold is disabled.
+        """
+        count = self.get_matched_device_count()
+        if not exceeds_scope_warning_threshold(count):
+            return ""
+        return _(
+            "This plan matches {count} devices, above the configured warning threshold of {threshold}. "
+            "Every run will connect to each of them."
+        ).format(count=count, threshold=scope_warning_threshold())
 
     def _merge_napalm_args(self) -> dict[str, Any]:
         """Merge global and per-plan NAPALM arguments without filtering.

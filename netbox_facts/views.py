@@ -267,28 +267,74 @@ class CollectionPlanView(generic.ObjectView):
 
     queryset = models.CollectionPlan.objects.all()
 
+    #: How many objects of one scoping dimension are listed before truncating.
+    scope_list_limit = 10
+    #: How many unreachable devices are named in the readiness tooltip.
+    readiness_sample_limit = 5
+
     def get_extra_context(self, request, instance):
-        # Gather assigned objects for parsing in the template
-        assigned_objects = (
-            ("Regions", instance.regions.all),
-            ("Site Groups", instance.site_groups.all),
-            ("Sites", instance.sites.all),
-            ("Locations", instance.locations.all),
-            ("Devices", instance.devices.all),
-            ("Device Types", instance.device_types.all),
-            (
-                "Device Status",
-                [dict(DeviceStatusChoices)[status] for status in instance.device_status],
-            ),
-            ("Roles", instance.roles.all),
-            ("Platforms", instance.platforms.all),
-            ("Tenant Groups", instance.tenant_groups.all),
-            ("Tenants", instance.tenants.all),
-            ("Tags", instance.tags.all),
+        return {
+            "assigned_objects": self.get_assigned_objects(instance),
+            "scope": self.get_scope_preview(instance),
+        }
+
+    def get_assigned_objects(self, instance):
+        """Return the per-dimension assignments, truncated to a readable size.
+
+        A plan may pin thousands of devices, so each dimension is capped and
+        the overflow reported as a count rather than rendered row by row.
+        """
+        assigned_objects = [
+            ("Regions", instance.regions.all()),
+            ("Site Groups", instance.site_groups.all()),
+            ("Sites", instance.sites.all()),
+            ("Locations", instance.locations.all()),
+            ("Devices", instance.devices.all()),
+            ("Device Types", instance.device_types.all()),
+            ("Roles", instance.roles.all()),
+            ("Platforms", instance.platforms.all()),
+            ("Tenant Groups", instance.tenant_groups.all()),
+            ("Tenants", instance.tenants.all()),
+            ("Tags", instance.tags.all()),
+        ]
+
+        rows = []
+        for title, queryset in assigned_objects:
+            values = list(queryset[: self.scope_list_limit + 1])
+            remainder = queryset.count() - self.scope_list_limit if len(values) > self.scope_list_limit else 0
+            rows.append(
+                {
+                    "title": title,
+                    "values": values[: self.scope_list_limit],
+                    "remainder": remainder,
+                    "linkify": True,
+                }
+            )
+        rows.append(
+            {
+                "title": "Device Status",
+                "values": [dict(DeviceStatusChoices)[status] for status in instance.device_status],
+                "remainder": 0,
+                "linkify": False,
+            }
         )
+        return rows
+
+    def get_scope_preview(self, instance):
+        """Return the resolved device count and connection readiness of the plan."""
+        unready = instance.get_unready_devices()
+        unready_count = unready.count()
+        sample = [str(device) for device in unready[: self.readiness_sample_limit]]
+        if unready_count > len(sample):
+            sample.append(_("and {count} more").format(count=unready_count - len(sample)))
 
         return {
-            "assigned_objects": [(title, values, not isinstance(values, list)) for title, values in assigned_objects],
+            "matched_count": instance.get_matched_device_count(),
+            "devices_url": instance.get_devices_list_url(),
+            "unready_count": unready_count,
+            "unready_names": ", ".join(sample),
+            "warning": instance.get_scope_warning(),
+            "unscoped": not instance.has_scope(),
         }
 
 

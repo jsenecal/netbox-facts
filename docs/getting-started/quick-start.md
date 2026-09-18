@@ -44,6 +44,16 @@ populated field narrows the result (AND across dimensions, OR within):
 
 The resolved queryset is built by `CollectionPlan.get_devices_queryset()`.
 
+At least one of these dimensions is required: a plan with none set would
+resolve to every device in NetBox, and saving it is refused. Tick **Allow
+unscoped** if a fleet-wide plan is really what you want.
+
+Save the plan and check the **Resolved scope** panel on its detail page
+before running it. It shows how many devices the scope matches and how many
+of them have no usable IP for the plan's connection target -- those are the
+devices the run would skip. See
+[Collection Plans](../user-guide/collection-plans.md#scope-preview-and-readiness).
+
 ## 3. Run the plan
 
 From the plan detail page, click **Run**. The plan transitions to
