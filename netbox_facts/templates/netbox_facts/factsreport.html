@@ -7,11 +7,7 @@
 {% if perms.netbox_facts.apply_factsreport and entry_stats.pending > 0 %}
 <form action="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}" method="post">
     {% csrf_token %}
-    {% for entry in object.entries.all %}
-    {% if entry.status == "pending" %}
-    <input type="hidden" name="pk" value="{{ entry.pk }}">
-    {% endif %}
-    {% endfor %}
+    <input type="hidden" name="apply_all" value="1">
     <button type="submit" class="btn btn-green">
         <i class="mdi mdi-check-all" aria-hidden="true"></i> {% trans "Apply All Pending" %}
     </button>

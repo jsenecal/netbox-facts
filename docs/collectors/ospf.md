@@ -42,5 +42,6 @@ else `new`.
 - No `OSPFNeighbor` row creation; the integration with `netbox-routing`
   is currently informational. Extending it requires registering an
   `OSPFNeighbor` model and adapting `_ospf_routing_integration()`.
-- Only Junos is supported. See
-  [Vendor Dispatch](../developer/vendor-dispatch.md) for adding a vendor.
+- Only Junos is supported. Adding another vendor requires implementing a
+  new `_ospf_<vendor>()` method and registering it in the collector's
+  vendor dispatch map.

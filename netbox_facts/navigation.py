@@ -53,7 +53,7 @@ facts_collection_menu = (
     PluginMenuItem(
         link="plugins:netbox_facts:collectionplan_list",
         link_text=_("Collection Plans"),
-        permissions=["netbox_facts.view_collector"],
+        permissions=["netbox_facts.view_collectionplan"],
         buttons=collectionplan_buttons,
     ),
 )

@@ -1,8 +1,7 @@
 from django.urls import include, path
-from netbox.views.generic import ObjectChangeLogView, ObjectJournalView
 from utilities.urls import get_model_urls
 
-from . import models, views
+from . import views
 
 urlpatterns = (
     path("mac-addresses/", views.MACAddressListView.as_view(), name="macaddress_list"),
@@ -25,18 +24,6 @@ urlpatterns = (
         "mac-address/<int:pk>/",
         include(get_model_urls("netbox_facts", "macaddress")),
     ),
-    path(
-        "mac-address/<int:pk>/changelog/",
-        ObjectChangeLogView.as_view(),
-        name="macaddress_changelog",
-        kwargs={"model": models.MACAddress},
-    ),
-    path(
-        "mac-address/<int:pk>/journal/",
-        ObjectJournalView.as_view(),
-        name="macaddress_journal",
-        kwargs={"model": models.MACAddress},
-    ),
     path("mac-vendors/", views.MACVendorListView.as_view(), name="macvendor_list"),
     path(
         "mac-vendors/edit/",
@@ -49,33 +36,9 @@ urlpatterns = (
         name="macvendor_bulk_delete",
     ),
     path("mac-vendor/add/", views.MACVendorEditView.as_view(), name="macvendor_add"),
-    path("mac-vendor/<int:pk>/", views.MACVendorView.as_view(), name="macvendor_detail"),
     path(
-        "mac-vendor/<int:pk>/edit/",
-        views.MACVendorEditView.as_view(),
-        name="macvendor_edit",
-    ),
-    path(
-        "mac-vendor/<int:pk>/delete/",
-        views.MACVendorDeleteView.as_view(),
-        name="macvendor_delete",
-    ),
-    path(
-        "mac-vendor/<int:pk>/instances/",
-        views.MACVendorInstancesView.as_view(),
-        name="macvendor_instances",
-    ),
-    path(
-        "mac-vendor/<int:pk>/changelog/",
-        ObjectChangeLogView.as_view(),
-        name="macvendor_changelog",
-        kwargs={"model": models.MACVendor},
-    ),
-    path(
-        "mac-vendor/<int:pk>/journal/",
-        ObjectJournalView.as_view(),
-        name="macvendor_journal",
-        kwargs={"model": models.MACVendor},
+        "mac-vendor/<int:pk>/",
+        include(get_model_urls("netbox_facts", "macvendor")),
     ),
     path(
         "collection-plans/",

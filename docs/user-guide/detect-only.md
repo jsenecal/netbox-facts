@@ -64,7 +64,15 @@ shows:
 ## Applying or skipping entries
 
 Tick one or more pending entries and use the **Apply selected** or
-**Skip selected** action.
+**Skip selected** action. Both act on the entries you ticked and run
+inline, in the web request.
+
+To apply a whole report, use **Apply All Pending** on the report detail
+page. It asks for confirmation first, showing how many entries will be
+applied, then hands the work to a background job (`Facts Report Apply`)
+that resolves the report's pending entries server-side and calls the same
+`apply_entries()` helper. You are returned to the report with a link to
+the job; a report can have only one apply job in flight at a time.
 
 Apply runs through `apply_entries()` in
 `netbox_facts/helpers/applier.py`:

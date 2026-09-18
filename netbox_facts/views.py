@@ -2,9 +2,11 @@
 
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
+from dcim.filtersets import InterfaceFilterSet
+from dcim.models import Interface
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
@@ -56,6 +58,50 @@ class MACIPAddressesView(generic.ObjectChildrenView):
                 .filter(mac_addresses=parent)
                 .prefetch_related("tags")
             )
+
+
+def _annotate_interface_last_seen(queryset, mac_address):
+    """Annotate an Interface queryset with the MAC-to-interface link timestamp.
+
+    MACAddressInterfaceRelation rows are inserted once per (mac_address,
+    interface) pair and never touched again on rediscovery, so this
+    timestamp reflects when the pairing was first observed rather than a
+    continuously refreshed heartbeat -- it is still the closest available
+    signal for "when was this MAC last seen on this interface".
+    """
+    last_seen = models.MACAddressInterfaceRelation.objects.filter(
+        mac_address=mac_address,
+        interface=OuterRef("pk"),
+    ).order_by("-last_updated")
+    return queryset.annotate(last_seen=Subquery(last_seen.values("last_updated")[:1]))
+
+
+@register_model_view(models.MACAddress, "interfaces")
+class MACInterfacesView(generic.ObjectChildrenView):
+    """View for MACAddress instances, Interfaces."""
+
+    queryset = models.MACAddress.objects.all()
+    template_name = "generic/object_children.html"
+    child_model = Interface
+    table = tables.MACInterfaceTable
+    filterset = InterfaceFilterSet
+    tab = ViewTab(
+        label=_("Interfaces"),
+        badge=lambda x: x.interfaces.all().count(),
+        permission="dcim.view_interface",
+        weight=490,
+    )
+
+    def get_children(self, request, parent):
+        if self.child_model is not None:
+            # NetBox's own dcim.MACAddress model claims the "mac_addresses" reverse
+            # accessor on Interface (its GenericRelation to native MAC objects), so
+            # filtering on that name here would resolve to the wrong model entirely.
+            # Cross the plugin's own through model instead.
+            queryset = self.child_model.objects.restrict(request.user, "view").filter(
+                macaddressinterfacerelation__mac_address=parent
+            )
+            return _annotate_interface_last_seen(queryset, parent).prefetch_related("tags", "device")
 
 
 class MACAddressListView(generic.ObjectListView):
@@ -396,7 +442,7 @@ class FactsReportView(generic.ObjectView):
 
     def get_extra_context(self, request, instance):
         entries = instance.entries.all()
-        pending_count = entries.filter(status=EntryStatusChoices.STATUS_PENDING).count()
+        pending_count = instance.pending_entries.count()
         applied_count = entries.filter(status=EntryStatusChoices.STATUS_APPLIED).count()
         skipped_count = entries.filter(status=EntryStatusChoices.STATUS_SKIPPED).count()
         failed_count = entries.filter(status=EntryStatusChoices.STATUS_FAILED).count()
@@ -466,9 +512,10 @@ _status_entries_view(EntryStatusChoices.STATUS_FAILED, "Failed", 540)
 
 @register_model_view(models.FactsReport, "apply")
 class FactsReportApplyView(BaseObjectView):
-    """POST-only view to apply selected entries."""
+    """POST-only view to apply selected entries, or every pending entry in the background."""
 
     queryset = models.FactsReport.objects.all()
+    template_name = "netbox_facts/factsreport_apply_confirm.html"
 
     def get_required_permission(self):
         return "netbox_facts.apply_factsreport"
@@ -480,6 +527,10 @@ class FactsReportApplyView(BaseObjectView):
         from .helpers.applier import apply_entries
 
         report = get_object_or_404(self.queryset, pk=pk)
+
+        if request.POST.get("apply_all"):
+            return self.apply_all(request, report)
+
         entry_pks = request.POST.getlist("pk")
 
         if not entry_pks:
@@ -493,6 +544,54 @@ class FactsReportApplyView(BaseObjectView):
             messages.warning(request, _("{count} entries failed to apply.").format(count=failed))
 
         return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+    def apply_all(self, request, report):
+        """Confirm, then hand every pending entry of the report to a background job."""
+        from django.utils.html import format_html
+        from utilities.forms import ConfirmationForm
+        from utilities.request import copy_safe_request
+
+        from .jobs import ApplyEntriesJobRunner
+
+        pending_count = report.pending_entries.count()
+        if not pending_count:
+            messages.warning(request, _("No pending entries to apply."))
+            return redirect("plugins:netbox_facts:factsreport", pk=report.pk)
+
+        # The entry set is resolved here rather than posted by the browser, so the
+        # confirmation round trip carries only the flag and the CSRF token.
+        if not ConfirmationForm(request.POST).is_valid():
+            return render(
+                request,
+                self.template_name,
+                {
+                    "object": report,
+                    "pending_count": pending_count,
+                    "form": ConfirmationForm(),
+                    "return_url": report.get_absolute_url(),
+                },
+            )
+
+        if ApplyEntriesJobRunner.get_active_jobs(report).exists():
+            messages.warning(request, _("An apply job is already queued or running for this report."))
+            return redirect("plugins:netbox_facts:factsreport", pk=report.pk)
+
+        job = ApplyEntriesJobRunner.enqueue(
+            instance=report,
+            user=request.user,
+            request=copy_safe_request(request),
+        )
+        messages.success(
+            request,
+            format_html(
+                _('Queued job <a href="{url}">#{job_id}</a> to apply {count} pending entries.'),
+                url=job.get_absolute_url(),
+                job_id=job.pk,
+                count=pending_count,
+            ),
+        )
+
+        return redirect("plugins:netbox_facts:factsreport", pk=report.pk)
 
 
 @register_model_view(models.FactsReport, "skip")

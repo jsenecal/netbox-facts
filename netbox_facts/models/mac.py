@@ -207,4 +207,4 @@ class MACVendor(NetBoxModel):
 
     def get_absolute_url(self):
         """Return the absolute URL of the MAC Vendor object."""
-        return reverse("plugins:netbox_facts:macvendor_detail", args=[self.pk])
+        return reverse("plugins:netbox_facts:macvendor", args=[self.pk])
