@@ -38,8 +38,9 @@ populated field narrows the result (AND across dimensions, OR within):
 - `device_types`, `roles`, `platforms`
 - `tenant_groups`, `tenants`
 - `tags`
-- `device_status` (one or more `DeviceStatusChoices` values; defaults to
-  `active` when none selected)
+- `device_status` (one or more `DeviceStatusChoices` values; when none
+  are selected, no status filter is applied, so devices in any status --
+  including `offline` and `decommissioning` -- are included)
 
 The resolved queryset is built by `CollectionPlan.get_devices_queryset()`.
 
