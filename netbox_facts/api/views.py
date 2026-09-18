@@ -1,5 +1,5 @@
 from django.db.models import Count
-from netbox.api.viewsets import NetBoxModelViewSet
+from netbox.api.viewsets import NetBoxModelViewSet, NetBoxReadOnlyModelViewSet
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -10,6 +10,7 @@ from ..exceptions import OperationNotSupported
 from ..helpers.applier import apply_entries, skip_entries
 from .serializers import (
     CollectionPlanSerializer,
+    FactsReportEntrySerializer,
     FactsReportSerializer,
     MACAddressSerializer,
     MACVendorSerializer,
@@ -126,3 +127,19 @@ class FactsReportViewSet(NetBoxModelViewSet):
             )
         count = skip_entries(report, entry_pks)
         return Response({"skipped": count})
+
+
+class FactsReportEntryViewSet(NetBoxReadOnlyModelViewSet):
+    """Read-only ViewSet listing the entries detected by a collection run.
+
+    Entries are never created or edited directly: they are produced by a
+    collection run and resolved through the report-level apply/skip actions.
+    """
+
+    queryset = models.FactsReportEntry.objects.select_related(
+        "report",
+        "device",
+        "object_type",
+    )
+    serializer_class = FactsReportEntrySerializer
+    filterset_class = filtersets.FactsReportEntryFilterSet

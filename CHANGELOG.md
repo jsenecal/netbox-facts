@@ -10,6 +10,19 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
+- The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
+- `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
+- The Collection Plans menu item now checks `view_collectionplan` instead of
+  the nonexistent `view_collector`, and the `run_collector` and
+  `view_collector_results` permissions checked by the Run button, run view,
+  and Results tab are now declared on `CollectionPlan.Meta.permissions`, so
+  these actions can be granted to non-superusers through Django groups. (#131)
+- The disabled Run button's tooltip now shows the actual reason a
+  `CollectionPlan` cannot be run ("Plan is disabled" or "A run is already
+  queued or in progress") instead of an empty tooltip; `ready` now derives
+  from the same reason so the two cannot drift. (#135, #164 by @EthemKD)
+- README's `PLUGINS_CONFIG` example no longer ships a placeholder `valid_interfaces_re` that silently matches zero interfaces; the docs nav no longer links to nine Reference/Developer pages that do not exist; and the quick-start and configuration docs now describe the real `device_status` and empty-credentials behavior instead of a friendlier default that the code does not implement. (#136, #137, #138)
 - Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
 - The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
 - A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)
@@ -37,6 +50,26 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   "Facts Report Retention" system job that deletes reports older than the
   configured window. Reports holding pending entries are never pruned, so
   work awaiting review cannot age out. (#152)
+- Read-only REST endpoint `/api/plugins/facts/factsreportentries/` listing the
+  entries of a facts report, so API clients can discover the entry PKs that the
+  report-level apply and skip actions take. Entries can be filtered by report,
+  action, status, collector type, and device. (#151)
+- `CollectionPlanSerializer` now exposes the scheduling and connection fields
+  (`interval`, `scheduled_at`, `last_run`, `run_as`, `connection_target`), so
+  recurring collection plans can be created and inspected over REST. `last_run`
+  and `run_as` are read-only -- scheduled runs are enqueued as `run_as` without
+  a superuser check, so the acting user is not something a plan editor may pick
+  over the API. NAPALM credentials stay censored. (#151)
+- GraphQL support: MAC addresses, MAC vendors, collection plans, facts reports,
+  and facts report entries are exposed in NetBox's GraphQL schema. A plan's
+  `napalm_args` is excluded from the GraphQL type because it holds connection
+  credentials. (#151)
+- MAC Address detail page now shows Last Seen and Discovery Method
+  alongside the fields already shown in the table, and gains the standard
+  plugin_left_page/plugin_right_page/plugin_full_width_page hook blocks
+  that the MAC Vendor detail page already had. (#162)
+- MAC Address detail page gains an "Interfaces" tab listing the interfaces
+  this MAC has been seen on (device, interface, last seen). (#162)
 - `FactsConfig` now declares `min_version = "4.5.0"` and
   `max_version = "4.7.99"`. NetBox refuses to start with an out-of-range
   release instead of failing later with an obscure import or template
@@ -46,6 +79,20 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- "Apply All Pending" on a facts report now asks for confirmation and runs
+  as a background job (`Facts Report Apply`) instead of applying inline in
+  the web request. The button posts a single flag and the pending entries
+  are resolved server-side, so the report page no longer renders one hidden
+  input per entry and large reports no longer risk a request timeout. Only
+  one apply job may be in flight per report. Applying a tick-selected subset
+  of entries is unchanged and still runs inline. (#134)
+- MACVendor detail, edit, delete, instances, changelog, and journal routes
+  are now generated via `register_model_view` + `get_model_urls` instead of
+  being spelled out manually in `urls.py`; the nonstandard `macvendor_detail`
+  route name is retired in favor of `macvendor` (matching the MACAddress
+  and CollectionPlan convention). The manually wired changelog/journal
+  routes for MACAddress and MACVendor are also removed, since NetBox
+  already auto-registers them for every model. (#162)
 - NetBox 4.7 support. CI adds a 4.7.0 lane alongside 4.5.10 and 4.6.10,
   Renovate keeps a `4.7.x` lane pinned to the newest release of that
   minor, and the coverage upload now runs on the 4.7 lane. The README

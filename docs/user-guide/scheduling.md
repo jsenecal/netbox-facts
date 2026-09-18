@@ -31,6 +31,24 @@ exists per plan.
 Unsetting the interval, or disabling the plan, deletes any pending
 scheduled job for that plan.
 
+## Scheduling through the REST API
+
+`interval`, `scheduled_at`, and `connection_target` are writable on
+`/api/plugins/facts/collectionplans/`, so a recurring schedule can be set
+up with a `PATCH` instead of the plan edit form:
+
+```
+PATCH /api/plugins/facts/collectionplans/12/
+{"interval": 1440, "scheduled_at": "2026-01-01T02:00:00Z"}
+```
+
+`last_run` and `run_as` are read-only. `last_run` is stamped by the
+collection job itself. `run_as` is read-only because it is the identity a
+*scheduled* run executes under, and `enqueue_once()` takes it verbatim --
+unlike a manual run, there is no superuser check at that point. Accepting
+it from the API would let anyone who can edit a plan have collections run
+under another user's identity, so it is set from the plan edit form only.
+
 ## Queue priorities
 
 | Priority | RQ queue |

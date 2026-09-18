@@ -7,6 +7,7 @@ from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import BaseModel
+from utilities.querysets import RestrictedQuerySet
 
 from ..choices import (
     CollectionTypeChoices,
@@ -73,6 +74,11 @@ class FactsReport(BaseModel):
 
     def get_status_color(self):
         return ReportStatusChoices.colors.get(self.status)
+
+    @property
+    def pending_entries(self):
+        """Return this report's entries that are still awaiting apply."""
+        return self.entries.filter(status=EntryStatusChoices.STATUS_PENDING)
 
     def update_summary(self):
         """Recompute cached summary counts from entries."""
@@ -143,6 +149,11 @@ class FactsReportEntry(models.Model):
 
     created = models.DateTimeField(auto_now_add=True)
     applied_at = models.DateTimeField(null=True, blank=True)
+
+    # Entries are plain models rather than NetBox BaseModels, so the default
+    # manager has to be swapped explicitly for object-level permissions
+    # (queryset.restrict()) to work in the REST and GraphQL layers.
+    objects = RestrictedQuerySet.as_manager()
 
     class Meta:
         ordering = ["created"]
