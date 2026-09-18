@@ -66,7 +66,7 @@ PLUGINS_CONFIG = {
         "napalm_username": "",
         "napalm_password": "",
         "global_napalm_args": {},
-        "valid_interfaces_re": r"<your-interface-regex>",
+        "valid_interfaces_re": r".*",
     },
 }
 ```

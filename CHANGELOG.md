@@ -11,6 +11,18 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 ### Fixed
 
 - The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
+- The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
+- `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
+- The Collection Plans menu item now checks `view_collectionplan` instead of
+  the nonexistent `view_collector`, and the `run_collector` and
+  `view_collector_results` permissions checked by the Run button, run view,
+  and Results tab are now declared on `CollectionPlan.Meta.permissions`, so
+  these actions can be granted to non-superusers through Django groups. (#131)
+- The disabled Run button's tooltip now shows the actual reason a
+  `CollectionPlan` cannot be run ("Plan is disabled" or "A run is already
+  queued or in progress") instead of an empty tooltip; `ready` now derives
+  from the same reason so the two cannot drift. (#135, #164 by @EthemKD)
+- README's `PLUGINS_CONFIG` example no longer ships a placeholder `valid_interfaces_re` that silently matches zero interfaces; the docs nav no longer links to nine Reference/Developer pages that do not exist; and the quick-start and configuration docs now describe the real `device_status` and empty-credentials behavior instead of a friendlier default that the code does not implement. (#136, #137, #138)
 - Detect-only interfaces runs no longer create Interface objects in NetBox; missing interfaces are recorded as pending report entries that the applier creates on apply. (#47)
 - The stale-IP sweep is skipped when IP collection fails and no longer covers interfaces excluded by `valid_interfaces_re` or skipped for unresolvable VRFs, so transient RPC errors and scope changes cannot mass-unassign still-configured addresses. (#49)
 - A changed hardware MAC no longer aborts the collection run with an IntegrityError; the previous MACAddress row releases the interface before the new row claims it, in both the collector and the applier. (#55)
