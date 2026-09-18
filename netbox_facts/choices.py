@@ -235,8 +235,6 @@ def strip_entry_kind_prefix(entry_kind, object_repr):
     prefixes = [prefix for prefix, kind in ENTRY_KIND_REPR_PREFIXES if kind == entry_kind]
     prefixes.extend(ENTRY_KIND_TITLE_PREFIXES.get(entry_kind, ()))
     for prefix in prefixes:
-        if text == prefix:
-            return ""
-        if text.startswith(f"{prefix} "):
+        if _has_prefix(text, prefix):
             return text[len(prefix) + 1 :]
     return text
