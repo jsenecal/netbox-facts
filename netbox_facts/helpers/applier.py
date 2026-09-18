@@ -7,12 +7,14 @@ from dcim.models.device_components import Interface, InventoryItem, ModuleBay
 from dcim.models.devices import Device
 from dcim.models.modules import ModuleType
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from extras.choices import JournalEntryKindChoices
 from extras.models.models import JournalEntry
 from ipam.models.ip import IPAddress, Prefix
 from ipam.models.vrfs import VRF
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -39,6 +41,11 @@ logger = logging.getLogger("netbox_facts")
 
 NO_RIR_MESSAGE = "No RIR exists in NetBox; cannot create ASN {as_number}"
 
+ERROR_TYPE_VALIDATION = "validation"
+ERROR_TYPE_ERROR = "error"
+ERROR_KEY_ALL = "__all__"
+ERROR_TYPE_KEY = "error_type"
+
 
 def apply_entries(report, entry_pks):
     """
@@ -55,28 +62,87 @@ def apply_entries(report, entry_pks):
         for entry in entries:
             handler = APPLY_HANDLERS.get(entry.collector_type)
             if handler is None:
-                entry.status = EntryStatusChoices.STATUS_FAILED
-                entry.error_message = f"No apply handler for collector type '{entry.collector_type}'"
-                entry.save(update_fields=["status", "error_message"])
+                _mark_entry_failed(
+                    entry,
+                    ValueError(f"No apply handler for collector type '{entry.collector_type}'"),
+                )
                 failed += 1
                 continue
+
+            entry.status = EntryStatusChoices.STATUS_APPLYING
+            entry.save(update_fields=["status"])
 
             try:
                 with transaction.atomic():
                     handler(entry, now)
                     entry.status = EntryStatusChoices.STATUS_APPLIED
                     entry.applied_at = now
-                    entry.save(update_fields=["status", "applied_at", "object_type", "object_id"])
+                    entry.error_message = ""
+                    entry.apply_error = None
+                    entry.save(
+                        update_fields=[
+                            "status",
+                            "applied_at",
+                            "object_type",
+                            "object_id",
+                            "error_message",
+                            "apply_error",
+                        ]
+                    )
                 applied += 1
             except Exception as exc:
-                entry.status = EntryStatusChoices.STATUS_FAILED
-                entry.error_message = str(exc)[:1000]
-                entry.save(update_fields=["status", "error_message"])
+                _mark_entry_failed(entry, exc)
                 failed += 1
                 logger.warning("Failed to apply entry %s: %s", entry.pk, exc)
 
         _update_report_status(report)
     return applied, failed
+
+
+def build_apply_error(exc):
+    """Structure an apply failure so a reviewer can see what NetBox rejected.
+
+    Validation failures keep their field addressing ({field: [messages]});
+    anything else -- an unreachable device, a missing dependency -- is
+    addressed to the entry as a whole under __all__. The error_type key
+    tells the two apart.
+    """
+    if isinstance(exc, DjangoValidationError):
+        messages = exc.message_dict if hasattr(exc, "error_dict") else {ERROR_KEY_ALL: exc.messages}
+    elif isinstance(exc, DRFValidationError):
+        detail = exc.detail
+        messages = detail if isinstance(detail, dict) else {ERROR_KEY_ALL: detail}
+    else:
+        return {ERROR_TYPE_KEY: ERROR_TYPE_ERROR, ERROR_KEY_ALL: [str(exc)[:1000]]}
+
+    structured = {field: _error_messages(value) for field, value in messages.items()}
+    return {ERROR_TYPE_KEY: ERROR_TYPE_VALIDATION, **structured}
+
+
+def _error_messages(value):
+    """Normalize one field's messages to a list of plain strings."""
+    if isinstance(value, (list, tuple)):
+        return [str(message) for message in value]
+    return [str(value)]
+
+
+def _error_summary(apply_error):
+    """Flatten a structured apply error into a single log/detail line."""
+    parts = []
+    for field, messages in apply_error.items():
+        if field == ERROR_TYPE_KEY:
+            continue
+        prefix = "" if field == ERROR_KEY_ALL else f"{field}: "
+        parts.extend(f"{prefix}{message}" for message in messages)
+    return "; ".join(parts)[:1000]
+
+
+def _mark_entry_failed(entry, exc):
+    """Record a failed apply: a summary line plus the structured error."""
+    entry.apply_error = build_apply_error(exc)
+    entry.status = EntryStatusChoices.STATUS_FAILED
+    entry.error_message = _error_summary(entry.apply_error)
+    entry.save(update_fields=["status", "error_message", "apply_error"])
 
 
 def skip_entries(report, entry_pks):
