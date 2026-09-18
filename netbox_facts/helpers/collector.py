@@ -34,6 +34,7 @@ from netbox.plugins.utils import get_plugin_config
 from netbox_facts.choices import (
     CollectionTypeChoices,
     EntryActionChoices,
+    EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
@@ -144,11 +145,17 @@ class NapalmCollector:
         collector_type: str,
         device: Device,
         detected_values: dict,
+        entry_kind: str,
         current_values: dict | None = None,
         object_instance=None,
         object_repr: str = "",
     ) -> FactsReportEntry | None:
-        """Create a FactsReportEntry. Returns the entry or None if no report."""
+        """Create a FactsReportEntry. Returns the entry or None if no report.
+
+        entry_kind names what the entry concerns and is what the applier
+        dispatches on, so every caller states it explicitly rather than
+        leaving it to be guessed from the display label.
+        """
         if self._report is None:
             return None
 
@@ -165,6 +172,7 @@ class NapalmCollector:
             action=action,
             status=EntryStatusChoices.STATUS_PENDING,
             collector_type=collector_type,
+            entry_kind=entry_kind,
             device=device,
             object_type=ct,
             object_id=obj_id,
@@ -352,6 +360,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_mac,
+                    entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
                     object_repr=f"MACAddress {arp_entry['mac']}",
                 )
 
@@ -362,6 +371,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_ip,
+                    entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
                     object_repr=self._object_repr(existing_ip) if existing_ip else f"IPAddress {ip_interface_object}",
                 )
 
@@ -453,6 +463,7 @@ class NapalmCollector:
                             "vrf": ip_obj.vrf.name if ip_obj.vrf else None,
                         },
                         object_instance=ip_obj,
+                        entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
                         object_repr=self._object_repr(ip_obj),
                     )
                     self._log_info(f"IP {ip_obj.address} not seen in current table — flagged as stale.")
@@ -511,6 +522,7 @@ class NapalmCollector:
             detected_values=detected,
             current_values=current,
             object_instance=device,
+            entry_kind=EntryKindChoices.KIND_DEVICE,
             object_repr=self._object_repr(device),
         )
 
@@ -617,6 +629,7 @@ class NapalmCollector:
                 detected_values=detected,
                 current_values=current,
                 object_instance=existing,
+                entry_kind=EntryKindChoices.KIND_INVENTORY_ITEM,
                 object_repr=object_repr,
             )
 
@@ -683,6 +696,7 @@ class NapalmCollector:
                     "description": stale_item.description,
                 },
                 object_instance=stale_item,
+                entry_kind=EntryKindChoices.KIND_INVENTORY_ITEM,
                 object_repr=f"InventoryItem {stale_item.name}",
             )
             if self._should_apply():
@@ -718,6 +732,7 @@ class NapalmCollector:
                     "serial": stale_mod.serial,
                 },
                 object_instance=stale_mod,
+                entry_kind=EntryKindChoices.KIND_MODULE,
                 object_repr=f"Module {bay_name}",
             )
             if self._should_apply():
@@ -822,6 +837,7 @@ class NapalmCollector:
             detected_values=mod_detected,
             current_values=current,
             object_instance=installed,
+            entry_kind=EntryKindChoices.KIND_MODULE,
             object_repr=f"Module {component_name}",
         )
 
@@ -912,13 +928,14 @@ class NapalmCollector:
             collector_type=self._collector_type,
             device=device,
             detected_values=detected_values or {"interface": name},
+            entry_kind=EntryKindChoices.KIND_INTERFACE,
             object_repr=f"Interface {name}",
         )
 
     def _record_missing_vrf(self, device, vrf_name, iface_name):
         """Warn about a device VRF absent from NetBox and record a pending entry.
 
-        The entry payload (detected name plus 'VRF <name>' repr) is the
+        The entry payload (the detected name, under the VRF kind) is the
         contract the applier's VRF handler consumes to create the VRF on
         apply. The interface's IPs are skipped, so it is also excluded
         from the stale sweep.
@@ -929,6 +946,7 @@ class NapalmCollector:
             collector_type=self._collector_type,
             device=device,
             detected_values={"name": vrf_name},
+            entry_kind=EntryKindChoices.KIND_VRF,
             object_repr=f"VRF {vrf_name}",
         )
         self._skipped_ip_ifaces.add(iface_name)
@@ -982,6 +1000,7 @@ class NapalmCollector:
                     device=device,
                     detected_values=detected,
                     object_instance=nb_iface,
+                    entry_kind=EntryKindChoices.KIND_INTERFACE,
                     object_repr=self._object_repr(nb_iface),
                 )
                 continue
@@ -1015,6 +1034,7 @@ class NapalmCollector:
                 device=device,
                 detected_values=detected,
                 object_instance=existing_mac or nb_iface,
+                entry_kind=EntryKindChoices.KIND_INTERFACE_MAC,
                 object_repr=self._object_repr(existing_mac or nb_iface) + f" MAC {mac_addr}",
             )
 
@@ -1090,6 +1110,7 @@ class NapalmCollector:
                             detected_values=detected,
                             current_values={"lag_parent": current_lag},
                             object_instance=nb_iface,
+                            entry_kind=EntryKindChoices.KIND_LAG,
                             object_repr=f"LAG {get_absolute_url_markdown(nb_iface)} -> {ae_name}",
                         )
                         if self._should_apply():
@@ -1242,6 +1263,7 @@ class NapalmCollector:
                 detected_values={},
                 current_values=current_values,
                 object_instance=ip,
+                entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
                 object_repr=self._object_repr(ip, ip.assigned_object),
             )
             if self._should_apply():
@@ -1283,6 +1305,7 @@ class NapalmCollector:
             detected_values=detected,
             current_values=current_values,
             object_instance=existing_ip or nb_li,
+            entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
             object_repr=self._object_repr(existing_ip, nb_li)
             if existing_ip
             else f"IPAddress {cidr} on {get_absolute_url_markdown(nb_li)}",
@@ -1410,6 +1433,7 @@ class NapalmCollector:
                     collector_type=self._collector_type,
                     device=device,
                     detected_values=detected,
+                    entry_kind=EntryKindChoices.KIND_CABLE,
                     object_repr=f"Cable {get_absolute_url_markdown(local_iface)} ↔ {remote_system_name}:{remote_port}",
                 )
 
@@ -1495,6 +1519,7 @@ class NapalmCollector:
                 device=device,
                 detected_values=detected,
                 object_instance=existing_mac,
+                entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
                 object_repr=f"MACAddress {mac_addr} on {get_absolute_url_markdown(nb_iface)}",
             )
 
@@ -1563,6 +1588,7 @@ class NapalmCollector:
             collector_type=self._collector_type,
             device=self._current_device,
             detected_values=detected,
+            entry_kind=EntryKindChoices.KIND_L2_CIRCUIT,
             object_repr=f"L2 circuit data on {get_absolute_url_markdown(self._current_device)}",
         )
 
@@ -1607,6 +1633,7 @@ class NapalmCollector:
                     device=self._current_device,
                     detected_values=detected,
                     object_instance=existing_mac,
+                    entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
                     object_repr=self._object_repr(existing_mac) if existing_mac else f"MACAddress {mac_str}",
                 )
 
@@ -1655,6 +1682,7 @@ class NapalmCollector:
                     collector_type=self._collector_type,
                     device=device,
                     detected_values={"name": vrf_name},
+                    entry_kind=EntryKindChoices.KIND_VRF,
                     object_repr=f"VRF {vrf_name}",
                 )
                 continue
@@ -1697,6 +1725,7 @@ class NapalmCollector:
                         device=device,
                         detected_values=detected,
                         object_instance=existing_ip,
+                        entry_kind=EntryKindChoices.KIND_BGP_PEER_IP,
                         object_repr=f"BGP peer {get_absolute_url_markdown(existing_ip) if existing_ip else remote_address} AS{as_number}",
                     )
 
@@ -1805,6 +1834,7 @@ class NapalmCollector:
             device=device,
             detected_values={"local_as": data["local_as"]},
             object_instance=bgp_router,
+            entry_kind=EntryKindChoices.KIND_BGP_ROUTER,
             object_repr=f"BGPRouter {device}",
         )
 
@@ -1843,6 +1873,7 @@ class NapalmCollector:
                 device=device,
                 detected_values={"local_as": data["local_as"], "vrf": vrf_name if nb_vrf else None},
                 object_instance=bgp_scope,
+                entry_kind=EntryKindChoices.KIND_BGP_SCOPE,
                 object_repr=f"BGPScope {device} {scope_label}",
             )
 
@@ -1882,6 +1913,7 @@ class NapalmCollector:
                         "vrf": vrf_name if nb_vrf else None,
                     },
                     object_instance=bgp_peer,
+                    entry_kind=EntryKindChoices.KIND_BGP_PEER,
                     object_repr=f"BGPPeer {peer_data['remote_address']} AS{peer_data['as_number']}",
                 )
 
@@ -1935,6 +1967,7 @@ class NapalmCollector:
                 device=self._current_device,
                 detected_values=detected,
                 object_instance=existing_ip,
+                entry_kind=EntryKindChoices.KIND_OSPF_NEIGHBOR,
                 object_repr=f"OSPF neighbor {get_absolute_url_markdown(existing_ip) if existing_ip else neighbor_ip} (RID: {router_id})",
             )
 
