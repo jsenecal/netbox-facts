@@ -17,6 +17,7 @@ from ipam.models.vrfs import VRF
 from netbox_facts.choices import (
     CollectionTypeChoices,
     EntryActionChoices,
+    EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
@@ -149,16 +150,15 @@ def get_or_create_asn(as_number):
 def _apply_arp_entry(entry, now):
     """Apply an ARP/NDP-discovered entry.
 
-    The collector creates two entries per ARP/NDP hit: one for MAC (object_repr
-    starts with "MACAddress") and one for IP (starts with "IPAddress"). Each
-    entry should only create/link to its respective object type.
+    The collector creates two entries per ARP/NDP hit, one of kind
+    mac_address and one of kind ip_address. Each entry only creates or links
+    to its own object type.
     """
     dv = entry.detected_values
     mac_addr = dv.get("mac", "")
     ip_str = dv.get("ip", "")
-    is_mac_entry = entry.object_repr.startswith("MACAddress")
 
-    if is_mac_entry:
+    if entry.entry_kind == EntryKindChoices.KIND_MAC_ADDRESS:
         # MAC entry: create/update MAC and link to interface
         if not mac_addr:
             return
@@ -203,14 +203,14 @@ def _apply_ndp_entry(entry, now):
 
 def _apply_inventory_entry(entry, now):
     """Apply an inventory entry (serial number update, InventoryItem, or Module)."""
-    if entry.object_repr.startswith("Module "):
+    if entry.entry_kind == EntryKindChoices.KIND_MODULE:
         if entry.action == EntryActionChoices.ACTION_STALE:
             _apply_stale_module(entry)
         else:
             _apply_module(entry)
         return
 
-    if entry.object_repr.startswith("InventoryItem "):
+    if entry.entry_kind == EntryKindChoices.KIND_INVENTORY_ITEM:
         if entry.action == EntryActionChoices.ACTION_STALE:
             _apply_stale_inventory_item(entry)
         else:
@@ -327,13 +327,13 @@ def _apply_interfaces_entry(entry, now):
     """Apply an interface entry (MAC, LAG membership, IP address, VRF, or stale IP)."""
     dv = entry.detected_values
 
-    if entry.object_repr.startswith("VRF "):
+    if entry.entry_kind == EntryKindChoices.KIND_VRF:
         _apply_vrf_entry(entry)
     elif entry.action == EntryActionChoices.ACTION_STALE:
         _apply_stale_interfaces_ip(entry)
-    elif entry.object_repr.startswith("LAG "):
+    elif entry.entry_kind == EntryKindChoices.KIND_LAG:
         _apply_interfaces_lag(entry, dv)
-    elif entry.object_repr.startswith("IPAddress "):
+    elif entry.entry_kind == EntryKindChoices.KIND_IP_ADDRESS:
         _apply_interfaces_ip(entry, dv, now)
     else:
         _apply_interfaces_mac(entry, dv, now)
@@ -517,13 +517,13 @@ def _apply_vrf_entry(entry):
 
 def _apply_bgp_entry(entry, now):
     """Apply a BGP peer IP/ASN entry."""
-    if entry.object_repr.startswith("VRF "):
+    if entry.entry_kind == EntryKindChoices.KIND_VRF:
         return _apply_vrf_entry(entry)
-    if entry.object_repr.startswith("BGPRouter "):
+    if entry.entry_kind == EntryKindChoices.KIND_BGP_ROUTER:
         return _apply_bgp_router_entry(entry)
-    if entry.object_repr.startswith("BGPScope "):
+    if entry.entry_kind == EntryKindChoices.KIND_BGP_SCOPE:
         return _apply_bgp_scope_entry(entry)
-    if entry.object_repr.startswith("BGPPeer "):
+    if entry.entry_kind == EntryKindChoices.KIND_BGP_PEER:
         return _apply_bgp_peer_routing_entry(entry)
 
     dv = entry.detected_values
