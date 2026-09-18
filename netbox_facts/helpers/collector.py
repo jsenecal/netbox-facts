@@ -38,6 +38,7 @@ from netbox_facts.choices import (
     ReportStatusChoices,
 )
 from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.events import enqueue_report_ready
 from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
@@ -2072,6 +2073,9 @@ class NapalmCollector:
                 ReportStatusChoices.STATUS_APPLIED if self._should_apply() else ReportStatusChoices.STATUS_PENDING
             )
             self._report.save(update_fields=["completed_at", "status"])
+            # Announce the finished report once, after its counts and final
+            # status are persisted, so event rules see what a reviewer would.
+            enqueue_report_ready(self._report)
 
     def _log_debug(self, message):
         """Log a message at DEBUG level."""

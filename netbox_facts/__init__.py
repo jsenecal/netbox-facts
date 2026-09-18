@@ -37,12 +37,16 @@ class FactsConfig(PluginConfig):
 
     def ready(self):
         super().ready()
-        # Imported for their side effects: signals connects the model receivers
-        # and retention registers the report pruning job as a NetBox system job.
+        # signals and retention are imported for their side effects: they connect
+        # the model receivers and register the report pruning job as a NetBox
+        # system job. events is called into explicitly, just below.
         from netbox_facts import (  # pylint: disable=import-outside-toplevel,unused-import # noqa: F401
+            events,
             retention,
             signals,
         )
+
+        events.register_event_types()
 
         logger.info("%s plugin loaded", self.name)
 

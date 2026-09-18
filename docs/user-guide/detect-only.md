@@ -46,6 +46,12 @@ When disabled (apply mode):
 
 ## Reviewing a report
 
+You do not have to watch the report list: a finished run raises the
+`netbox_facts.report_ready` event ("Facts report ready for review"), so an
+event rule can push the summary counts to a webhook, script, or
+notification group the moment a report is ready. See
+[Notifications](facts-reports.md#notifications).
+
 Open **Operational Facts -> Facts Reports** and pick a report. The page
 shows:
 

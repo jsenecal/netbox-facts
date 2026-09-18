@@ -54,6 +54,54 @@ The entry table indexes `(report, action)`, `(report, status)`, and
 `completed_at` is stamped whenever the status reaches a non-`Pending`
 state.
 
+## Notifications
+
+A collection run raises a NetBox event as soon as it has finished writing
+its report, so reviewers can be told that a report is waiting instead of
+polling the list. The event type is `netbox_facts.report_ready`, shown as
+**Facts report ready for review**. It is raised once per run -- started
+from the UI, the API, or the scheduler alike -- after the final status and
+the summary counts have been saved, and it is not raised for a run that
+failed before finalizing.
+
+Build an event rule under **Operations > Integrations > Event Rules**:
+
+1. **Object types**: `Facts Report`.
+2. **Event types**: `Facts report ready for review`.
+3. **Action**: the webhook, script, or notification group that should
+   carry the message (Slack, ServiceNow, email, and so on).
+4. **Conditions**: optional, to narrow which reports notify you.
+
+The payload is the report as the REST API serializes it:
+
+| Key | Notes |
+|---|---|
+| `id`, `url`, `display` | Identify the report; `url` is its API path, relative to your NetBox host. |
+| `collection_plan` | ID of the plan that produced the report. |
+| `status` | `pending` when entries await review; `applied` for a plan that is not detect-only. |
+| `summary` | Counts by action: `{"new": N, "changed": N, "confirmed": N, "stale": N}`. |
+| `error_message`, `created`, `completed_at` | As stored on the report. |
+
+`entry_count` is annotated onto the API queryset rather than stored on the
+report, so it is absent from the payload; use `summary` instead.
+
+Conditions are evaluated against that payload, so a rule that fires only
+when a detect-only run found something to review looks like:
+
+```json
+{
+  "and": [
+    {"attr": "status", "value": "pending"},
+    {"attr": "summary.changed", "op": "gt", "value": 0}
+  ]
+}
+```
+
+If `Facts Report` does not appear in the event rule object type picker
+after an upgrade, run `python manage.py migrate` once: NetBox records the
+features a model supports on its object type as part of the migration
+step.
+
 ## Applying entries from the UI
 
 A report offers two apply paths:
