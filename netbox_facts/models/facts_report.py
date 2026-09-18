@@ -7,6 +7,7 @@ from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import BaseModel
+from utilities.querysets import RestrictedQuerySet
 
 from ..choices import (
     CollectionTypeChoices,
@@ -148,6 +149,11 @@ class FactsReportEntry(models.Model):
 
     created = models.DateTimeField(auto_now_add=True)
     applied_at = models.DateTimeField(null=True, blank=True)
+
+    # Entries are plain models rather than NetBox BaseModels, so the default
+    # manager has to be swapped explicitly for object-level permissions
+    # (queryset.restrict()) to work in the REST and GraphQL layers.
+    objects = RestrictedQuerySet.as_manager()
 
     class Meta:
         ordering = ["created"]

@@ -127,4 +127,4 @@ class FactsReportEntryFilterSet(django_filters.FilterSet):
 
     class Meta:
         model = FactsReportEntry
-        fields = ["action", "status", "collector_type", "device"]
+        fields = ["report", "action", "status", "collector_type", "device"]

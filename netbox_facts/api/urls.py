@@ -28,4 +28,9 @@ router.register(
     views.FactsReportViewSet,
 )
 
+router.register(
+    "factsreportentries",
+    views.FactsReportEntryViewSet,
+)
+
 urlpatterns = router.urls

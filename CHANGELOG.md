@@ -45,6 +45,20 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Read-only REST endpoint `/api/plugins/facts/factsreportentries/` listing the
+  entries of a facts report, so API clients can discover the entry PKs that the
+  report-level apply and skip actions take. Entries can be filtered by report,
+  action, status, collector type, and device. (#151)
+- `CollectionPlanSerializer` now exposes the scheduling and connection fields
+  (`interval`, `scheduled_at`, `last_run`, `run_as`, `connection_target`), so
+  recurring collection plans can be created and inspected over REST. `last_run`
+  and `run_as` are read-only -- scheduled runs are enqueued as `run_as` without
+  a superuser check, so the acting user is not something a plan editor may pick
+  over the API. NAPALM credentials stay censored. (#151)
+- GraphQL support: MAC addresses, MAC vendors, collection plans, facts reports,
+  and facts report entries are exposed in NetBox's GraphQL schema. A plan's
+  `napalm_args` is excluded from the GraphQL type because it holds connection
+  credentials. (#151)
 - MAC Address detail page now shows Last Seen and Discovery Method
   alongside the fields already shown in the table, and gains the standard
   plugin_left_page/plugin_right_page/plugin_full_width_page hook blocks
