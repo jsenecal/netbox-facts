@@ -15,6 +15,7 @@ declares in `netbox_facts/__init__.py`.
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |
 | `job_timeout` | int | `1800` | Maximum runtime in seconds passed to RQ when enqueuing a `CollectionJobRunner` job. |
+| `report_retention_days` | int | `0` | Age in days after which Facts Reports are deleted by the daily retention job. `0` disables pruning and keeps every report forever. Reports holding pending entries are never deleted, whatever their age. |
 
 ## Example
 
@@ -31,6 +32,7 @@ PLUGINS_CONFIG = {
         },
         "valid_interfaces_re": r"^(ge|xe|et|ae|et|lo|irb|vlan)\S*$",
         "job_timeout": 3600,
+        "report_retention_days": 90,
     },
 }
 ```
@@ -96,3 +98,30 @@ These are independent:
   iterates every device in a plan.
 
 If a plan covers many devices, `job_timeout` is the value to raise.
+
+## Report retention
+
+An interval-scheduled plan creates one `FactsReport` per run, so a plan on a
+15-minute interval accumulates roughly 35,000 reports per year. Retention is
+opt-in: with the default `report_retention_days = 0` nothing is ever deleted
+automatically.
+
+Set the value to a positive number of days to enable the **Facts Report
+Retention** job. It is registered with NetBox as a system job and runs once
+per day from the RQ worker; no cron entry or extra configuration is needed.
+The schedule itself is created when the RQ worker starts, so restart the
+worker after installing or upgrading the plugin for the job to appear.
+Each pass deletes the reports (and their entries, by cascade) that were
+created strictly more than `report_retention_days` ago. A report aged exactly
+that many days is kept until the next pass.
+
+Two safeguards apply:
+
+- Reports with at least one entry still in the `pending` status are never
+  deleted, however old they are, so a detect-only backlog awaiting review
+  cannot age out.
+- Reports with no recorded creation timestamp are never selected.
+
+The job logs the number of deleted reports and the cutoff timestamp at
+`INFO` under the `netbox_facts.retention` logger and in the job's own log.
+When retention is disabled the job exits without touching the database.

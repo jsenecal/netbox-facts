@@ -135,3 +135,16 @@ The list view supports these filters via `FactsReportFilterSet`:
 
 The entry list (within a report) supports `action`, `status`,
 `collector_type`, and `device`.
+
+## Retention
+
+Reports are kept forever unless retention is enabled. Setting
+`report_retention_days` to a positive number of days in
+`PLUGINS_CONFIG["netbox_facts"]` activates the **Facts Report Retention**
+system job, which runs daily and deletes reports created more than that many
+days ago, along with their entries.
+
+Reports that still hold at least one `pending` entry are exempt regardless of
+age, so retention never discards work awaiting review. Apply or skip the
+outstanding entries and the report becomes eligible on the next pass. See
+[Configuration](../getting-started/configuration.md) for the setting itself.

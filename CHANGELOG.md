@@ -45,6 +45,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Optional Facts Report retention: the new `report_retention_days` plugin
+  setting (default `0`, meaning keep forever) enables a daily
+  "Facts Report Retention" system job that deletes reports older than the
+  configured window. Reports holding pending entries are never pruned, so
+  work awaiting review cannot age out. (#152)
 - Read-only REST endpoint `/api/plugins/facts/factsreportentries/` listing the
   entries of a facts report, so API clients can discover the entry PKs that the
   report-level apply and skip actions take. Entries can be filtered by report,
