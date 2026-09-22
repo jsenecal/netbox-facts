@@ -125,7 +125,13 @@ jobs:
           SECRET_KEY = "ci-only-secret-key-do-not-use-in-production-aaaaaaaaaaaaaaaaaaaa"
           API_TOKEN_PEPPERS = {1: (SECRET_KEY * 2)[:50]}
 
-          PLUGINS = ["netbox_facts", "netbox_routing"]
+          # netbox-routing's current migrations require NetBox 4.6+, so the
+          # 4.5 lanes run without it; the routing integration tests skip
+          # themselves when the plugin is not installed, and coverage is
+          # uploaded from the 4.7 lane.
+          PLUGINS = ["netbox_facts"]
+          if "${{ matrix.netbox }}".split(".")[:2] != ["4", "5"]:
+              PLUGINS.append("netbox_routing")
           PLUGINS_CONFIG = {"netbox_facts": {"top_level_menu": True}}
           EOF_CFG
 

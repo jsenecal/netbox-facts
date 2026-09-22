@@ -127,3 +127,35 @@ A handler can fail for many independent reasons (a duplicate IP, a missing
 ModuleType, an interface that has gained a cable since collection). The
 per-entry savepoint guarantees that one bad entry does not undo every
 successful apply that came before it in the same batch.
+
+## Working as a team
+
+Detect-only mode turns review into a recurring task rather than a one-off
+migration step. A few practices keep that sustainable as the number of
+monitored devices grows:
+
+- **Start with a segment you understand.** Scope the first Collection
+  Plans to a well-known slice of the network -- 10 to 20 devices is enough
+  to see real `changed` and `stale` entries without producing a queue
+  bigger than a reviewer can get through. Widening scope later is just
+  adding devices, sites, or roles to the plan; nothing about starting
+  narrow has to be undone.
+- **Set a review cadence.** Decide whether reports get reviewed daily or
+  weekly, and set each plan's **Interval (minutes)** (see
+  [Scheduling and Jobs](scheduling.md)) to match, so reports land on a
+  schedule reviewers can plan around instead of arriving at random.
+- **Give the review queue an owner.** Grant
+  `netbox_facts.apply_factsreport` to whoever is responsible for triage,
+  and treat the **Operational Facts -> Facts Reports** list, filtered to
+  pending entries, as an owned queue -- the same way an unassigned ticket
+  queue would be treated. `netbox_facts.view_factsreport` is enough for
+  the rest of the team to watch the queue without being able to mutate
+  NetBox.
+- **Treat recurring drift as a process signal, not just a chore.** An
+  entry that comes back `changed` or `stale` against the same object on
+  every run usually means NetBox and the device disagree about who owns
+  that value: a manual edit that keeps getting overwritten, a
+  decommission that was never reflected in NetBox, or a plan scoped to
+  the wrong device. A report that never reaches zero pending entries is a
+  prompt to fix that underlying disagreement, not a report to keep
+  skipping.

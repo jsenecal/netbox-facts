@@ -76,6 +76,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   error.
 - Documentation page "netbox-facts and NetBox Discovery" positioning the
   plugin against NetBox Labs' Orb/Diode discovery stack.
+- README and docs now state plainly that the detect -> review -> apply
+  loop runs entirely in open-source NetBox, complementing rather than
+  competing with discovery tools; "NetBox Discovery and Orb" gains the
+  commercial-boundary detail (Diode's review UI moved to NetBox Assurance,
+  Cloud/Enterprise-only) and the Detect-Only Workflow guide gains a
+  "Working as a team" section on review cadence and queue ownership.
+  (#163)
 
 ### Changed
 
@@ -83,6 +90,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   `test_netbox_facts` database instead of the meta-repo's shared
   `test_netbox`, and carry the `.testdb-isolated` marker so they no longer
   take the cross-plugin test lock.
+- CI: the NetBox 4.5 lanes now run without the netbox-routing integration; its current migrations require NetBox 4.6+. Routing tests skip on those lanes and coverage still uploads from the 4.7 lane.
 - "Apply All Pending" on a facts report now asks for confirmation and runs
   as a background job (`Facts Report Apply`) instead of applying inline in
   the web request. The button posts a single flag and the pending entries
