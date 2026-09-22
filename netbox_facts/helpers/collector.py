@@ -37,6 +37,7 @@ from netbox_facts.choices import (
     EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
+    entry_kind_token,
 )
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.exceptions import CollectionError
@@ -124,20 +125,27 @@ class NapalmCollector:
         return not self._detect_only
 
     @staticmethod
-    def _object_repr(*parts):
-        """Build an object_repr string from model instances and/or plain strings.
+    def _entry_label(kind, *parts):
+        """Build an entry's display label, led by the kind's type token.
 
-        Model instances become "ModelName [str](url)", plain strings pass through.
-        Parts are joined with " on ".
+        The token comes from the shared kind table, so a label and the
+        one-line title that strips the token back off cannot drift apart.
+        The first part is the subject: a model instance renders as a
+        markdown link (pass str(obj) for a plain name), anything else as
+        its string form. Further parts are context -- a second object the
+        subject hangs off -- and carry their own NetBox model name, joined
+        with " on ". Suffixes that are not context ("AS65000", "(RID: x)")
+        stay with the caller.
         """
         rendered = []
-        for part in parts:
+        for index, part in enumerate(parts):
             if hasattr(part, "get_absolute_url"):
-                name = type(part).__name__
-                rendered.append(f"{name} {get_absolute_url_markdown(part)}")
+                link = get_absolute_url_markdown(part)
+                rendered.append(link if index == 0 else f"{type(part).__name__} {link}")
             else:
                 rendered.append(str(part))
-        return " on ".join(rendered)
+        subject = " ".join(text for text in (entry_kind_token(kind), *rendered[:1]) if text)
+        return " on ".join([subject, *rendered[1:]])
 
     def _record_entry(
         self,
@@ -361,7 +369,7 @@ class NapalmCollector:
                     detected_values=detected,
                     object_instance=existing_mac,
                     entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
-                    object_repr=f"MACAddress {arp_entry['mac']}",
+                    object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, arp_entry["mac"]),
                 )
 
                 # Record IP entry
@@ -372,7 +380,7 @@ class NapalmCollector:
                     detected_values=detected,
                     object_instance=existing_ip,
                     entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
-                    object_repr=self._object_repr(existing_ip) if existing_ip else f"IPAddress {ip_interface_object}",
+                    object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, existing_ip or ip_interface_object),
                 )
 
                 if self._should_apply():
@@ -436,8 +444,16 @@ class NapalmCollector:
                     )
 
                     # Mark entries as applied with correct object references
-                    self._mark_entry_applied(mac_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
-                    self._mark_entry_applied(ip_entry, netbox_address, object_repr=self._object_repr(netbox_address))
+                    self._mark_entry_applied(
+                        mac_entry,
+                        netbox_mac,
+                        object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, netbox_mac),
+                    )
+                    self._mark_entry_applied(
+                        ip_entry,
+                        netbox_address,
+                        object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, netbox_address),
+                    )
         # Detect stale IPs: previously discovered IPs on this device
         # that are no longer present in the current ARP/NDP table.
         # Filter by IP family so ARP only flags v4, NDP only flags v6.
@@ -464,7 +480,7 @@ class NapalmCollector:
                         },
                         object_instance=ip_obj,
                         entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
-                        object_repr=self._object_repr(ip_obj),
+                        object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, ip_obj),
                     )
                     self._log_info(f"IP {ip_obj.address} not seen in current table — flagged as stale.")
 
@@ -523,7 +539,7 @@ class NapalmCollector:
             current_values=current,
             object_instance=device,
             entry_kind=EntryKindChoices.KIND_DEVICE,
-            object_repr=self._object_repr(device),
+            object_repr=self._entry_label(EntryKindChoices.KIND_DEVICE, device),
         )
 
         if self._should_apply():
@@ -621,7 +637,7 @@ class NapalmCollector:
                     "description": existing.description,
                 }
 
-            object_repr = f"InventoryItem {name}"
+            object_repr = self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, name)
             entry = self._record_entry(
                 action=action,
                 collector_type=self._collector_type,
@@ -651,13 +667,17 @@ class NapalmCollector:
                     )
                     item.tags.add(AUTO_D_TAG)
                     created_items[name] = item
-                    self._mark_entry_applied(entry, item, object_repr=self._object_repr(item))
+                    self._mark_entry_applied(
+                        entry, item, object_repr=self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, item)
+                    )
                 elif action == EntryActionChoices.ACTION_CHANGED:
                     existing.serial = serial
                     existing.part_id = part_id
                     existing.description = description
                     existing.save(update_fields=["serial", "part_id", "description"])
-                    self._mark_entry_applied(entry, existing, object_repr=self._object_repr(existing))
+                    self._mark_entry_applied(
+                        entry, existing, object_repr=self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, existing)
+                    )
                 else:
                     self._mark_entry_applied(entry, existing)
 
@@ -697,7 +717,7 @@ class NapalmCollector:
                 },
                 object_instance=stale_item,
                 entry_kind=EntryKindChoices.KIND_INVENTORY_ITEM,
-                object_repr=f"InventoryItem {stale_item.name}",
+                object_repr=self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, stale_item.name),
             )
             if self._should_apply():
                 stale_item.delete()
@@ -733,7 +753,7 @@ class NapalmCollector:
                 },
                 object_instance=stale_mod,
                 entry_kind=EntryKindChoices.KIND_MODULE,
-                object_repr=f"Module {bay_name}",
+                object_repr=self._entry_label(EntryKindChoices.KIND_MODULE, bay_name),
             )
             if self._should_apply():
                 stale_mod.delete()
@@ -838,18 +858,22 @@ class NapalmCollector:
             current_values=current,
             object_instance=installed,
             entry_kind=EntryKindChoices.KIND_MODULE,
-            object_repr=f"Module {component_name}",
+            object_repr=self._entry_label(EntryKindChoices.KIND_MODULE, component_name),
         )
 
         if self._should_apply():
             if action == EntryActionChoices.ACTION_NEW:
                 mod_obj = create_module(device, bay, module_type, serial)
                 modules_by_name[name] = mod_obj
-                self._mark_entry_applied(mod_entry, mod_obj, object_repr=self._object_repr(mod_obj))
+                self._mark_entry_applied(
+                    mod_entry, mod_obj, object_repr=self._entry_label(EntryKindChoices.KIND_MODULE, mod_obj)
+                )
             elif action == EntryActionChoices.ACTION_CHANGED:
                 installed = update_or_replace_module(device, bay, installed, module_type, serial)
                 modules_by_name[name] = installed
-                self._mark_entry_applied(mod_entry, installed, object_repr=self._object_repr(installed))
+                self._mark_entry_applied(
+                    mod_entry, installed, object_repr=self._entry_label(EntryKindChoices.KIND_MODULE, installed)
+                )
             else:
                 modules_by_name[name] = installed
                 self._mark_entry_applied(mod_entry, installed)
@@ -929,7 +953,7 @@ class NapalmCollector:
             device=device,
             detected_values=detected_values or {"interface": name},
             entry_kind=EntryKindChoices.KIND_INTERFACE,
-            object_repr=f"Interface {name}",
+            object_repr=self._entry_label(EntryKindChoices.KIND_INTERFACE, name),
         )
 
     def _record_missing_vrf(self, device, vrf_name, iface_name):
@@ -947,7 +971,7 @@ class NapalmCollector:
             device=device,
             detected_values={"name": vrf_name},
             entry_kind=EntryKindChoices.KIND_VRF,
-            object_repr=f"VRF {vrf_name}",
+            object_repr=self._entry_label(EntryKindChoices.KIND_VRF, vrf_name),
         )
         self._skipped_ip_ifaces.add(iface_name)
 
@@ -1001,7 +1025,7 @@ class NapalmCollector:
                     detected_values=detected,
                     object_instance=nb_iface,
                     entry_kind=EntryKindChoices.KIND_INTERFACE,
-                    object_repr=self._object_repr(nb_iface),
+                    object_repr=self._entry_label(EntryKindChoices.KIND_INTERFACE, nb_iface),
                 )
                 continue
 
@@ -1028,14 +1052,19 @@ class NapalmCollector:
 
             action = EntryActionChoices.ACTION_CONFIRMED if existing_mac else EntryActionChoices.ACTION_NEW
 
+            # The label leads with whichever object the entry points at: the
+            # MAC once NetBox knows it, the interface carrying it otherwise.
+            subject = existing_mac or nb_iface
+            subject_kind = EntryKindChoices.KIND_MAC_ADDRESS if existing_mac else EntryKindChoices.KIND_INTERFACE
+
             iface_entry = self._record_entry(
                 action=action,
                 collector_type=self._collector_type,
                 device=device,
                 detected_values=detected,
-                object_instance=existing_mac or nb_iface,
+                object_instance=subject,
                 entry_kind=EntryKindChoices.KIND_INTERFACE_MAC,
-                object_repr=self._object_repr(existing_mac or nb_iface) + f" MAC {mac_addr}",
+                object_repr=f"{self._entry_label(subject_kind, subject)} MAC {mac_addr}",
             )
 
             if self._should_apply():
@@ -1055,7 +1084,11 @@ class NapalmCollector:
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
-                self._mark_entry_applied(iface_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
+                self._mark_entry_applied(
+                    iface_entry,
+                    netbox_mac,
+                    object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, netbox_mac),
+                )
 
         # --- Process logical interfaces (LAG, IPs, VRFs) ---
         has_logical = any(iface_data.get("logical_interfaces") for iface_data in ifaces.values())
@@ -1111,7 +1144,7 @@ class NapalmCollector:
                             current_values={"lag_parent": current_lag},
                             object_instance=nb_iface,
                             entry_kind=EntryKindChoices.KIND_LAG,
-                            object_repr=f"LAG {get_absolute_url_markdown(nb_iface)} -> {ae_name}",
+                            object_repr=f"{self._entry_label(EntryKindChoices.KIND_LAG, nb_iface)} -> {ae_name}",
                         )
                         if self._should_apply():
                             ae_iface = self._get_or_create_interface(device, ae_name)
@@ -1264,7 +1297,7 @@ class NapalmCollector:
                 current_values=current_values,
                 object_instance=ip,
                 entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
-                object_repr=self._object_repr(ip, ip.assigned_object),
+                object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, ip, ip.assigned_object),
             )
             if self._should_apply():
                 ip.assigned_object = None
@@ -1306,9 +1339,9 @@ class NapalmCollector:
             current_values=current_values,
             object_instance=existing_ip or nb_li,
             entry_kind=EntryKindChoices.KIND_IP_ADDRESS,
-            object_repr=self._object_repr(existing_ip, nb_li)
+            object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, existing_ip, nb_li)
             if existing_ip
-            else f"IPAddress {cidr} on {get_absolute_url_markdown(nb_li)}",
+            else f"{self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, cidr)} on {get_absolute_url_markdown(nb_li)}",
         )
 
         vrf_id = netbox_vrf.pk if netbox_vrf else None
@@ -1349,7 +1382,9 @@ class NapalmCollector:
             elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
-            self._mark_entry_applied(entry, nb_ip, object_repr=self._object_repr(nb_ip, nb_li))
+            self._mark_entry_applied(
+                entry, nb_ip, object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, nb_ip, nb_li)
+            )
 
     def lldp(self, driver: NetworkDriver):
         """Collect LLDP data from a device using get_lldp_neighbors_detail()."""
@@ -1434,7 +1469,9 @@ class NapalmCollector:
                     device=device,
                     detected_values=detected,
                     entry_kind=EntryKindChoices.KIND_CABLE,
-                    object_repr=f"Cable {get_absolute_url_markdown(local_iface)} ↔ {remote_system_name}:{remote_port}",
+                    object_repr=(
+                        f"{self._entry_label(EntryKindChoices.KIND_CABLE, local_iface)} ↔ {remote_system_name}:{remote_port}"
+                    ),
                 )
 
                 if self._should_apply():
@@ -1461,7 +1498,9 @@ class NapalmCollector:
                         self._log_success(
                             f"Created cable between `{local_iface_name}` and `{remote_system_name}:{remote_port}`."
                         )
-                        self._mark_entry_applied(lldp_entry, cable, object_repr=self._object_repr(cable))
+                        self._mark_entry_applied(
+                            lldp_entry, cable, object_repr=self._entry_label(EntryKindChoices.KIND_CABLE, cable)
+                        )
                     except (
                         Device.DoesNotExist,
                         Interface.DoesNotExist,
@@ -1520,7 +1559,9 @@ class NapalmCollector:
                 detected_values=detected,
                 object_instance=existing_mac,
                 entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
-                object_repr=f"MACAddress {mac_addr} on {get_absolute_url_markdown(nb_iface)}",
+                object_repr=(
+                    f"{self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, mac_addr)} on {get_absolute_url_markdown(nb_iface)}"
+                ),
             )
 
             if self._should_apply():
@@ -1536,7 +1577,9 @@ class NapalmCollector:
                 netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
                 netbox_mac.last_seen = self._now
                 netbox_mac.save()
-                self._mark_entry_applied(l2_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
+                self._mark_entry_applied(
+                    l2_entry, netbox_mac, object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, netbox_mac)
+                )
 
         self._log_success("Ethernet switching collection completed")
 
@@ -1589,7 +1632,9 @@ class NapalmCollector:
             device=self._current_device,
             detected_values=detected,
             entry_kind=EntryKindChoices.KIND_L2_CIRCUIT,
-            object_repr=f"L2 circuit data on {get_absolute_url_markdown(self._current_device)}",
+            object_repr=(
+                f"{self._entry_label(EntryKindChoices.KIND_L2_CIRCUIT)} on {get_absolute_url_markdown(self._current_device)}"
+            ),
         )
 
         if self._should_apply():
@@ -1634,7 +1679,7 @@ class NapalmCollector:
                     detected_values=detected,
                     object_instance=existing_mac,
                     entry_kind=EntryKindChoices.KIND_MAC_ADDRESS,
-                    object_repr=self._object_repr(existing_mac) if existing_mac else f"MACAddress {mac_str}",
+                    object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, existing_mac or mac_str),
                 )
 
                 if self._should_apply():
@@ -1649,7 +1694,11 @@ class NapalmCollector:
 
                     if created:
                         self._log_success(f"Created EVPN MAC {get_absolute_url_markdown(netbox_mac, bold=True)}.")
-                    self._mark_entry_applied(evpn_entry, netbox_mac, object_repr=self._object_repr(netbox_mac))
+                    self._mark_entry_applied(
+                        evpn_entry,
+                        netbox_mac,
+                        object_repr=self._entry_label(EntryKindChoices.KIND_MAC_ADDRESS, netbox_mac),
+                    )
 
         if self._should_apply():
             JournalEntry.objects.create(
@@ -1683,7 +1732,7 @@ class NapalmCollector:
                     device=device,
                     detected_values={"name": vrf_name},
                     entry_kind=EntryKindChoices.KIND_VRF,
-                    object_repr=f"VRF {vrf_name}",
+                    object_repr=self._entry_label(EntryKindChoices.KIND_VRF, vrf_name),
                 )
                 continue
             except VRF.MultipleObjectsReturned:
@@ -1726,7 +1775,9 @@ class NapalmCollector:
                         detected_values=detected,
                         object_instance=existing_ip,
                         entry_kind=EntryKindChoices.KIND_BGP_PEER_IP,
-                        object_repr=f"BGP peer {get_absolute_url_markdown(existing_ip) if existing_ip else remote_address} AS{as_number}",
+                        object_repr=(
+                            f"{self._entry_label(EntryKindChoices.KIND_BGP_PEER_IP, existing_ip or remote_address)} AS{as_number}"
+                        ),
                     )
 
                     if self._should_apply():
@@ -1762,7 +1813,9 @@ class NapalmCollector:
                         else:
                             self._log_info(f"Found existing peer IP {get_absolute_url_markdown(nb_ip, bold=True)}.")
                         self._mark_entry_applied(
-                            bgp_entry, nb_ip, object_repr=f"BGP peer {get_absolute_url_markdown(nb_ip)} AS{as_number}"
+                            bgp_entry,
+                            nb_ip,
+                            object_repr=f"{self._entry_label(EntryKindChoices.KIND_BGP_PEER_IP, nb_ip)} AS{as_number}",
                         )
                         self._bgp_routing_data["vrfs"].setdefault(vrf_name, []).append(
                             {
@@ -1835,7 +1888,7 @@ class NapalmCollector:
             detected_values={"local_as": data["local_as"]},
             object_instance=bgp_router,
             entry_kind=EntryKindChoices.KIND_BGP_ROUTER,
-            object_repr=f"BGPRouter {device}",
+            object_repr=self._entry_label(EntryKindChoices.KIND_BGP_ROUTER, str(device)),
         )
 
         if router_created and self._should_apply():
@@ -1874,7 +1927,7 @@ class NapalmCollector:
                 detected_values={"local_as": data["local_as"], "vrf": vrf_name if nb_vrf else None},
                 object_instance=bgp_scope,
                 entry_kind=EntryKindChoices.KIND_BGP_SCOPE,
-                object_repr=f"BGPScope {device} {scope_label}",
+                object_repr=f"{self._entry_label(EntryKindChoices.KIND_BGP_SCOPE, str(device))} {scope_label}",
             )
 
             if not self._should_apply() and bgp_scope is None:
@@ -1914,7 +1967,10 @@ class NapalmCollector:
                     },
                     object_instance=bgp_peer,
                     entry_kind=EntryKindChoices.KIND_BGP_PEER,
-                    object_repr=f"BGPPeer {peer_data['remote_address']} AS{peer_data['as_number']}",
+                    object_repr=(
+                        f"{self._entry_label(EntryKindChoices.KIND_BGP_PEER, peer_data['remote_address'])}"
+                        f" AS{peer_data['as_number']}"
+                    ),
                 )
 
     def ospf(self, driver: NetworkDriver):
@@ -1968,7 +2024,9 @@ class NapalmCollector:
                 detected_values=detected,
                 object_instance=existing_ip,
                 entry_kind=EntryKindChoices.KIND_OSPF_NEIGHBOR,
-                object_repr=f"OSPF neighbor {get_absolute_url_markdown(existing_ip) if existing_ip else neighbor_ip} (RID: {router_id})",
+                object_repr=(
+                    f"{self._entry_label(EntryKindChoices.KIND_OSPF_NEIGHBOR, existing_ip or neighbor_ip)} (RID: {router_id})"
+                ),
             )
 
             if self._should_apply():
@@ -1991,7 +2049,7 @@ class NapalmCollector:
                 self._mark_entry_applied(
                     ospf_entry,
                     ip_obj,
-                    object_repr=f"OSPF neighbor {get_absolute_url_markdown(ip_obj)} (RID: {router_id})",
+                    object_repr=f"{self._entry_label(EntryKindChoices.KIND_OSPF_NEIGHBOR, ip_obj)} (RID: {router_id})",
                 )
 
                 self._ospf_routing_integration(ip_obj, neighbors[-1])

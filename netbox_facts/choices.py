@@ -195,6 +195,12 @@ ENTRY_KIND_REPR_PREFIXES = (
     ("L2 circuit data", EntryKindChoices.KIND_L2_CIRCUIT),
 )
 
+# The canonical display token for each kind, read off the same table, so the
+# collector that writes a label and the title that strips the token back off
+# cannot drift apart. A kind with no token (interface_mac, other) contributes
+# nothing to the label.
+ENTRY_KIND_TOKENS = {kind: prefix for prefix, kind in ENTRY_KIND_REPR_PREFIXES}
+
 # Prefixes a title strips but derivation must not use: an "Interface ..."
 # label alone cannot tell an interface entry from an interface-MAC one, so
 # the kind decides and only the display side drops the token.
@@ -227,6 +233,11 @@ def entry_kind_from_object_repr(object_repr):
         if _has_prefix(text, prefix):
             return kind
     return EntryKindChoices.KIND_OTHER
+
+
+def entry_kind_token(entry_kind):
+    """Return the type token a label of this kind leads with, or an empty one."""
+    return ENTRY_KIND_TOKENS.get(entry_kind, "")
 
 
 def strip_entry_kind_prefix(entry_kind, object_repr):
