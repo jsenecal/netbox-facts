@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("netbox_facts", "0027_alter_collectionplan_options"),
+        ("netbox_facts", "0028_entry_kind_and_apply_error"),
     ]
 
     operations = [
