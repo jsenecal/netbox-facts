@@ -126,7 +126,7 @@ class FactsReportEntry(models.Model):
     device = models.ForeignKey(
         to="dcim.Device",
         on_delete=models.CASCADE,
-        related_name="+",
+        related_name="facts_entries",
     )
 
     # Generic FK to the target NetBox object (nullable for new entries pre-apply)
