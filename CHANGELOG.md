@@ -79,6 +79,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- CI: the NetBox 4.5 lanes now run without the netbox-routing integration; its current migrations require NetBox 4.6+. Routing tests skip on those lanes and coverage still uploads from the 4.7 lane.
 - "Apply All Pending" on a facts report now asks for confirmation and runs
   as a background job (`Facts Report Apply`) instead of applying inline in
   the web request. The button posts a single flag and the pending entries
