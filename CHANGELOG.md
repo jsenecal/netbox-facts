@@ -45,6 +45,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Facts Reports now raise a NetBox event when a collection run finishes, so
+  reviewers can be notified through a standard event rule (webhook, script, or
+  notification group) instead of polling the report list. The report model
+  gained the `event_rules` feature and the plugin registers a dedicated
+  `netbox_facts.report_ready` event type ("Facts report ready for review"),
+  raised once per run with the final status and summary counts in the payload.
+  (#143)
 - Optional Facts Report retention: the new `report_retention_days` plugin
   setting (default `0`, meaning keep forever) enables a daily
   "Facts Report Retention" system job that deletes reports older than the
