@@ -22,20 +22,24 @@ A `FactsReport` is created by every collection run and accumulates one
 |---|---|
 | `report` | FK to the parent report. |
 | `action` | `new`, `changed`, `confirmed`, or `stale`. |
-| `status` | `pending`, `applied`, `skipped`, or `failed`. |
-| `collector_type` | The collector that produced this entry. Determines which apply handler is dispatched. |
+| `status` | `pending`, `applying`, `applied`, `skipped`, or `failed`. `applying` is set while the entry's apply handler runs. |
+| `collector_type` | The collector that produced this entry. Selects the apply handler family. |
+| `entry_kind` | What kind of object the entry concerns: `device`, `interface`, `interface_mac`, `lag`, `ip_address`, `mac_address`, `vrf`, `inventory_item`, `module`, `cable`, `l2_circuit`, `bgp_peer_ip`, `bgp_router`, `bgp_scope`, `bgp_peer`, `ospf_neighbor`, or `other`. Set at detect time; selects the apply handler within the collector type. |
 | `device` | The device the fact was detected on. |
 | `object_type` / `object_id` | Generic FK to the NetBox object the entry refers to. Nullable for `new` entries that have not been applied yet. |
-| `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). |
+| `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). Display only -- apply never parses it. |
+| `display_title` | Read-only. One-line title composed from the kind, the label and the action (e.g. `Interface xe-0/0/1 changed`). |
 | `detected_values` | JSON. What the device reported. |
 | `current_values` | JSON. What NetBox currently has. Empty for `new` entries. |
 | `error_message` | Populated on apply failure (max 1000 chars). |
+| `apply_error` | Read-only JSON. Structured form of the last apply failure: `{"<field>": ["message", ...], "error_type": "validation"}` for validation errors, `{"__all__": ["message"], "error_type": "error"}` for infrastructure failures. Cleared on a successful apply. |
 | `created`, `applied_at` | Timestamps. |
 
 ## Indexes
 
-The entry table indexes `(report, action)`, `(report, status)`, and
-`(object_type, object_id)` for the common UI filter paths.
+The entry table indexes `(report, action)`, `(report, status)`,
+`(report, entry_kind)`, and `(object_type, object_id)` for the common UI
+filter paths.
 
 ## Status reconciliation
 
@@ -53,6 +57,54 @@ The entry table indexes `(report, action)`, `(report, status)`, and
 
 `completed_at` is stamped whenever the status reaches a non-`Pending`
 state.
+
+## Notifications
+
+A collection run raises a NetBox event as soon as it has finished writing
+its report, so reviewers can be told that a report is waiting instead of
+polling the list. The event type is `netbox_facts.report_ready`, shown as
+**Facts report ready for review**. It is raised once per run -- started
+from the UI, the API, or the scheduler alike -- after the final status and
+the summary counts have been saved, and it is not raised for a run that
+failed before finalizing.
+
+Build an event rule under **Operations > Integrations > Event Rules**:
+
+1. **Object types**: `Facts Report`.
+2. **Event types**: `Facts report ready for review`.
+3. **Action**: the webhook, script, or notification group that should
+   carry the message (Slack, ServiceNow, email, and so on).
+4. **Conditions**: optional, to narrow which reports notify you.
+
+The payload is the report as the REST API serializes it:
+
+| Key | Notes |
+|---|---|
+| `id`, `url`, `display` | Identify the report; `url` is its API path, relative to your NetBox host. |
+| `collection_plan` | ID of the plan that produced the report. |
+| `status` | `pending` when entries await review; `applied` for a plan that is not detect-only. |
+| `summary` | Counts by action: `{"new": N, "changed": N, "confirmed": N, "stale": N}`. |
+| `error_message`, `created`, `completed_at` | As stored on the report. |
+
+`entry_count` is annotated onto the API queryset rather than stored on the
+report, so it is absent from the payload; use `summary` instead.
+
+Conditions are evaluated against that payload, so a rule that fires only
+when a detect-only run found something to review looks like:
+
+```json
+{
+  "and": [
+    {"attr": "status", "value": "pending"},
+    {"attr": "summary.changed", "op": "gt", "value": 0}
+  ]
+}
+```
+
+If `Facts Report` does not appear in the event rule object type picker
+after an upgrade, run `python manage.py migrate` once: NetBox records the
+features a model supports on its object type as part of the migration
+step.
 
 ## Applying entries from the UI
 
@@ -101,10 +153,10 @@ PKs to pass in those request bodies, for example:
 GET /api/plugins/facts/factsreportentries/?report=12&status=pending
 ```
 
-Supported filters are `report`, `action`, `status`, `collector_type`, and
-`device`. `action`, `status`, and `collector_type` accept multiple values
-(repeat the parameter). Results are limited to the entries the requesting
-user is permitted to view.
+Supported filters are `report`, `action`, `status`, `collector_type`,
+`entry_kind`, and `device`. `action`, `status`, `collector_type`, and
+`entry_kind` accept multiple values (repeat the parameter). Results are
+limited to the entries the requesting user is permitted to view.
 
 ## GraphQL
 
@@ -134,7 +186,7 @@ The list view supports these filters via `FactsReportFilterSet`:
 - `status` -- one or more `ReportStatusChoices` values.
 
 The entry list (within a report) supports `action`, `status`,
-`collector_type`, and `device`.
+`collector_type`, `entry_kind`, and `device`.
 
 ## Retention
 

@@ -8,6 +8,7 @@ from .choices import (
     CollectorPriorityChoices,
     CollectorStatusChoices,
     EntryActionChoices,
+    EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
@@ -124,7 +125,8 @@ class FactsReportEntryFilterSet(django_filters.FilterSet):
     action = django_filters.MultipleChoiceFilter(choices=EntryActionChoices)
     status = django_filters.MultipleChoiceFilter(choices=EntryStatusChoices)
     collector_type = django_filters.MultipleChoiceFilter(choices=CollectionTypeChoices)
+    entry_kind = django_filters.MultipleChoiceFilter(choices=EntryKindChoices)
 
     class Meta:
         model = FactsReportEntry
-        fields = ["report", "action", "status", "collector_type", "device"]
+        fields = ["report", "action", "status", "collector_type", "entry_kind", "device"]

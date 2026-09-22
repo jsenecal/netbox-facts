@@ -62,6 +62,30 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   `roles`, `platforms`, `tenant_groups`, `tenants`, `device_status` and
   `allow_unscoped`; `tags` was already importable), so imported plans are no
   longer born scopeless. (#145)
+- Report entries now carry an `entry_kind` field naming what kind of object
+  the entry concerns (interface, interface MAC, LAG, IP address, MAC address,
+  VRF, inventory item, module, cable, L2 circuit, BGP router/scope/peer/peer
+  address, OSPF neighbor, device, or other). It is set at detect time, exposed
+  and filterable over REST and GraphQL, and a data migration backfills existing
+  rows from their labels. (#153)
+- Report entries gain a `display_title` property composing a one-line human
+  title from the entry kind, its subject and the action ("Interface xe-0/0/1
+  changed", "IP address 10.0.0.1/32 discovered"). Read-only over REST. (#153)
+- Report entries gain an `applying` status, set while an entry's apply handler
+  runs, so a long apply is visible as in-progress rather than still pending.
+  (#154)
+- Report entries gain a read-only `apply_error` field holding the structured
+  failure of the last apply: field-addressed messages for validation errors
+  (`{"serial": ["..."], "error_type": "validation"}`) and an `__all__` message
+  with `"error_type": "error"` for infrastructure failures such as an
+  unreachable device. It is cleared when the entry applies successfully. (#154)
+- Facts Reports now raise a NetBox event when a collection run finishes, so
+  reviewers can be notified through a standard event rule (webhook, script, or
+  notification group) instead of polling the report list. The report model
+  gained the `event_rules` feature and the plugin registers a dedicated
+  `netbox_facts.report_ready` event type ("Facts report ready for review"),
+  raised once per run with the final status and summary counts in the payload.
+  (#143)
 - Optional Facts Report retention: the new `report_retention_days` plugin
   setting (default `0`, meaning keep forever) enables a daily
   "Facts Report Retention" system job that deletes reports older than the
@@ -93,6 +117,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   error.
 - Documentation page "netbox-facts and NetBox Discovery" positioning the
   plugin against NetBox Labs' Orb/Diode discovery stack.
+- README and docs now state plainly that the detect -> review -> apply
+  loop runs entirely in open-source NetBox, complementing rather than
+  competing with discovery tools; "NetBox Discovery and Orb" gains the
+  commercial-boundary detail (Diode's review UI moved to NetBox Assurance,
+  Cloud/Enterprise-only) and the Detect-Only Workflow guide gains a
+  "Working as a team" section on review cadence and queue ownership.
+  (#163)
 
 ### Changed
 
@@ -100,6 +131,15 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   assigned object: each scoping dimension lists at most ten entries and
   reports the rest as a count, so a plan pinning thousands of devices stays
   readable. (#145)
+- Apply now dispatches on an entry's `entry_kind` instead of matching the
+  leading words of its `object_repr`, so renaming a display label can no
+  longer route an entry to the wrong handler. `object_repr` remains the
+  display value. (#153)
+- Developer-facing: the plugin's pytest runs now use their own
+  `test_netbox_facts` database instead of the meta-repo's shared
+  `test_netbox`, and carry the `.testdb-isolated` marker so they no longer
+  take the cross-plugin test lock.
+- CI: the NetBox 4.5 lanes now run without the netbox-routing integration; its current migrations require NetBox 4.6+. Routing tests skip on those lanes and coverage still uploads from the 4.7 lane.
 - "Apply All Pending" on a facts report now asks for confirmation and runs
   as a background job (`Facts Report Apply`) instead of applying inline in
   the web request. The button posts a single flag and the pending entries

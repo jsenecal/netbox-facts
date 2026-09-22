@@ -55,5 +55,6 @@ class FactsReportEntryFilter(BaseModelFilter):
     action: StrFilterLookup | None = strawberry_django.filter_field()
     status: StrFilterLookup | None = strawberry_django.filter_field()
     collector_type: StrFilterLookup | None = strawberry_django.filter_field()
+    entry_kind: StrFilterLookup | None = strawberry_django.filter_field()
     report_id: ID | None = strawberry_django.filter_field()
     device_id: ID | None = strawberry_django.filter_field()
