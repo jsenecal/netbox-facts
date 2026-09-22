@@ -45,6 +45,15 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Report entry review ergonomics: every per-status entry tab now renders a
+  filter form (device, action, status, collector type, entry kind) backed by a
+  new `q` search matching the entry label or the device name, and an Export
+  button that writes the filtered entries of that tab to CSV. The four tabs are
+  no longer hidden when empty, so the tab set does not shift as entries move
+  from pending to applied mid-review, and the entry-status counts on the report
+  page link to the matching tab. The report and entry filtersets now build on
+  NetBox's `BaseFilterSet`, which also makes saved filters apply to them.
+  (#140)
 - Collection Plan scope preview: the plan detail page now shows a "Resolved
   scope" panel with the number of devices the plan currently matches (linking
   to the device list filtered by the plan's scope), the connection target, and

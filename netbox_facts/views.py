@@ -18,6 +18,7 @@ from ipam.tables.ip import IPAddressTable
 from netbox import object_actions
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
+from utilities.export import TableExport
 from utilities.htmx import htmx_partial
 from utilities.views import (
     ViewTab,
@@ -512,6 +513,20 @@ class FactsReportBulkDeleteView(generic.BulkDeleteView):
     table = tables.FactsReportTable
 
 
+class EntryBulkExport(object_actions.BulkExport):
+    """Export action for the entry tabs, bound to the entries themselves.
+
+    The button is rendered from the report's detail template, which hands
+    every action the report it is showing. Resolving the export against the
+    entry model instead keeps the offered export templates and data format
+    those of the rows actually being exported.
+    """
+
+    @classmethod
+    def get_context(cls, context, obj):
+        return super().get_context(context, models.FactsReportEntry)
+
+
 def _status_entries_view(status_value, status_label, weight):
     """Factory for per-status entry tab views."""
 
@@ -521,14 +536,14 @@ def _status_entries_view(status_value, status_label, weight):
         child_model = models.FactsReportEntry
         table = tables.FactsReportEntryTable
         filterset = filtersets.FactsReportEntryFilterSet
-        actions = ()
+        filterset_form = forms.FactsReportEntryFilterForm
+        actions = (EntryBulkExport,)
         template_name = "netbox_facts/factsreport_entries.html"
         tab = ViewTab(
             label=_(status_label),
             badge=lambda x, s=status_value: x.entries.filter(status=s).count(),
             permission="netbox_facts.view_factsreport",
             weight=weight,
-            hide_if_empty=True,
         )
 
         def get_children(self, request, parent):
@@ -537,6 +552,38 @@ def _status_entries_view(status_value, status_label, weight):
         def get_extra_context(self, request, instance):
             has_pending = status_value == EntryStatusChoices.STATUS_PENDING
             return {"has_pending": has_pending}
+
+        def get(self, request, *args, **kwargs):
+            """Serve a CSV export when one is asked for, else render the tab.
+
+            Child views render tables but, unlike the object list view, carry
+            no export handling of their own, so the Export button's links have
+            to be answered here.
+            """
+            if "export" in request.GET and EntryBulkExport in self.get_permitted_actions(
+                request.user, model=self.child_model
+            ):
+                return self.export_entries(request, **kwargs)
+            return super().get(request, *args, **kwargs)
+
+        def export_entries(self, request, **kwargs):
+            """Return the filtered entries of this tab as a CSV attachment."""
+            entries = self.get_children(request, self.get_object(**kwargs))
+            entries = self.filterset(request.GET, entries, request=request).qs
+            table = self.get_table(entries, request, bulk_actions=False)
+
+            exclude_columns = {"pk", "actions"}
+            if request.GET["export"] == "table":
+                # Match what the reviewer is looking at, not every column.
+                selected = {name for name, _label in table.selected_columns}
+                exclude_columns |= {name for name, _label in table.available_columns} - selected
+
+            exporter = TableExport(
+                export_format=TableExport.CSV,
+                table=table,
+                exclude_columns=exclude_columns,
+            )
+            return exporter.response(filename=f"netbox_{self.child_model._meta.model_name}.csv")
 
     _View.__name__ = f"FactsReport{status_label}EntriesView"
     _View.__qualname__ = _View.__name__

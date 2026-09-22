@@ -57,8 +57,17 @@ shows:
 
 - A summary card with counts by action (cached on
   `FactsReport.summary`).
-- The full entry list with filters for `action`, `status`,
-  `collector_type`, and `device`.
+- An entry-status card whose Pending, Applied, Skipped and Failed counts
+  link straight to the matching entry tab.
+- One tab per entry status, each carrying a count badge. The four tabs are
+  always present, so a tab does not vanish from under the cursor as
+  entries move from pending to applied mid-review.
+- A filter form on every tab for `device`, `action`, `status`,
+  `collector_type` and `entry_kind`, plus a free-text search matching the
+  entry label or the device name. The quick-search box above the table
+  runs the same search.
+- An **Export** button on every tab, writing the filtered entries of that
+  tab to CSV.
 - For each entry: `object_repr`, `detected_values`, `current_values`, and
   any error message.
 

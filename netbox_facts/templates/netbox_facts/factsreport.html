@@ -87,20 +87,28 @@
             <div class="card-body">
                 <div class="row text-center">
                     <div class="col">
-                        <h3 class="text-info">{{ entry_stats.pending }}</h3>
-                        <small class="text-muted">{% trans "Pending" %}</small>
+                        <a href="{% url 'plugins:netbox_facts:factsreport_entries_pending' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-info">{{ entry_stats.pending }}</h3>
+                            <small class="text-muted">{% trans "Pending" %}</small>
+                        </a>
                     </div>
                     <div class="col">
-                        <h3 class="text-success">{{ entry_stats.applied }}</h3>
-                        <small class="text-muted">{% trans "Applied" %}</small>
+                        <a href="{% url 'plugins:netbox_facts:factsreport_entries_applied' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-success">{{ entry_stats.applied }}</h3>
+                            <small class="text-muted">{% trans "Applied" %}</small>
+                        </a>
                     </div>
                     <div class="col">
-                        <h3 class="text-secondary">{{ entry_stats.skipped }}</h3>
-                        <small class="text-muted">{% trans "Skipped" %}</small>
+                        <a href="{% url 'plugins:netbox_facts:factsreport_entries_skipped' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-secondary">{{ entry_stats.skipped }}</h3>
+                            <small class="text-muted">{% trans "Skipped" %}</small>
+                        </a>
                     </div>
                     <div class="col">
-                        <h3 class="text-danger">{{ entry_stats.failed }}</h3>
-                        <small class="text-muted">{% trans "Failed" %}</small>
+                        <a href="{% url 'plugins:netbox_facts:factsreport_entries_failed' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-danger">{{ entry_stats.failed }}</h3>
+                            <small class="text-muted">{% trans "Failed" %}</small>
+                        </a>
                     </div>
                 </div>
             </div>

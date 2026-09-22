@@ -1,7 +1,9 @@
 import django_filters
 from dcim.fields import MACAddressField
+from dcim.models import Device
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
-from netbox.filtersets import NetBoxModelFilterSet
+from netbox.filtersets import BaseFilterSet, NetBoxModelFilterSet
 
 from .choices import (
     CollectionTypeChoices,
@@ -97,8 +99,15 @@ class CollectorFilterSet(NetBoxModelFilterSet):
         return queryset.filter(name__icontains=value)
 
 
-class FactsReportFilterSet(django_filters.FilterSet):
-    """Filter set for the FactsReport model."""
+class FactsReportFilterSet(BaseFilterSet):
+    """Filter set for the FactsReport model.
+
+    Reports and their entries are plain models: they carry no tags, no
+    custom fields and no change log, so NetBoxModelFilterSet (which filters
+    on all three) does not apply to them. BaseFilterSet is the part that
+    does -- saved filters and the standard lookup expressions -- without
+    assuming model features these two lack.
+    """
 
     q = django_filters.CharFilter(
         method="search",
@@ -119,14 +128,34 @@ class FactsReportFilterSet(django_filters.FilterSet):
         return queryset.filter(collection_plan__name__icontains=value)
 
 
-class FactsReportEntryFilterSet(django_filters.FilterSet):
+class FactsReportEntryFilterSet(BaseFilterSet):
     """Filter set for the FactsReportEntry model."""
 
+    q = django_filters.CharFilter(
+        method="search",
+        label=_("Search"),
+    )
     action = django_filters.MultipleChoiceFilter(choices=EntryActionChoices)
     status = django_filters.MultipleChoiceFilter(choices=EntryStatusChoices)
     collector_type = django_filters.MultipleChoiceFilter(choices=CollectionTypeChoices)
     entry_kind = django_filters.MultipleChoiceFilter(choices=EntryKindChoices)
+    device = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        label=_("Device"),
+    )
 
     class Meta:
         model = FactsReportEntry
         fields = ["report", "action", "status", "collector_type", "entry_kind", "device"]
+
+    def search(self, queryset, name, value):
+        """Match the reviewer's free text against what the entry list shows.
+
+        object_repr is the label a reviewer reads in the table, and the
+        device is the other column they scan a long report by, so both are
+        searched.
+        """
+        value = value.strip()
+        if not value:
+            return queryset
+        return queryset.filter(Q(object_repr__icontains=value) | Q(device__name__icontains=value))
