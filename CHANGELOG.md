@@ -76,6 +76,13 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   error.
 - Documentation page "netbox-facts and NetBox Discovery" positioning the
   plugin against NetBox Labs' Orb/Diode discovery stack.
+- README and docs now state plainly that the detect -> review -> apply
+  loop runs entirely in open-source NetBox, complementing rather than
+  competing with discovery tools; "NetBox Discovery and Orb" gains the
+  commercial-boundary detail (Diode's review UI moved to NetBox Assurance,
+  Cloud/Enterprise-only) and the Detect-Only Workflow guide gains a
+  "Working as a team" section on review cadence and queue ownership.
+  (#163)
 
 ### Changed
 
