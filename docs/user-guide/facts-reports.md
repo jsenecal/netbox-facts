@@ -129,6 +129,45 @@ queueing a second pass over the same entries.
 
 Both paths require the `netbox_facts.apply_factsreport` permission.
 
+### Retrying and un-skipping
+
+Resolving an entry is not final. Each entry tab offers only the
+transitions its entries can make:
+
+| Tab | Controls |
+|---|---|
+| Pending | **Apply Selected**, **Skip Selected** |
+| Failed | **Retry Selected** |
+| Skipped | **Un-skip Selected** |
+| Applied | none |
+
+**Retry** returns the selected failed entries to pending, clears the
+recorded failure (`error_message` and `apply_error`), and re-applies them
+in the same request, so a retry that fails again shows the new error
+rather than the old one. Fix whatever NetBox rejected -- a missing VRF, a
+cable that is already connected -- and retry the entry rather than
+re-running the whole collection.
+
+**Un-skip** returns the selected skipped entries to pending without
+applying anything; they reappear on the Pending tab for review.
+
+Both are gated on `netbox_facts.apply_factsreport`, like apply and skip.
+
+### Per-row and cross-page selection
+
+Every row carries the shortcuts for its own status -- apply and skip on a
+pending row, retry on a failed one, un-skip on a skipped one -- so a
+single entry can be resolved without ticking a checkbox first. A row
+button acts on that row only, even when other rows are ticked.
+
+When a tab spans more than one page, ticking the header checkbox reveals
+a **Select all N matching entries** option. Submitting with it ticked
+sends only the flag: the server re-resolves the selection from the
+report, the tab's status, and the filters currently applied to the tab,
+so the action covers every matching entry rather than just the visible
+page. The transition itself is still gated by status -- a select-all
+retry only touches entries that actually failed.
+
 ## REST endpoints
 
 - `GET /api/plugins/facts/factsreports/` -- list/filter reports.
@@ -137,17 +176,25 @@ Both paths require the `netbox_facts.apply_factsreport` permission.
   pending entries. Body: `{"entries": [pk, ...]}`.
 - `POST /api/plugins/facts/factsreports/<id>/skip/` -- bulk-skip selected
   pending entries. Same body.
+- `POST /api/plugins/facts/factsreports/<id>/retry/` -- return selected
+  failed entries to pending and re-apply them. Same body; responds with
+  `{"applied": N, "failed": N}`.
+- `POST /api/plugins/facts/factsreports/<id>/unskip/` -- return selected
+  skipped entries to pending without applying them. Same body; responds
+  with `{"unskipped": N}`.
 - `GET /api/plugins/facts/factsreportentries/` -- list/filter entries.
 - `GET /api/plugins/facts/factsreportentries/<id>/` -- single entry.
 
-The `apply` and `skip` endpoints validate that all submitted entry PKs
-belong to the report (returns `400` if not) and are throttled to 30
-requests per minute per user.
+The `apply`, `skip`, `retry`, and `unskip` endpoints validate that all
+submitted entry PKs belong to the report (returns `400` if not) and are
+throttled to 30 requests per minute per user. Each one acts only on the
+entries in the status it applies to and ignores the rest, so a mixed
+selection is safe.
 
 The entry endpoint is read-only: entries are produced by a collection run
-and resolved through the report-level `apply` and `skip` actions, never
-created or edited directly. It is how an API client discovers the entry
-PKs to pass in those request bodies, for example:
+and resolved through the report-level lifecycle actions, never created or
+edited directly. It is how an API client discovers the entry PKs to pass
+in those request bodies, for example:
 
 ```
 GET /api/plugins/facts/factsreportentries/?report=12&status=pending
