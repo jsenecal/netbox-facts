@@ -22,20 +22,24 @@ A `FactsReport` is created by every collection run and accumulates one
 |---|---|
 | `report` | FK to the parent report. |
 | `action` | `new`, `changed`, `confirmed`, or `stale`. |
-| `status` | `pending`, `applied`, `skipped`, or `failed`. |
-| `collector_type` | The collector that produced this entry. Determines which apply handler is dispatched. |
+| `status` | `pending`, `applying`, `applied`, `skipped`, or `failed`. `applying` is set while the entry's apply handler runs. |
+| `collector_type` | The collector that produced this entry. Selects the apply handler family. |
+| `entry_kind` | What kind of object the entry concerns: `device`, `interface`, `interface_mac`, `lag`, `ip_address`, `mac_address`, `vrf`, `inventory_item`, `module`, `cable`, `l2_circuit`, `bgp_peer_ip`, `bgp_router`, `bgp_scope`, `bgp_peer`, `ospf_neighbor`, or `other`. Set at detect time; selects the apply handler within the collector type. |
 | `device` | The device the fact was detected on. |
 | `object_type` / `object_id` | Generic FK to the NetBox object the entry refers to. Nullable for `new` entries that have not been applied yet. |
-| `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). |
+| `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). Display only -- apply never parses it. |
+| `display_title` | Read-only. One-line title composed from the kind, the label and the action (e.g. `Interface xe-0/0/1 changed`). |
 | `detected_values` | JSON. What the device reported. |
 | `current_values` | JSON. What NetBox currently has. Empty for `new` entries. |
 | `error_message` | Populated on apply failure (max 1000 chars). |
+| `apply_error` | Read-only JSON. Structured form of the last apply failure: `{"<field>": ["message", ...], "error_type": "validation"}` for validation errors, `{"__all__": ["message"], "error_type": "error"}` for infrastructure failures. Cleared on a successful apply. |
 | `created`, `applied_at` | Timestamps. |
 
 ## Indexes
 
-The entry table indexes `(report, action)`, `(report, status)`, and
-`(object_type, object_id)` for the common UI filter paths.
+The entry table indexes `(report, action)`, `(report, status)`,
+`(report, entry_kind)`, and `(object_type, object_id)` for the common UI
+filter paths.
 
 ## Status reconciliation
 
@@ -149,10 +153,10 @@ PKs to pass in those request bodies, for example:
 GET /api/plugins/facts/factsreportentries/?report=12&status=pending
 ```
 
-Supported filters are `report`, `action`, `status`, `collector_type`, and
-`device`. `action`, `status`, and `collector_type` accept multiple values
-(repeat the parameter). Results are limited to the entries the requesting
-user is permitted to view.
+Supported filters are `report`, `action`, `status`, `collector_type`,
+`entry_kind`, and `device`. `action`, `status`, `collector_type`, and
+`entry_kind` accept multiple values (repeat the parameter). Results are
+limited to the entries the requesting user is permitted to view.
 
 ## GraphQL
 
@@ -182,7 +186,7 @@ The list view supports these filters via `FactsReportFilterSet`:
 - `status` -- one or more `ReportStatusChoices` values.
 
 The entry list (within a report) supports `action`, `status`,
-`collector_type`, and `device`.
+`collector_type`, `entry_kind`, and `device`.
 
 ## Retention
 

@@ -45,6 +45,23 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Report entries now carry an `entry_kind` field naming what kind of object
+  the entry concerns (interface, interface MAC, LAG, IP address, MAC address,
+  VRF, inventory item, module, cable, L2 circuit, BGP router/scope/peer/peer
+  address, OSPF neighbor, device, or other). It is set at detect time, exposed
+  and filterable over REST and GraphQL, and a data migration backfills existing
+  rows from their labels. (#153)
+- Report entries gain a `display_title` property composing a one-line human
+  title from the entry kind, its subject and the action ("Interface xe-0/0/1
+  changed", "IP address 10.0.0.1/32 discovered"). Read-only over REST. (#153)
+- Report entries gain an `applying` status, set while an entry's apply handler
+  runs, so a long apply is visible as in-progress rather than still pending.
+  (#154)
+- Report entries gain a read-only `apply_error` field holding the structured
+  failure of the last apply: field-addressed messages for validation errors
+  (`{"serial": ["..."], "error_type": "validation"}`) and an `__all__` message
+  with `"error_type": "error"` for infrastructure failures such as an
+  unreachable device. It is cleared when the entry applies successfully. (#154)
 - Facts Reports now raise a NetBox event when a collection run finishes, so
   reviewers can be notified through a standard event rule (webhook, script, or
   notification group) instead of polling the report list. The report model
@@ -93,6 +110,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- Apply now dispatches on an entry's `entry_kind` instead of matching the
+  leading words of its `object_repr`, so renaming a display label can no
+  longer route an entry to the wrong handler. `object_repr` remains the
+  display value. (#153)
 - Developer-facing: the plugin's pytest runs now use their own
   `test_netbox_facts` database instead of the meta-repo's shared
   `test_netbox`, and carry the `.testdb-isolated` marker so they no longer

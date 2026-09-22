@@ -11,10 +11,14 @@ from netbox.models.features import EventRulesMixin
 from utilities.querysets import RestrictedQuerySet
 
 from ..choices import (
+    ENTRY_ACTION_VERBS,
     CollectionTypeChoices,
     EntryActionChoices,
+    EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
+    entry_kind_from_object_repr,
+    strip_entry_kind_prefix,
 )
 
 
@@ -112,6 +116,13 @@ class FactsReportEntry(models.Model):
         default=EntryStatusChoices.STATUS_PENDING,
     )
     collector_type = models.CharField(max_length=50, choices=CollectionTypeChoices)
+    entry_kind = models.CharField(
+        max_length=50,
+        choices=EntryKindChoices,
+        blank=True,
+        default="",
+        help_text=_("What kind of object this entry concerns. Selects the apply handler within a collector type."),
+    )
     device = models.ForeignKey(
         to="dcim.Device",
         on_delete=models.CASCADE,
@@ -147,6 +158,14 @@ class FactsReportEntry(models.Model):
         blank=True,
         help_text=_("Populated on apply failure"),
     )
+    apply_error = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=_(
+            "Structured apply failure: field-addressed messages plus an "
+            "'error_type' of 'validation' or 'error'. Cleared on a successful apply."
+        ),
+    )
 
     created = models.DateTimeField(auto_now_add=True)
     applied_at = models.DateTimeField(null=True, blank=True)
@@ -163,11 +182,35 @@ class FactsReportEntry(models.Model):
         indexes = [
             models.Index(fields=["report", "action"]),
             models.Index(fields=["report", "status"]),
+            models.Index(fields=["report", "entry_kind"]),
             models.Index(fields=["object_type", "object_id"]),
         ]
 
     def __str__(self):
         return f"{self.get_action_display()} — {self.object_repr}"
+
+    def save(self, *args, **kwargs):
+        """Persist the entry, resolving a missing kind from its label.
+
+        Collection sets the kind at detect time; an entry saved without one
+        (an older row, or a caller that only knows the label) still gets a
+        usable dispatch key instead of an empty one.
+        """
+        if not self.entry_kind:
+            self.entry_kind = entry_kind_from_object_repr(self.object_repr)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = [*update_fields, "entry_kind"]
+        super().save(*args, **kwargs)
+
+    @property
+    def display_title(self):
+        """One-line human title: kind, subject, and what happened to it."""
+        kind = self.entry_kind or EntryKindChoices.KIND_OTHER
+        label = dict(EntryKindChoices).get(kind, kind)
+        subject = strip_entry_kind_prefix(kind, self.object_repr)
+        verb = ENTRY_ACTION_VERBS.get(self.action, self.action)
+        return " ".join(str(part) for part in (label, subject, verb) if part)
 
     def get_action_color(self):
         return EntryActionChoices.colors.get(self.action)
