@@ -1,0 +1,167 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item"><a href="{% url 'plugins:netbox_facts:factsreport_list' %}">{% trans "Facts Reports" %}</a></li>
+<li class="breadcrumb-item"><a href="{{ object.report.get_absolute_url }}">{{ object.report }}</a></li>
+<li class="breadcrumb-item"><a href="{{ parent_tab_url }}">{{ object.get_status_display }}</a></li>
+{% endblock breadcrumbs %}
+
+{% block title %}{{ object.display_title }}{% endblock %}
+
+{% block extra_controls %}
+<a href="{{ parent_tab_url }}" class="btn btn-outline-secondary">
+    <i class="mdi mdi-arrow-left" aria-hidden="true"></i> {% trans "Back to Report" %}
+</a>
+{% endblock %}
+
+{# An entry has no tabs of its own; the report it belongs to owns them. #}
+{% block tabs %}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">{% trans "Overview" %}</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">{% trans "Entry" %}</th>
+                        <td>{{ object.display_title }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Kind" %}</th>
+                        <td>{{ object.get_entry_kind_display|placeholder }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Action" %}</th>
+                        <td>
+                            <span class="badge text-bg-{{ object.get_action_color }}">{{ object.get_action_display }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Status" %}</th>
+                        <td>
+                            <span class="badge text-bg-{{ object.get_status_color }}">{{ object.get_status_display }}</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Device" %}</th>
+                        <td>{{ object.device|linkify }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Report" %}</th>
+                        <td>{{ object.report|linkify }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Collector Type" %}</th>
+                        <td>{{ object.get_collector_type_display }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Object" %}</th>
+                        <td>{{ object.object|linkify|placeholder }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Label" %}</th>
+                        <td>{{ object.object_repr|placeholder }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Detected" %}</th>
+                        <td>{{ object.created }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Applied" %}</th>
+                        <td>{{ object.applied_at|placeholder }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col col-md-6">
+        {% if apply_error %}
+        <div class="card">
+            <h5 class="card-header">
+                {% if apply_error.is_validation %}{% trans "Apply Rejected" %}{% else %}{% trans "Apply Failed" %}{% endif %}
+            </h5>
+            <div class="card-body">
+                <p class="text-muted">
+                    {% if apply_error.is_validation %}
+                        {% trans "NetBox rejected the detected values. Fix the data on the device or in NetBox, then apply again." %}
+                    {% else %}
+                        {% trans "The apply could not be carried out. This is not a validation problem with the values themselves." %}
+                    {% endif %}
+                </p>
+                <table class="table table-hover attr-table">
+                    {% for field in apply_error.fields %}
+                    <tr>
+                        <th scope="row">{{ field.label }}</th>
+                        <td>
+                            {% for message in field.messages %}
+                            <div class="text-danger">{{ message }}</div>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+        {% elif object.error_message %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Apply Failed" %}</h5>
+            <div class="card-body">
+                <code class="text-danger">{{ object.error_message }}</code>
+            </div>
+        </div>
+        {% endif %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Raw Evidence" %}</h5>
+            <div class="card-body">
+                <details>
+                    <summary>{% trans "Detected values (reported by the device)" %}</summary>
+                    <pre class="block mt-2">{{ detected_json }}</pre>
+                </details>
+                <details class="mt-2">
+                    <summary>{% trans "Current values (held by NetBox at detection)" %}</summary>
+                    <pre class="block mt-2">{{ current_json }}</pre>
+                </details>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="row">
+    <div class="col col-md-12">
+        <div class="card">
+            <h5 class="card-header">{% trans "Changes" %}</h5>
+            <div class="card-body">
+                {% if diff_rows %}
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>{% trans "Field" %}</th>
+                            <th>{% trans "Current (NetBox)" %}</th>
+                            <th>{% trans "Detected (device)" %}</th>
+                            <th>{% trans "Change" %}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in diff_rows %}
+                        <tr>
+                            <th scope="row">{{ row.label }}</th>
+                            <td><code>{{ row.current }}</code></td>
+                            <td><code>{{ row.detected }}</code></td>
+                            <td>
+                                <span class="badge text-bg-{{ row.change_color }}">{{ row.change_label }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <span class="text-muted">{% trans "No differences recorded for this entry." %}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

@@ -1,5 +1,6 @@
 import django_tables2 as tables
 from dcim.tables import InterfaceTable
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable
@@ -166,6 +167,12 @@ class FactsReportEntryTable(NetBoxTable):
     action = ChoiceFieldColumn()
     status = ChoiceFieldColumn()
     device = tables.Column(linkify=True)
+    display_title = tables.Column(
+        verbose_name=_("Entry"),
+        accessor="display_title",
+        orderable=False,
+        linkify=lambda record: reverse("plugins:netbox_facts:factsreportentry", args=[record.pk]),
+    )
     object_repr = MarkdownColumn(verbose_name=_("Object"))
     collector_type = ChoiceFieldColumn()
     details = MarkdownColumn(verbose_name=_("Details"), orderable=False, empty_values=())
@@ -179,6 +186,7 @@ class FactsReportEntryTable(NetBoxTable):
             "status",
             "collector_type",
             "device",
+            "display_title",
             "object_repr",
             "details",
             "created",
@@ -191,7 +199,7 @@ class FactsReportEntryTable(NetBoxTable):
             "status",
             "collector_type",
             "device",
-            "object_repr",
+            "display_title",
             "details",
             "error_message",
         )
