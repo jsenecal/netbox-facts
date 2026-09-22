@@ -11,6 +11,16 @@
 
 Gather operational facts from supported NetBox Devices using [NAPALM](https://napalm.readthedocs.io/en/latest/) and store them in NetBox.
 
+netbox-facts is a reconciliation tool, not a discovery tool: it assumes a
+device is already modeled in NetBox with a reachable management address,
+then runs a detect -> review -> apply loop entirely inside open-source
+NetBox to keep that device's operational state (interfaces, neighbors, MAC
+tables, inventory, routing sessions) in sync with what NetBox believes.
+That makes it a complement to tools built to find gear NetBox does not
+know about yet, such as NetBox Discovery, rather than a competitor to
+them -- see [NetBox Discovery and Orb](docs/discovery-and-orb.md) for how
+the two fit together.
+
 ## Features
 
 - **10 collector types**: ARP, IPv6 Neighbor Discovery (NDP), Inventory, Interfaces, LLDP, Ethernet Switching Tables, L2 Circuits, EVPN, BGP, and OSPF

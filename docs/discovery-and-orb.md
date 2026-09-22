@@ -43,6 +43,19 @@ Diode matches data at ingestion time; ongoing drift detection on the
 Discovery side belongs to NetBox Labs' commercial NetBox Assurance product.
 In netbox-facts, the detect/review/apply loop is part of the plugin.
 
+As of late 2026, the open-source Diode plugin's in-NetBox pages are limited
+to Settings and Client Credentials -- the ingestion-review UI it shipped in
+its 0.x releases is gone. Interactive review of detected deviations (apply,
+ignore, or rediff against what a device reports) now lives in NetBox
+Assurance, which ships only with NetBox Cloud or NetBox Enterprise, not
+with the open-source Discovery/Orb/Diode stack. Slurp'it's free NetBox
+plugin tier is similarly scoped: it covers basic device attributes, while
+MAC address, ARP, interface, LLDP, and routing data collection sit behind
+its paid tiers. netbox-facts' detect/review/apply loop -- the per-entry
+apply and skip actions on a Facts Report described in the
+[Detect-Only Workflow](user-guide/detect-only.md) -- runs entirely in
+open-source NetBox, with no paid tier gating any of it.
+
 ## Running both
 
 Let Discovery seed NetBox with the devices, interfaces, and addresses it
