@@ -99,7 +99,32 @@ class CollectorFilterSet(NetBoxModelFilterSet):
         return queryset.filter(name__icontains=value)
 
 
-class FactsReportFilterSet(BaseFilterSet):
+class QuickSearchMixin(django_filters.FilterSet):
+    """The `q` search shared by the report and entry filtersets.
+
+    A filterset names the fields its search spans in `search_fields`; the
+    value is matched case-insensitively against each of them, and a value
+    worn down to nothing narrows nothing.
+    """
+
+    search_fields = ()
+
+    q = django_filters.CharFilter(
+        method="search",
+        label=_("Search"),
+    )
+
+    def search(self, queryset, name, value):
+        value = value.strip()
+        if not value:
+            return queryset
+        query = Q()
+        for field_name in self.search_fields:
+            query |= Q(**{f"{field_name}__icontains": value})
+        return queryset.filter(query)
+
+
+class FactsReportFilterSet(QuickSearchMixin, BaseFilterSet):
     """Filter set for the FactsReport model.
 
     Reports and their entries are plain models: they carry no tags, no
@@ -109,10 +134,8 @@ class FactsReportFilterSet(BaseFilterSet):
     assuming model features these two lack.
     """
 
-    q = django_filters.CharFilter(
-        method="search",
-        label=_("Search"),
-    )
+    search_fields = ("collection_plan__name",)
+
     collection_plan = django_filters.ModelMultipleChoiceFilter(
         queryset=CollectionPlan.objects.all(),
     )
@@ -124,17 +147,16 @@ class FactsReportFilterSet(BaseFilterSet):
         model = FactsReport
         fields = ["collection_plan", "status"]
 
-    def search(self, queryset, name, value):
-        return queryset.filter(collection_plan__name__icontains=value)
 
+class FactsReportEntryFilterSet(QuickSearchMixin, BaseFilterSet):
+    """Filter set for the FactsReportEntry model.
 
-class FactsReportEntryFilterSet(BaseFilterSet):
-    """Filter set for the FactsReportEntry model."""
+    The search spans the entry label a reviewer reads in the table and the
+    device column they scan a long report by.
+    """
 
-    q = django_filters.CharFilter(
-        method="search",
-        label=_("Search"),
-    )
+    search_fields = ("object_repr", "device__name")
+
     action = django_filters.MultipleChoiceFilter(choices=EntryActionChoices)
     status = django_filters.MultipleChoiceFilter(choices=EntryStatusChoices)
     collector_type = django_filters.MultipleChoiceFilter(choices=CollectionTypeChoices)
@@ -147,15 +169,3 @@ class FactsReportEntryFilterSet(BaseFilterSet):
     class Meta:
         model = FactsReportEntry
         fields = ["report", "action", "status", "collector_type", "entry_kind", "device"]
-
-    def search(self, queryset, name, value):
-        """Match the reviewer's free text against what the entry list shows.
-
-        object_repr is the label a reviewer reads in the table, and the
-        device is the other column they scan a long report by, so both are
-        searched.
-        """
-        value = value.strip()
-        if not value:
-            return queryset
-        return queryset.filter(Q(object_repr__icontains=value) | Q(device__name__icontains=value))

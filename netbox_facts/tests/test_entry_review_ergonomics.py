@@ -19,9 +19,9 @@ from netbox_facts.choices import (
     EntryKindChoices,
     EntryStatusChoices,
 )
-from netbox_facts.filtersets import FactsReportEntryFilterSet
+from netbox_facts.filtersets import FactsReportEntryFilterSet, FactsReportFilterSet
 from netbox_facts.forms import FactsReportEntryFilterForm
-from netbox_facts.models import FactsReportEntry
+from netbox_facts.models import FactsReport, FactsReportEntry
 
 from .test_api_completeness import ReportEntryFixtureMixin
 
@@ -133,12 +133,35 @@ class EntryQFilterTest(ReportEntryFixtureMixin, TestCase):
     def test_q_that_matches_nothing_returns_no_entries(self):
         self.assertFalse(self.filtered(q="no-such-entry").exists())
 
-    def test_blank_q_does_not_narrow_the_list(self):
-        """A stray space in the search box must not hide the whole report."""
-        self.assertCountEqual(
-            self.filtered(q="   "),
-            [self.mac_entry, self.interface_entry],
+
+class QuickSearchMechanismTest(ReportEntryFixtureMixin, TestCase):
+    """Reports and entries share one `q` search (#140)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        device, cls.report = cls.create_report("Quick")
+        cls.entry = cls.create_entry(
+            cls.report,
+            device,
+            EntryStatusChoices.STATUS_PENDING,
+            "Interface ge-0/0/3",
         )
+
+    def test_report_q_matches_the_collection_plan_name(self):
+        filtered = FactsReportFilterSet({"q": "quick plan"}, queryset=FactsReport.objects.all()).qs
+
+        self.assertCountEqual(filtered, [self.report])
+
+    def test_blank_search_does_not_narrow_the_queryset(self):
+        """A search worn down to whitespace must not hide every row."""
+        for filterset_class, queryset in (
+            (FactsReportFilterSet, FactsReport.objects.all()),
+            (FactsReportEntryFilterSet, FactsReportEntry.objects.all()),
+        ):
+            with self.subTest(filterset=filterset_class.__name__):
+                searched = filterset_class().search(queryset, "q", "   ")
+
+                self.assertCountEqual(searched, queryset)
 
 
 class EntryTabConfigurationTest(ReportEntryFixtureMixin, TestCase):
