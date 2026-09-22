@@ -25,7 +25,7 @@ A `FactsReport` is created by every collection run and accumulates one
 | `status` | `pending`, `applying`, `applied`, `skipped`, or `failed`. `applying` is set while the entry's apply handler runs. |
 | `collector_type` | The collector that produced this entry. Selects the apply handler family. |
 | `entry_kind` | What kind of object the entry concerns: `device`, `interface`, `interface_mac`, `lag`, `ip_address`, `mac_address`, `vrf`, `inventory_item`, `module`, `cable`, `l2_circuit`, `bgp_peer_ip`, `bgp_router`, `bgp_scope`, `bgp_peer`, `ospf_neighbor`, or `other`. Set at detect time; selects the apply handler within the collector type. |
-| `device` | The device the fact was detected on. |
+| `device` | The device the fact was detected on. Reachable in reverse as `device.facts_entries`. |
 | `object_type` / `object_id` | Generic FK to the NetBox object the entry refers to. Nullable for `new` entries that have not been applied yet. |
 | `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). Display only -- apply never parses it. |
 | `display_title` | Read-only. One-line title composed from the kind, the label and the action (e.g. `Interface xe-0/0/1 changed`). |
@@ -128,6 +128,49 @@ again while one is in flight is refused with a warning rather than
 queueing a second pass over the same entries.
 
 Both paths require the `netbox_facts.apply_factsreport` permission.
+
+## Device page integration
+
+Reports are organised by collection run, but operators work device by
+device. Two entry points bring the review queue to them.
+
+### The Facts tab
+
+Every device detail page carries a **Facts** tab, badged with the number
+of entries for that device still awaiting a decision. The tab shows:
+
+- **Pending entries** -- the same table the report tabs use, filtered to
+  this device. Entries are reviewed from their report, so the tab is a
+  reading view: apply and skip stay on the report page.
+- **Last Collected** -- the most recent collection timestamp per collector
+  type, taken from the reports that produced this device's own entries. It
+  answers "when was this device last seen by an ARP run", not "when did
+  some ARP plan last run".
+- **Collection Plans** -- the enabled plans whose scope currently resolves
+  to this device, with each plan's last run.
+
+The tab is visible to users holding `netbox_facts.view_factsreport`, and
+stays visible when the device has no pending entries: freshness and plan
+coverage are worth checking on a quiet device too. The listed entries
+respect object-level permissions; the tab's badge does not, because NetBox
+hands a tab badge only the object it is counting for. A user restricted to
+a subset of entries can therefore see a badge higher than the rows below
+it.
+
+A plan's scope is a set of assignment dimensions rather than a stored
+device list, so answering "does this plan cover this device" means
+resolving the plan. The tab caps how many enabled plans it resolves for
+one page view and says so when the cap is reached, rather than letting a
+deployment with hundreds of plans turn a device page into a sweep.
+
+### The dashboard widget
+
+**Pending Facts Changes** is a dashboard widget, available from the widget
+picker on the NetBox home page like any other. It shows two numbers -- the
+total entries awaiting a decision and the reports holding them -- and both
+link to the report list filtered to the reports awaiting review (status
+`pending` or `partial`). Counts respect the viewing user's object
+permissions.
 
 ## REST endpoints
 

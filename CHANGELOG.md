@@ -45,6 +45,23 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Device page Facts tab: every device detail page now carries a "Facts" tab,
+  badged with the number of entries for that device still awaiting a decision.
+  It lists those pending entries and adds two panels -- the most recent
+  collection timestamp per collector type, derived from the reports that
+  produced this device's own entries, and the enabled Collection Plans whose
+  scope currently resolves to this device, with each plan's last run. The tab
+  requires `netbox_facts.view_factsreport` and stays visible on a device with
+  no pending entries. Plan coverage is resolved per plan, so the tab caps how
+  many enabled plans it checks for one page view and says so when the cap is
+  reached. (#150)
+- "Pending Facts Changes" dashboard widget: shows the total entries awaiting a
+  decision and how many reports hold them, both linking to the report list
+  filtered to the reports awaiting review. Counts respect the viewing user's
+  object permissions. (#150)
+- `FactsReportEntry.device` now has a reverse accessor, `device.facts_entries`,
+  in place of the previous `related_name="+"`. Migration `0030` is
+  metadata-only and applies no schema change. (#150)
 - Collection Plan scope preview: the plan detail page now shows a "Resolved
   scope" panel with the number of devices the plan currently matches (linking
   to the device list filtered by the plan's scope), the connection target, and

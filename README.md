@@ -26,6 +26,7 @@ the two fit together.
 - **10 collector types**: ARP, IPv6 Neighbor Discovery (NDP), Inventory, Interfaces, LLDP, Ethernet Switching Tables, L2 Circuits, EVPN, BGP, and OSPF
 - **Detect-only mode**: Collection plans can produce a report without modifying NetBox objects — changes can be reviewed and selectively applied or skipped
 - **Completion events**: A finished run raises a `netbox_facts.report_ready` event, so a standard NetBox event rule can notify reviewers by webhook, script, or notification group instead of them polling the report list
+- **Device page integration**: A "Facts" tab on every device shows its pending entries, the most recent collection per collector type, and the enabled plans whose scope covers it; a "Pending Facts Changes" dashboard widget puts the review backlog on the NetBox home page
 - **Auto-scheduling**: Interval-based recurring collection via NetBox's JobRunner framework, with priority queues (high/default/low)
 - **MAC address tracking**: Discovered MAC addresses linked to interfaces and IP addresses, with automatic OUI vendor lookup
 - **REST API**: Full CRUD endpoints for MAC addresses, MAC vendors, collection plans, and facts reports, plus a read-only endpoint for report entries
