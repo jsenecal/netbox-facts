@@ -45,6 +45,23 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Collection Plan scope preview: the plan detail page now shows a "Resolved
+  scope" panel with the number of devices the plan currently matches (linking
+  to the device list filtered by the plan's scope), the connection target, and
+  how many matched devices have no usable IP for that target, naming the first
+  offenders in a tooltip. The edit form shows the same resolved count for a
+  saved plan and reports it again after every save. (#145)
+- Empty-scope guard: `CollectionPlan.clean()` now rejects a plan that sets no
+  scoping dimension at all, because such a plan resolves to every device in
+  NetBox. Deliberate fleet-wide plans set the new `allow_unscoped` field to opt
+  out. Saving a plan whose scope resolves to more devices than the new
+  `scope_warning_threshold` plugin setting (default `500`, `0` disables) shows a
+  warning message. (#145)
+- The Collection Plan CSV import form gained the device-scoping columns
+  (`devices`, `regions`, `site_groups`, `sites`, `locations`, `device_types`,
+  `roles`, `platforms`, `tenant_groups`, `tenants`, `device_status` and
+  `allow_unscoped`; `tags` was already importable), so imported plans are no
+  longer born scopeless. (#145)
 - Report entries now carry an `entry_kind` field naming what kind of object
   the entry concerns (interface, interface MAC, LAG, IP address, MAC address,
   VRF, inventory item, module, cable, L2 circuit, BGP router/scope/peer/peer
@@ -110,6 +127,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- The Collection Plan detail page's Assignment panel no longer dumps every
+  assigned object: each scoping dimension lists at most ten entries and
+  reports the rest as a count, so a plan pinning thousands of devices stays
+  readable. (#145)
 - Apply now dispatches on an entry's `entry_kind` instead of matching the
   leading words of its `object_repr`, so renaming a display label can no
   longer route an entry to the wrong handler. `object_repr` remains the

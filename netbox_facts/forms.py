@@ -3,9 +3,11 @@ from dcim.choices import DeviceStatusChoices
 from dcim.models.devices import Device, DeviceRole, DeviceType, Manufacturer, Platform
 from dcim.models.sites import Location, Region, Site, SiteGroup
 from django import forms
+from django.contrib import messages
 from django.forms import MultipleChoiceField
 from django.utils.translation import gettext_lazy as _
 from extras.models.tags import Tag
+from netbox.context import current_request
 from netbox.forms import (
     NetBoxModelBulkEditForm,
     NetBoxModelFilterSetForm,
@@ -15,7 +17,13 @@ from netbox.forms import (
 from netbox.forms.bulk_import import NetBoxModelImportForm
 from tenancy.models.tenants import Tenant, TenantGroup
 from utilities.datetime import local_now
-from utilities.forms.fields import CommentField, CSVChoiceField, CSVModelChoiceField
+from utilities.forms.fields import (
+    CommentField,
+    CSVChoiceField,
+    CSVModelChoiceField,
+    CSVModelMultipleChoiceField,
+    CSVMultipleChoiceField,
+)
 from utilities.forms.fields.dynamic import DynamicModelMultipleChoiceField
 from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets.datetime import DateTimePicker
@@ -167,6 +175,17 @@ class MACVendorFilterForm(NetBoxModelFilterSetForm):
 # --------------------------------------------------------------------------
 
 
+def describe_plan_scope(plan: CollectionPlan) -> str:
+    """Return a one-line summary of the devices a saved plan resolves to."""
+    unready = plan.get_unready_devices().count()
+    matched = _("{count} devices").format(count=plan.get_matched_device_count())
+    if not unready:
+        return matched
+    return _("{matched} ({unready} without a usable IP for the selected connection target)").format(
+        matched=matched, unready=unready
+    )
+
+
 class CollectorForm(NetBoxModelForm):
     """Form for creating and modifying a collectionplan."""
 
@@ -202,6 +221,13 @@ class CollectorForm(NetBoxModelForm):
         label=_("Tenants"), queryset=Tenant.objects.all(), required=False, selector=True
     )
     tags = DynamicModelMultipleChoiceField(label=_("Tags"), queryset=Tag.objects.all(), required=False, selector=True)
+
+    matched_devices = forms.CharField(
+        label=_("Currently matched"),
+        required=False,
+        disabled=True,
+        help_text=_("Devices resolved by the scope stored on this plan. Refreshed when the plan is saved."),
+    )
 
     napalm_driver = forms.ChoiceField(
         choices=get_napalm_driver_choices,
@@ -246,6 +272,8 @@ class CollectorForm(NetBoxModelForm):
             "tenant_groups",
             "tenants",
             "tags",
+            "allow_unscoped",
+            "matched_devices",
             name=_("Assignment"),
         ),
         FieldSet(
@@ -277,6 +305,7 @@ class CollectorForm(NetBoxModelForm):
             "tenant_groups",
             "tenants",
             "tags",
+            "allow_unscoped",
             "comments",
             "scheduled_at",
             "interval",
@@ -297,9 +326,13 @@ class CollectorForm(NetBoxModelForm):
             ]
         now = local_now().strftime("%Y-%m-%d %H:%M:%S %Z")
         self.fields["scheduled_at"].help_text += _(" (current server time: <strong>{now}</strong>)").format(now=now)
-        # Censor stored credentials instead of rendering them verbatim
-        if self.instance.pk and isinstance(self.instance.napalm_args, dict):
-            self.initial["napalm_args"] = mask_napalm_credentials(self.instance.napalm_args)
+        if self.instance.pk:
+            # Censor stored credentials instead of rendering them verbatim
+            if isinstance(self.instance.napalm_args, dict):
+                self.initial["napalm_args"] = mask_napalm_credentials(self.instance.napalm_args)
+            self.initial["matched_devices"] = describe_plan_scope(self.instance)
+        else:
+            del self.fields["matched_devices"]
 
     def clean_napalm_args(self):
         """Keep stored credentials when the censored values are submitted unchanged."""
@@ -319,6 +352,41 @@ class CollectorForm(NetBoxModelForm):
 
         return self.cleaned_data
 
+    def save(self, *args, **kwargs):
+        """Save the plan and report the scope it now resolves to.
+
+        The resolved count only becomes accurate once the scoping
+        assignments are stored, which rules out reporting it during
+        validation. NetBox exposes the active request through a context
+        variable, so the feedback rides along with the redirect to the plan.
+        """
+        instance = super().save(*args, **kwargs)
+        request = current_request.get()
+        if instance.pk is None or request is None or not hasattr(request, "_messages"):
+            return instance
+
+        warning = instance.get_scope_warning()
+        if warning:
+            messages.warning(request, warning)
+        else:
+            messages.info(
+                request, _("This collection plan matches {scope}.").format(scope=describe_plan_scope(instance))
+            )
+        return instance
+
+
+def scope_import_field(queryset, label, to_field_name="name"):
+    """Return a CSV column importing one device-scoping dimension."""
+    return CSVModelMultipleChoiceField(
+        queryset=queryset,
+        to_field_name=to_field_name,
+        required=False,
+        label=label,
+        help_text=_("{field} values separated by commas, encased with double quotes").format(
+            field=to_field_name.capitalize()
+        ),
+    )
+
 
 class CollectionPlanImportForm(NetBoxModelImportForm):
     collector_type = CSVChoiceField(
@@ -329,6 +397,25 @@ class CollectionPlanImportForm(NetBoxModelImportForm):
         choices=CollectorPriorityChoices,
         required=False,
         label=_("Priority"),
+    )
+    # Scope columns: without them every imported plan is born unscoped, which
+    # resolves to the whole device fleet. The tags column is inherited from
+    # NetBoxModelImportForm and doubles as the device-tag dimension.
+    devices = scope_import_field(Device.objects.all(), _("Devices"))
+    regions = scope_import_field(Region.objects.all(), _("Regions"))
+    site_groups = scope_import_field(SiteGroup.objects.all(), _("Site groups"))
+    sites = scope_import_field(Site.objects.all(), _("Sites"))
+    locations = scope_import_field(Location.objects.all(), _("Locations"))
+    device_types = scope_import_field(DeviceType.objects.all(), _("Device types"), to_field_name="model")
+    roles = scope_import_field(DeviceRole.objects.all(), _("Roles"))
+    platforms = scope_import_field(Platform.objects.all(), _("Platforms"))
+    tenant_groups = scope_import_field(TenantGroup.objects.all(), _("Tenant groups"))
+    tenants = scope_import_field(Tenant.objects.all(), _("Tenants"))
+    device_status = CSVMultipleChoiceField(
+        choices=DeviceStatusChoices,
+        required=False,
+        label=_("Device Statuses"),
+        help_text=_("Device statuses separated by commas, encased with double quotes"),
     )
 
     class Meta:
@@ -341,6 +428,18 @@ class CollectionPlanImportForm(NetBoxModelImportForm):
             "priority",
             "enabled",
             "detect_only",
+            "devices",
+            "regions",
+            "site_groups",
+            "sites",
+            "locations",
+            "device_types",
+            "roles",
+            "platforms",
+            "tenant_groups",
+            "tenants",
+            "device_status",
+            "allow_unscoped",
             "description",
             "comments",
             "tags",

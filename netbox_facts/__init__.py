@@ -33,6 +33,7 @@ class FactsConfig(PluginConfig):
         "valid_interfaces_re": ".*",
         "job_timeout": 1800,
         "report_retention_days": 0,
+        "scope_warning_threshold": 500,
     }
 
     def ready(self):

@@ -146,6 +146,7 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "platforms",
             "tenant_groups",
             "tenants",
+            "allow_unscoped",
             "napalm_driver",
             "napalm_args",
             "connection_target",
