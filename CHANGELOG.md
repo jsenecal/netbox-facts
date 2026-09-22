@@ -79,6 +79,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- Developer-facing: the plugin's pytest runs now use their own
+  `test_netbox_facts` database instead of the meta-repo's shared
+  `test_netbox`, and carry the `.testdb-isolated` marker so they no longer
+  take the cross-plugin test lock.
 - "Apply All Pending" on a facts report now asks for confirmation and runs
   as a background job (`Facts Report Apply`) instead of applying inline in
   the web request. The button posts a single flag and the pending entries
