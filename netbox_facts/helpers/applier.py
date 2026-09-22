@@ -145,10 +145,26 @@ def _mark_entry_failed(entry, exc):
     entry.save(update_fields=["status", "error_message", "apply_error"])
 
 
+def _transition_entries(report, entry_pks, from_status, to_status, **reset_fields):
+    """Move selected entries of a report from one status to another.
+
+    Every transition is scoped the same two ways -- the report that owns
+    the entries, and the status the transition is allowed to start from --
+    so entries in another status, and entries belonging to another report,
+    are ignored rather than moved. Extra keyword arguments reset fields
+    that belong to the status being left behind. Returns the number of
+    entries moved.
+    """
+    return report.entries.filter(pk__in=entry_pks, status=from_status).update(status=to_status, **reset_fields)
+
+
 def skip_entries(report, entry_pks):
     """Bulk-skip selected pending entries."""
-    count = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING).update(
-        status=EntryStatusChoices.STATUS_SKIPPED
+    count = _transition_entries(
+        report,
+        entry_pks,
+        EntryStatusChoices.STATUS_PENDING,
+        EntryStatusChoices.STATUS_SKIPPED,
     )
     _update_report_status(report)
     return count
@@ -166,6 +182,8 @@ def retry_entries(report, entry_pks):
     Entries that did not fail, and entries belonging to another report,
     are ignored. Returns (applied_count, failed_count).
     """
+    # The PKs are resolved before the transition because the apply path
+    # that follows can no longer recognize these entries by status.
     failed_pks = list(
         report.entries.filter(
             pk__in=entry_pks,
@@ -175,8 +193,11 @@ def retry_entries(report, entry_pks):
     if not failed_pks:
         return 0, 0
 
-    report.entries.filter(pk__in=failed_pks).update(
-        status=EntryStatusChoices.STATUS_PENDING,
+    _transition_entries(
+        report,
+        failed_pks,
+        EntryStatusChoices.STATUS_FAILED,
+        EntryStatusChoices.STATUS_PENDING,
         error_message="",
         apply_error=None,
     )
@@ -192,8 +213,11 @@ def unskip_entries(report, entry_pks):
     Entries in any other status, and entries belonging to another report,
     are ignored. Returns the number of entries returned to pending.
     """
-    count = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_SKIPPED).update(
-        status=EntryStatusChoices.STATUS_PENDING
+    count = _transition_entries(
+        report,
+        entry_pks,
+        EntryStatusChoices.STATUS_SKIPPED,
+        EntryStatusChoices.STATUS_PENDING,
     )
     _update_report_status(report)
     return count
