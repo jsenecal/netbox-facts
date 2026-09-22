@@ -86,6 +86,10 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- Developer-facing: the plugin's pytest runs now use their own
+  `test_netbox_facts` database instead of the meta-repo's shared
+  `test_netbox`, and carry the `.testdb-isolated` marker so they no longer
+  take the cross-plugin test lock.
 - CI: the NetBox 4.5 lanes now run without the netbox-routing integration; its current migrations require NetBox 4.6+. Routing tests skip on those lanes and coverage still uploads from the 4.7 lane.
 - "Apply All Pending" on a facts report now asks for confirmation and runs
   as a background job (`Facts Report Apply`) instead of applying inline in
