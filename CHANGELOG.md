@@ -45,6 +45,16 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Report entries now have a detail page of their own, linked from the new
+  "Entry" column of the entry tables: an overview of the entry's kind, action,
+  status, device, report, collector type and timestamps; a Changes panel
+  comparing what NetBox holds against what the device reported, key by key,
+  marked modified/added/removed; the raw `detected_values` and
+  `current_values` payloads as collected; and, for a failed entry, its
+  structured `apply_error` rendered field by field, distinguishing a
+  validation rejection from an infrastructure failure. The page is gated on
+  `netbox_facts.view_factsreport`, the same permission as the report it
+  belongs to. (#139)
 - Device page Facts tab: a device the plugin has recorded facts for now carries
   a "Facts" tab, badged with the number of entries for that device still
   awaiting a decision. It lists those pending entries and adds two panels -- the

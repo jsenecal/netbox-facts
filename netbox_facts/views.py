@@ -1,5 +1,7 @@
 """Views for the netbox_facts plugin."""
 
+import json
+
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from dcim.filtersets import InterfaceFilterSet
@@ -9,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import NoReverseMatch, reverse
 from django.utils.translation import gettext as _
 from extras.choices import LogLevelChoices
 from extras.views import ScriptResultView
@@ -26,6 +29,7 @@ from utilities.views import (
 
 from . import filtersets, forms, models, tables
 from .choices import EntryActionChoices, EntryStatusChoices
+from .helpers.entry_display import build_apply_error_display, build_entry_diff
 from .models.collection_plan import SCOPE_DIMENSIONS
 
 
@@ -659,6 +663,75 @@ class FactsReportSkipView(BaseObjectView):
         messages.success(request, _("Skipped {count} entries.").format(count=count))
 
         return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+
+###
+# FactsReportEntry
+###
+
+
+def _entry_tab_url(entry):
+    """Return the report tab the entry is listed on, or the report itself.
+
+    Entries are reached through a per-status tab on their report, so that
+    tab is where a reviewer came from and where a back link belongs. A
+    status with no tab of its own (an entry mid-apply) falls back to the
+    report.
+    """
+    try:
+        return reverse(f"plugins:netbox_facts:factsreport_entries_{entry.status}", args=[entry.report_id])
+    except NoReverseMatch:
+        return entry.report.get_absolute_url()
+
+
+def _pretty_json(payload):
+    """Render a captured payload as the raw evidence block shows it."""
+    return json.dumps(payload or {}, indent=2, sort_keys=True, default=str)
+
+
+@register_model_view(models.FactsReportEntry)
+class FactsReportEntryView(generic.ObjectView):
+    """Detail view for a single report entry.
+
+    Shows the comparison key by key, the payloads it was derived from,
+    and -- for a failed entry -- what NetBox rejected on apply.
+    """
+
+    queryset = models.FactsReportEntry.objects.all()
+    template_name = "netbox_facts/factsreportentry.html"
+    actions = ()
+
+    def get_required_permission(self):
+        return "netbox_facts.view_factsreport"
+
+    def has_permission(self):
+        """Gate an entry on its report rather than on the entry itself.
+
+        Entries hold no permissions of their own: they are rows of a
+        report and are visible exactly when it is. Restricting the report
+        queryset rather than the entry one keeps object-level constraints
+        granted on reports (a tenant's plans, say) in force here, which
+        the default model-level check on FactsReportEntry would miss.
+        """
+        user = self.request.user
+        if not user.has_perms((self.get_required_permission(), *self.additional_permissions)):
+            return False
+
+        self.queryset = self.queryset.filter(report__in=models.FactsReport.objects.restrict(user, "view"))
+        return True
+
+    def get_extra_context(self, request, instance):
+        apply_error = None
+        if instance.status == EntryStatusChoices.STATUS_FAILED:
+            apply_error = build_apply_error_display(instance.apply_error)
+
+        return {
+            "diff_rows": build_entry_diff(instance),
+            "apply_error": apply_error,
+            "detected_json": _pretty_json(instance.detected_values),
+            "current_json": _pretty_json(instance.current_values),
+            "parent_tab_url": _entry_tab_url(instance),
+        }
 
 
 @register_model_view(models.CollectionPlan, "reports")

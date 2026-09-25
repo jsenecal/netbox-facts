@@ -106,6 +106,39 @@ after an upgrade, run `python manage.py migrate` once: NetBox records the
 features a model supports on its object type as part of the migration
 step.
 
+## The entry detail page
+
+Every row in a report's entry tabs links to a page for that single entry,
+at `/plugins/facts/facts-report-entry/<id>/`. It is where you review a
+pending change before applying it, or find out why one failed.
+
+- **Overview** -- the entry's title, kind, action and status, the device
+  and report it belongs to, the collector type that produced it, the
+  NetBox object it resolves to once applied, and the detection and apply
+  timestamps.
+- **Changes** -- the comparison key by key, with what NetBox holds beside
+  what the device reported. A key is marked `Modified` when both sides
+  differ, `Added` when only the device reported it, and `Removed` when
+  only NetBox still holds it; `(not set)` marks a side that holds no
+  value at all. Keys whose value did not move are not listed, and a
+  `confirmed` entry lists none. This is the same comparison the entry
+  table's Details column summarizes in one line.
+- **Raw evidence** -- the full `detected_values` and `current_values`
+  payloads as stored, in collapsible blocks. They include the keys the
+  Changes panel hides, such as `raw_output` and the collector's internal
+  identity fields.
+
+A `failed` entry also shows what the apply hit. A validation failure is
+rendered field by field exactly as NetBox rejected it; an infrastructure
+failure (an unreachable dependency, a missing handler) is shown as a
+single general message. Entries written before `apply_error` existed fall
+back to their flat `error_message`.
+
+Viewing an entry requires `netbox_facts.view_factsreport`: entries carry
+no permissions of their own and are visible exactly when their report is,
+object-level constraints included. Breadcrumbs and the **Back to Report**
+button return to the report tab the entry is listed on.
+
 ## Applying entries from the UI
 
 A report offers two apply paths:
