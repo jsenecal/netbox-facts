@@ -38,6 +38,11 @@ def pending_entry_count(device):
     return pending_entries(device).count()
 
 
+def has_facts_data(device):
+    """Return True when the plugin has recorded any entry for this device."""
+    return device.facts_entries.exists()
+
+
 def last_collected_by_type(device):
     """Return the device's most recent collection timestamp per collector type.
 
@@ -88,6 +93,13 @@ class DeviceFactsView(generic.ObjectChildrenView):
     template_name = "netbox_facts/device_facts.html"
     tab = ViewTab(
         label=_("Facts"),
+        # Visibility is answered by "has this device any entry at all", which is
+        # deliberately not hide_if_empty: that flag tests the badge, and the badge
+        # is the *pending* count, so it would also hide a device that has been
+        # collected and is simply clean -- the device whose freshness and plan
+        # coverage panels are most worth reading. ViewTab evaluates visible()
+        # before the badge, so the badge keeps its pending-count meaning.
+        visible=has_facts_data,
         badge=pending_entry_count,
         permission="netbox_facts.view_factsreport",
         weight=5000,

@@ -45,15 +45,16 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
-- Device page Facts tab: every device detail page now carries a "Facts" tab,
-  badged with the number of entries for that device still awaiting a decision.
-  It lists those pending entries and adds two panels -- the most recent
-  collection timestamp per collector type, derived from the reports that
-  produced this device's own entries, and the enabled Collection Plans whose
-  scope currently resolves to this device, with each plan's last run. The tab
-  requires `netbox_facts.view_factsreport` and stays visible on a device with
-  no pending entries. Plan coverage is resolved per plan, so the tab caps how
-  many enabled plans it checks for one page view and says so when the cap is
+- Device page Facts tab: a device the plugin has recorded facts for now carries
+  a "Facts" tab, badged with the number of entries for that device still
+  awaiting a decision. It lists those pending entries and adds two panels -- the
+  most recent collection timestamp per collector type, derived from the reports
+  that produced this device's own entries, and the enabled Collection Plans
+  whose scope currently resolves to this device, with each plan's last run. The
+  tab requires `netbox_facts.view_factsreport` and is hidden on devices with no
+  facts data at all; a device that has been collected and is simply clean keeps
+  the tab with a `0` badge. Plan coverage is resolved per plan, so the tab caps
+  how many enabled plans it checks for one page view and says so when the cap is
   reached. (#150)
 - "Pending Facts Changes" dashboard widget: shows the total entries awaiting a
   decision and how many reports hold them, both linking to the report list

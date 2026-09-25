@@ -121,12 +121,33 @@ class DeviceFactsTabRegistrationTest(DeviceFactsFixtureMixin, TestCase):
 
         self.assertEqual(DeviceFactsView.tab.badge(self.device), 2)
 
-    def test_tab_stays_visible_without_pending_entries(self):
-        """Freshness and covering plans are worth reaching on a quiet device."""
+    def test_tab_is_hidden_on_a_device_with_no_facts_data(self):
+        """A device the plugin has never recorded anything for gets no tab at all."""
+        self.assertIsNone(DeviceFactsView.tab.render(self.device))
+
+    def test_tab_is_visible_once_the_device_has_entries_even_if_none_are_pending(self):
+        """Freshness and plan coverage are worth reaching on a collected-but-clean device."""
+        self._create_entry(self._create_report(), status=EntryStatusChoices.STATUS_APPLIED)
+
         rendered = DeviceFactsView.tab.render(self.device)
 
         self.assertIsNotNone(rendered)
         self.assertEqual(rendered["badge"], 0)
+
+    def test_tab_visibility_is_scoped_to_the_device(self):
+        """Another device's entries must not surface a tab on this one."""
+        self._create_entry(self._create_report(), device=self.other_device)
+
+        self.assertIsNone(DeviceFactsView.tab.render(self.device))
+        self.assertIsNotNone(DeviceFactsView.tab.render(self.other_device))
+
+    def test_tab_is_visible_with_pending_entries(self):
+        self._create_entry(self._create_report())
+
+        rendered = DeviceFactsView.tab.render(self.device)
+
+        self.assertIsNotNone(rendered)
+        self.assertEqual(rendered["badge"], 1)
 
     def test_children_are_the_devices_pending_entries(self):
         report = self._create_report()

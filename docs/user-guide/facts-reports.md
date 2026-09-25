@@ -136,8 +136,9 @@ device. Two entry points bring the review queue to them.
 
 ### The Facts tab
 
-Every device detail page carries a **Facts** tab, badged with the number
-of entries for that device still awaiting a decision. The tab shows:
+A device the plugin has recorded facts for carries a **Facts** tab, badged
+with the number of entries for that device still awaiting a decision. The
+tab shows:
 
 - **Pending entries** -- the same table the report tabs use, filtered to
   this device. Entries are reviewed from their report, so the tab is a
@@ -150,12 +151,17 @@ of entries for that device still awaiting a decision. The tab shows:
   to this device, with each plan's last run.
 
 The tab is visible to users holding `netbox_facts.view_factsreport`, and
-stays visible when the device has no pending entries: freshness and plan
-coverage are worth checking on a quiet device too. The listed entries
-respect object-level permissions; the tab's badge does not, because NetBox
-hands a tab badge only the object it is counting for. A user restricted to
-a subset of entries can therefore see a badge higher than the rows below
-it.
+appears only once the plugin holds at least one entry for the device, so it
+does not clutter the pages of devices no plan has ever collected. It is
+deliberately keyed off "has any entry", not "has a pending entry": a device
+that has been collected and is simply clean still shows the tab with a `0`
+badge, because that is exactly the device whose freshness and plan-coverage
+panels are worth reading.
+
+The listed entries respect object-level permissions; the tab's badge does
+not, because NetBox hands a tab badge only the object it is counting for. A
+user restricted to a subset of entries can therefore see a badge higher
+than the rows below it.
 
 A plan's scope is a set of assignment dimensions rather than a stored
 device list, so answering "does this plan cover this device" means
