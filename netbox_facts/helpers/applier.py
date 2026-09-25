@@ -53,7 +53,7 @@ def apply_entries(report, entry_pks):
     Dispatches to per-collector-type handlers.
     Returns (applied_count, failed_count).
     """
-    entries = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING)
+    entries = report.entries.pending().filter(pk__in=entry_pks)
     applied = 0
     failed = 0
     now = timezone.now()
@@ -159,7 +159,7 @@ def _transition_entries(report, entry_pks, from_status, to_status, **reset_field
     that belong to the status being left behind. Returns the number of
     entries moved.
     """
-    return report.entries.filter(pk__in=entry_pks, status=from_status).update(status=to_status, **reset_fields)
+    return report.entries.for_status(from_status).filter(pk__in=entry_pks).update(status=to_status, **reset_fields)
 
 
 def skip_entries(report, entry_pks):
@@ -189,10 +189,9 @@ def retry_entries(report, entry_pks):
     # The PKs are resolved before the transition because the apply path
     # that follows can no longer recognize these entries by status.
     failed_pks = list(
-        report.entries.filter(
-            pk__in=entry_pks,
-            status=EntryStatusChoices.STATUS_FAILED,
-        ).values_list("pk", flat=True)
+        report.entries.for_status(EntryStatusChoices.STATUS_FAILED)
+        .filter(pk__in=entry_pks)
+        .values_list("pk", flat=True)
     )
     if not failed_pks:
         return 0, 0

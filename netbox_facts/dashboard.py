@@ -15,7 +15,7 @@ from django.utils.translation import gettext_lazy as _
 from extras.dashboard.utils import register_widget
 from extras.dashboard.widgets import DashboardWidget
 
-from .choices import EntryStatusChoices, ReportStatusChoices
+from .choices import ReportStatusChoices
 from .models import FactsReport, FactsReportEntry
 
 #: Report statuses that still hold entries nobody has decided on. A report
@@ -43,7 +43,7 @@ def pending_facts_counts(user):
     report whose run produced no entries at all; that report is still
     unresolved, and counting it keeps the figure and its link honest.
     """
-    entries = FactsReportEntry.objects.restrict(user, "view").filter(status=EntryStatusChoices.STATUS_PENDING)
+    entries = FactsReportEntry.objects.restrict(user, "view").pending()
     reports = FactsReport.objects.restrict(user, "view").filter(status__in=REVIEW_REPORT_STATUSES)
     return {
         "pending_entries": entries.count(),

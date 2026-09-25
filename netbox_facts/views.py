@@ -487,9 +487,9 @@ class FactsReportView(generic.ObjectView):
     def get_extra_context(self, request, instance):
         entries = instance.entries.all()
         pending_count = instance.pending_entries.count()
-        applied_count = entries.filter(status=EntryStatusChoices.STATUS_APPLIED).count()
-        skipped_count = entries.filter(status=EntryStatusChoices.STATUS_SKIPPED).count()
-        failed_count = entries.filter(status=EntryStatusChoices.STATUS_FAILED).count()
+        applied_count = entries.for_status(EntryStatusChoices.STATUS_APPLIED).count()
+        skipped_count = entries.for_status(EntryStatusChoices.STATUS_SKIPPED).count()
+        failed_count = entries.for_status(EntryStatusChoices.STATUS_FAILED).count()
 
         return {
             "entry_stats": {
@@ -573,13 +573,13 @@ def _status_entries_view(status_value, status_label, weight):
         template_name = "netbox_facts/factsreport_entries.html"
         tab = ViewTab(
             label=_(status_label),
-            badge=lambda x, s=status_value: x.entries.filter(status=s).count(),
+            badge=lambda x, s=status_value: x.entries.for_status(s).count(),
             permission="netbox_facts.view_factsreport",
             weight=weight,
         )
 
         def get_children(self, request, parent):
-            return parent.entries.filter(status=status_value)
+            return parent.entries.for_status(status_value)
 
         def get_extra_context(self, request, instance):
             # The tab's status drives which lifecycle controls the template
@@ -665,7 +665,7 @@ class FactsReportEntryActionView(BaseObjectView):
 
         entry_status = request.POST.get("entry_status")
         if entry_status in EntryStatusChoices.values():
-            entries = entries.filter(status=entry_status)
+            entries = entries.for_status(entry_status)
 
         entries = filtersets.FactsReportEntryFilterSet(request.GET, entries, request=request).qs
         return list(entries.values_list("pk", flat=True))

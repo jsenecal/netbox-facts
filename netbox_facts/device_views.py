@@ -17,7 +17,7 @@ from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
 from . import filtersets, tables
-from .choices import CollectionTypeChoices, EntryStatusChoices
+from .choices import CollectionTypeChoices
 from .models import CollectionPlan, FactsReportEntry
 
 #: How many enabled plans the Facts tab is willing to resolve for one page
@@ -30,7 +30,7 @@ MAX_COVERING_PLANS = 20
 
 def pending_entries(device):
     """Return the device's report entries that are still awaiting a decision."""
-    return device.facts_entries.filter(status=EntryStatusChoices.STATUS_PENDING)
+    return device.facts_entries.pending()
 
 
 def pending_entry_count(device):
