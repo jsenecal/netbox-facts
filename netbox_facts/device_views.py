@@ -13,12 +13,11 @@ from dcim.models import Device
 from django.db.models import Max
 from django.db.models.functions import Coalesce
 from django.utils.translation import gettext_lazy as _
-from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from . import filtersets, tables
 from .choices import CollectionTypeChoices
-from .models import CollectionPlan, FactsReportEntry
+from .entry_views import ENTRY_TAB_PERMISSION, FactsReportEntryChildrenView
+from .models import CollectionPlan
 
 #: How many enabled plans the Facts tab is willing to resolve for one page
 #: view. Plan scope is a set of m2m dimensions rather than a stored device
@@ -82,14 +81,10 @@ def plans_covering_device(device, limit=MAX_COVERING_PLANS):
 
 
 @register_model_view(Device, "facts")
-class DeviceFactsView(generic.ObjectChildrenView):
+class DeviceFactsView(FactsReportEntryChildrenView):
     """Facts tab on the Device detail page."""
 
     queryset = Device.objects.all()
-    child_model = FactsReportEntry
-    table = tables.FactsReportEntryTable
-    filterset = filtersets.FactsReportEntryFilterSet
-    actions = ()
     template_name = "netbox_facts/device_facts.html"
     tab = ViewTab(
         label=_("Facts"),
@@ -101,7 +96,7 @@ class DeviceFactsView(generic.ObjectChildrenView):
         # before the badge, so the badge keeps its pending-count meaning.
         visible=has_facts_data,
         badge=pending_entry_count,
-        permission="netbox_facts.view_factsreport",
+        permission=ENTRY_TAB_PERMISSION,
         weight=5000,
     )
 
@@ -114,6 +109,7 @@ class DeviceFactsView(generic.ObjectChildrenView):
     def get_extra_context(self, request, instance):
         covering_plans, plans_truncated = plans_covering_device(instance)
         return {
+            **super().get_extra_context(request, instance),
             "last_collected": last_collected_by_type(instance),
             "covering_plans": covering_plans,
             "plans_truncated": plans_truncated,

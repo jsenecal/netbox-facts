@@ -27,7 +27,6 @@ from netbox_facts.helpers.applier import (
     unskip_entries,
 )
 from netbox_facts.models import FactsReport, FactsReportEntry
-from netbox_facts.tables import ENTRY_ROW_BUTTONS
 from netbox_facts.tests.test_applier import ApplierTestMixin
 
 SERIAL = "RETRIED_SERIAL"
@@ -444,15 +443,6 @@ class EntryTabControlsTest(ApplierTestMixin, TestCase):
         content = response.content.decode()
         self.assertIn('name="_all"', content)
         self.assertIn(f'name="entry_status" value="{EntryStatusChoices.STATUS_FAILED}"', content)
-
-    def test_row_buttons_branch_on_real_status_values(self):
-        """The row-button template matches on the choice values, not stale literals."""
-        for status_value in (
-            EntryStatusChoices.STATUS_PENDING,
-            EntryStatusChoices.STATUS_FAILED,
-            EntryStatusChoices.STATUS_SKIPPED,
-        ):
-            self.assertIn(f"record.status == '{status_value}'", ENTRY_ROW_BUTTONS)
 
 
 def api_action_url(name, report):

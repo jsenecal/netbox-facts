@@ -158,35 +158,19 @@ class FactsReportTable(NetBoxTable):
 # Per-row lifecycle shortcuts. The buttons live inside the bulk form the
 # entry tabs render, so they submit it with their own PK under "row_pk" --
 # a name the bulk checkboxes do not use, which is how the action views tell
-# a single-row click from a checkbox selection. Each row offers only the
-# transitions its current status allows.
+# a single-row click from a checkbox selection. Which transitions a row
+# offers comes from ENTRY_ACTIONS_BY_STATUS, the table the tab's bulk
+# buttons are rendered from too, so a row and its tab offer the same moves.
 ENTRY_ROW_BUTTONS = """
-{% load i18n %}
+{% load netbox_facts %}
 {% if perms.netbox_facts.apply_factsreport %}
-  {% if record.status == 'pending' %}
+  {% for action in record.status|entry_actions %}
     <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=record.report_id %}"
-            class="btn btn-sm btn-green" title="{% trans "Apply" %}" aria-label="{% trans "Apply" %}">
-      <i class="mdi mdi-check" aria-hidden="true"></i>
+            formaction="{% url action.url_name pk=record.report_id %}"
+            class="btn btn-sm {{ action.css_class }}" title="{{ action.label }}" aria-label="{{ action.label }}">
+      <i class="mdi {{ action.icon }}" aria-hidden="true"></i>
     </button>
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=record.report_id %}"
-            class="btn btn-sm btn-secondary" title="{% trans "Skip" %}" aria-label="{% trans "Skip" %}">
-      <i class="mdi mdi-close" aria-hidden="true"></i>
-    </button>
-  {% elif record.status == 'failed' %}
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_retry' pk=record.report_id %}"
-            class="btn btn-sm btn-warning" title="{% trans "Retry" %}" aria-label="{% trans "Retry" %}">
-      <i class="mdi mdi-refresh" aria-hidden="true"></i>
-    </button>
-  {% elif record.status == 'skipped' %}
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_unskip' pk=record.report_id %}"
-            class="btn btn-sm btn-secondary" title="{% trans "Un-skip" %}" aria-label="{% trans "Un-skip" %}">
-      <i class="mdi mdi-undo-variant" aria-hidden="true"></i>
-    </button>
-  {% endif %}
+  {% endfor %}
 {% endif %}
 """
 
