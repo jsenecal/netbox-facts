@@ -8,30 +8,22 @@ Registration happens at import time, so this module has to be imported for
 the widget to appear in the widget picker. The plugin's ready() does that.
 """
 
-from django.http import QueryDict
 from django.template.loader import render_to_string
-from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from extras.dashboard.utils import register_widget
 from extras.dashboard.widgets import DashboardWidget
 
-from .choices import EntryStatusChoices, ReportStatusChoices
+from .choices import REVIEW_REPORT_STATUSES
+from .helpers.netbox import filtered_list_url
 from .models import FactsReport, FactsReportEntry
-
-#: Report statuses that still hold entries nobody has decided on. A report
-#: leaves this set only once every entry has been applied, skipped or has
-#: failed, which is exactly what _update_report_status() records.
-REVIEW_REPORT_STATUSES = (
-    ReportStatusChoices.STATUS_PENDING,
-    ReportStatusChoices.STATUS_PARTIAL,
-)
 
 
 def review_list_url():
     """Return the facts report list URL filtered to the reports awaiting review."""
-    params = QueryDict(mutable=True)
-    params.setlist("status", list(REVIEW_REPORT_STATUSES))
-    return f"{reverse('plugins:netbox_facts:factsreport_list')}?{params.urlencode()}"
+    return filtered_list_url(
+        "plugins:netbox_facts:factsreport_list",
+        {"status": REVIEW_REPORT_STATUSES},
+    )
 
 
 def pending_facts_counts(user):
@@ -43,7 +35,7 @@ def pending_facts_counts(user):
     report whose run produced no entries at all; that report is still
     unresolved, and counting it keeps the figure and its link honest.
     """
-    entries = FactsReportEntry.objects.restrict(user, "view").filter(status=EntryStatusChoices.STATUS_PENDING)
+    entries = FactsReportEntry.objects.restrict(user, "view").pending()
     reports = FactsReport.objects.restrict(user, "view").filter(status__in=REVIEW_REPORT_STATUSES)
     return {
         "pending_entries": entries.count(),

@@ -11,13 +11,13 @@ from django.utils.module_loading import import_string
 from netbox.registry import registry
 
 from netbox_facts.choices import (
+    REVIEW_REPORT_STATUSES,
     CollectionTypeChoices,
     EntryActionChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
 from netbox_facts.dashboard import (
-    REVIEW_REPORT_STATUSES,
     PendingFactsChangesWidget,
     pending_facts_counts,
     review_list_url,

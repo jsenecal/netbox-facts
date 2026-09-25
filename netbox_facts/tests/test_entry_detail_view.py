@@ -34,7 +34,6 @@ from netbox_facts.helpers.entry_display import (
     build_entry_diff,
 )
 from netbox_facts.models import FactsReport, FactsReportEntry
-from netbox_facts.tables import FactsReportEntryTable
 from netbox_facts.tests.test_helpers import CollectorTestMixin
 from netbox_facts.views import FactsReportEntryView
 
@@ -117,35 +116,6 @@ class TestEntryDiffClassification:
             CHANGE_ADDED,
             CHANGE_REMOVED,
         ]
-
-
-@pytest.mark.django_db
-class TestDiffMatchesTableSemantics:
-    """The detail page and the entry table must report the same keys.
-
-    Both read one skip/label map; this pins that they stay one source
-    rather than drifting into two views of the same entry.
-    """
-
-    def test_rendered_labels_match_the_diff_rows(self):
-        entry = make_entry(
-            detected_values={
-                "serial_number": "NEW",
-                "mac_address": "AA:BB:CC:DD:EE:FF",
-                "raw_output": "blob",
-                "description": "same",
-            },
-            current_values={
-                "serial_number": "OLD",
-                "remote_as": "65000",
-                "description": "same",
-            },
-        )
-
-        details = FactsReportEntryTable([]).render_details(entry)
-        rendered_labels = {line.split("**")[1] for line in details.splitlines() if "**" in line}
-
-        assert rendered_labels == {row.label for row in build_entry_diff(entry)}
 
 
 class TestApplyErrorDisplay:

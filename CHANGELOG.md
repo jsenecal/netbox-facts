@@ -179,6 +179,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- The quick search (`q`) on the MAC address, MAC vendor and collection plan lists now trims surrounding whitespace before matching, aligning it with the report and entry searches; a whitespace-only query returns the unfiltered list instead of matching literal spaces.
 - The Collection Plan detail page's Assignment panel no longer dumps every
   assigned object: each scoping dimension lists at most ten entries and
   reports the rest as a count, so a plan pinning thousands of devices stays

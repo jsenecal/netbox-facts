@@ -94,6 +94,20 @@ class ReportStatusChoices(ChoiceSet):
     )
 
 
+# The statuses a report wears while some of its entries still await a
+# decision, in the order a review passes through them: STATUS_PENDING while
+# nothing has been decided, STATUS_PARTIAL once something has. A report
+# leaves the pair only when its last pending entry is applied, skipped or
+# failed. Both halves of the review UI read this one definition -- the apply
+# transitions that record the status, and the dashboard that counts and
+# links the backlog -- so the two cannot come to disagree about which
+# reports are still open.
+REVIEW_REPORT_STATUSES = (
+    ReportStatusChoices.STATUS_PENDING,
+    ReportStatusChoices.STATUS_PARTIAL,
+)
+
+
 class EntryActionChoices(ChoiceSet):
     ACTION_NEW = "new"
     ACTION_CHANGED = "changed"

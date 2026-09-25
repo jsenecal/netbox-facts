@@ -158,46 +158,36 @@ class FactsReportTable(NetBoxTable):
 # Per-row lifecycle shortcuts. The buttons live inside the bulk form the
 # entry tabs render, so they submit it with their own PK under "row_pk" --
 # a name the bulk checkboxes do not use, which is how the action views tell
-# a single-row click from a checkbox selection. Each row offers only the
-# transitions its current status allows.
+# a single-row click from a checkbox selection. Which transitions a row
+# offers comes from ENTRY_ACTIONS_BY_STATUS, the table the tab's bulk
+# buttons are rendered from too, so a row and its tab offer the same moves.
 ENTRY_ROW_BUTTONS = """
-{% load i18n %}
+{% load netbox_facts %}
 {% if perms.netbox_facts.apply_factsreport %}
-  {% if record.status == 'pending' %}
+  {% for action in record.status|entry_actions %}
     <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=record.report_id %}"
-            class="btn btn-sm btn-green" title="{% trans "Apply" %}" aria-label="{% trans "Apply" %}">
-      <i class="mdi mdi-check" aria-hidden="true"></i>
+            formaction="{% url action.url_name pk=record.report_id %}"
+            class="btn btn-sm {{ action.css_class }}" title="{{ action.label }}" aria-label="{{ action.label }}">
+      <i class="mdi {{ action.icon }}" aria-hidden="true"></i>
     </button>
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=record.report_id %}"
-            class="btn btn-sm btn-secondary" title="{% trans "Skip" %}" aria-label="{% trans "Skip" %}">
-      <i class="mdi mdi-close" aria-hidden="true"></i>
-    </button>
-  {% elif record.status == 'failed' %}
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_retry' pk=record.report_id %}"
-            class="btn btn-sm btn-warning" title="{% trans "Retry" %}" aria-label="{% trans "Retry" %}">
-      <i class="mdi mdi-refresh" aria-hidden="true"></i>
-    </button>
-  {% elif record.status == 'skipped' %}
-    <button type="submit" formmethod="post" name="row_pk" value="{{ record.pk }}"
-            formaction="{% url 'plugins:netbox_facts:factsreport_unskip' pk=record.report_id %}"
-            class="btn btn-sm btn-secondary" title="{% trans "Un-skip" %}" aria-label="{% trans "Un-skip" %}">
-      <i class="mdi mdi-undo-variant" aria-hidden="true"></i>
-    </button>
-  {% endif %}
+  {% endfor %}
 {% endif %}
 """
 
 
+# How one classified diff row reads in the table's one-line summary, per
+# entry action. A changed entry shows both sides of the comparison, with the
+# absent marker standing in for a side that holds no value; a new or stale
+# entry has only one side, so it shows that side on its own.
+ENTRY_DETAIL_FORMATTERS = {
+    EntryActionChoices.ACTION_CHANGED: lambda row: f"**{row.label}**: {row.current} → {row.detected}",
+    EntryActionChoices.ACTION_NEW: lambda row: f"**{row.label}**: {row.detected}",
+    EntryActionChoices.ACTION_STALE: lambda row: f"**{row.label}**: {row.current}",
+}
+
+
 class FactsReportEntryTable(NetBoxTable):
     """Table representation of the FactsReportEntry model."""
-
-    # The marker for a side of the comparison that holds no value. It comes
-    # from the same module as the skip/label map _visible_labeled_keys()
-    # delegates to, so this summary and the entry detail page agree.
-    ABSENT = entry_display.ABSENT
 
     pk = ToggleColumn()
     action = ChoiceFieldColumn()
@@ -240,37 +230,16 @@ class FactsReportEntryTable(NetBoxTable):
             "error_message",
         )
 
-    def _visible_labeled_keys(self, keys):
-        """Yield (key, label) pairs for sorted keys, skipping hidden ones.
-
-        Shared by every render_details loop so the skip/label preamble is
-        defined once instead of repeated per diff group, and delegated so
-        the table and the entry detail page read one map.
-        """
-        return entry_display.visible_labeled_keys(keys)
-
     def render_details(self, record):
-        detected = record.detected_values or {}
-        current = record.current_values or {}
-        lines = []
+        """Summarize the entry's comparison as one markdown cell.
 
-        if record.action == EntryActionChoices.ACTION_CHANGED:
-            detected_keys = set(detected)
-            current_keys = set(current)
-
-            for key, label in self._visible_labeled_keys(detected_keys & current_keys):
-                old, new = current[key], detected[key]
-                if str(old) != str(new):
-                    lines.append(f"**{label}**: {old} → {new}")
-            for key, label in self._visible_labeled_keys(detected_keys - current_keys):
-                lines.append(f"**{label}**: {self.ABSENT} → {detected[key]}")
-            for key, label in self._visible_labeled_keys(current_keys - detected_keys):
-                lines.append(f"**{label}**: {current[key]} → {self.ABSENT}")
-        elif record.action == EntryActionChoices.ACTION_NEW:
-            for key, label in self._visible_labeled_keys(detected):
-                lines.append(f"**{label}**: {detected[key]}")
-        elif record.action == EntryActionChoices.ACTION_STALE:
-            for key, label in self._visible_labeled_keys(current):
-                lines.append(f"**{label}**: {current[key]}")
-
-        return "  \n".join(lines)
+        The classification itself -- which keys are worth showing, what to
+        call them, and which side of the comparison each one sits on --
+        comes from build_entry_diff, the same source the entry detail page
+        renders from, so this only formats the rows it is handed. An action
+        with nothing to review yields no rows and so an empty cell.
+        """
+        formatter = ENTRY_DETAIL_FORMATTERS.get(record.action)
+        if formatter is None:
+            return ""
+        return "  \n".join(formatter(row) for row in entry_display.build_entry_diff(record))

@@ -28,8 +28,7 @@ matching" flag are submitted with the buttons and resolved server side.
 {% endblock %}
 
 {% block bulk_extra_controls %}
-{% if perms.netbox_facts.apply_factsreport %}
-{% if entry_status == 'pending' or entry_status == 'failed' or entry_status == 'skipped' %}
+{% if perms.netbox_facts.apply_factsreport and entry_actions %}
 {% with query=request.GET.urlencode %}
 <input type="hidden" name="entry_status" value="{{ entry_status }}" />
 
@@ -45,24 +44,12 @@ matching" flag are submitted with the buttons and resolved server side.
 {% endif %}
 
 <div class="btn-group" role="group">
-    {% if entry_status == 'pending' %}
-    <button type="submit" name="apply" formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-green">
-        <i class="mdi mdi-check" aria-hidden="true"></i> {% trans "Apply Selected" %}
+    {% for action in entry_actions %}
+    <button type="submit" name="{{ action.name }}" formaction="{% url action.url_name pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn {{ action.css_class }}">
+        <i class="mdi {{ action.icon }}" aria-hidden="true"></i> {{ action.bulk_label }}
     </button>
-    <button type="submit" name="skip" formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-secondary">
-        <i class="mdi mdi-close" aria-hidden="true"></i> {% trans "Skip Selected" %}
-    </button>
-    {% elif entry_status == 'failed' %}
-    <button type="submit" name="retry" formaction="{% url 'plugins:netbox_facts:factsreport_retry' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-warning">
-        <i class="mdi mdi-refresh" aria-hidden="true"></i> {% trans "Retry Selected" %}
-    </button>
-    {% else %}
-    <button type="submit" name="unskip" formaction="{% url 'plugins:netbox_facts:factsreport_unskip' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-secondary">
-        <i class="mdi mdi-undo-variant" aria-hidden="true"></i> {% trans "Un-skip Selected" %}
-    </button>
-    {% endif %}
+    {% endfor %}
 </div>
 {% endwith %}
-{% endif %}
 {% endif %}
 {% endblock %}

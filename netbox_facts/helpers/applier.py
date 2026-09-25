@@ -17,6 +17,7 @@ from ipam.models.vrfs import VRF
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from netbox_facts.choices import (
+    REVIEW_REPORT_STATUSES,
     CollectionTypeChoices,
     EntryActionChoices,
     EntryKindChoices,
@@ -53,7 +54,7 @@ def apply_entries(report, entry_pks):
     Dispatches to per-collector-type handlers.
     Returns (applied_count, failed_count).
     """
-    entries = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING)
+    entries = report.entries.pending().filter(pk__in=entry_pks)
     applied = 0
     failed = 0
     now = timezone.now()
@@ -159,7 +160,7 @@ def _transition_entries(report, entry_pks, from_status, to_status, **reset_field
     that belong to the status being left behind. Returns the number of
     entries moved.
     """
-    return report.entries.filter(pk__in=entry_pks, status=from_status).update(status=to_status, **reset_fields)
+    return report.entries.for_status(from_status).filter(pk__in=entry_pks).update(status=to_status, **reset_fields)
 
 
 def skip_entries(report, entry_pks):
@@ -189,10 +190,9 @@ def retry_entries(report, entry_pks):
     # The PKs are resolved before the transition because the apply path
     # that follows can no longer recognize these entries by status.
     failed_pks = list(
-        report.entries.filter(
-            pk__in=entry_pks,
-            status=EntryStatusChoices.STATUS_FAILED,
-        ).values_list("pk", flat=True)
+        report.entries.for_status(EntryStatusChoices.STATUS_FAILED)
+        .filter(pk__in=entry_pks)
+        .values_list("pk", flat=True)
     )
     if not failed_pks:
         return 0, 0
@@ -227,29 +227,39 @@ def unskip_entries(report, entry_pks):
     return count
 
 
+def _review_status(statuses):
+    """Return the status of a report that still holds undecided entries.
+
+    REVIEW_REPORT_STATUSES names the pair in review order -- untouched while
+    nothing has been decided, then half-decided once something has -- and
+    taking both from there is what keeps this transition and the review
+    backlog the dashboard counts and links describing one set of statuses.
+    """
+    untouched, half_decided = REVIEW_REPORT_STATUSES
+    return untouched if statuses <= {EntryStatusChoices.STATUS_PENDING} else half_decided
+
+
 def _update_report_status(report):
     """Recompute report status from entry status distribution."""
     report.update_summary()
 
     statuses = set(report.entries.values_list("status", flat=True).distinct())
 
-    if not statuses or statuses == {EntryStatusChoices.STATUS_PENDING}:
-        report.status = ReportStatusChoices.STATUS_PENDING
-    elif statuses == {EntryStatusChoices.STATUS_APPLIED}:
-        report.status = ReportStatusChoices.STATUS_APPLIED
-        report.completed_at = timezone.now()
+    if not statuses or EntryStatusChoices.STATUS_PENDING in statuses:
+        # Still under review. completed_at is deliberately left as it stands:
+        # a report reopened by an un-skip keeps the completion it recorded.
+        report.status = _review_status(statuses)
     elif statuses == {EntryStatusChoices.STATUS_FAILED}:
         report.status = ReportStatusChoices.STATUS_FAILED
         report.completed_at = timezone.now()
-    elif EntryStatusChoices.STATUS_PENDING not in statuses:
-        # All entries resolved (mix of applied/skipped/failed)
+    else:
+        # Every entry resolved: applied, skipped, or a mix that includes a
+        # failure. Anything applied makes the report an applied one.
         if EntryStatusChoices.STATUS_APPLIED in statuses:
             report.status = ReportStatusChoices.STATUS_APPLIED
         else:
             report.status = ReportStatusChoices.STATUS_COMPLETED
         report.completed_at = timezone.now()
-    else:
-        report.status = ReportStatusChoices.STATUS_PARTIAL
 
     report.save(update_fields=["status", "completed_at"])
 
