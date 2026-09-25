@@ -7,12 +7,14 @@ whatever the current filters select the way any object list does.
 """
 
 import csv
+import unittest
 
 from core.models import ObjectType
 from django.test import TestCase, override_settings
 from django.urls import resolve, reverse
 from extras.models import ExportTemplate
 from netbox.object_actions import BulkExport
+from utilities import export as core_export
 from utilities.testing import TestCase as NetBoxViewTestCase
 
 from netbox_facts.choices import (
@@ -33,6 +35,11 @@ ENTRY_TAB_STATUSES = (
     EntryStatusChoices.STATUS_SKIPPED,
     EntryStatusChoices.STATUS_FAILED,
 )
+
+# The streaming CSV helper NetBox's table export reaches for when
+# STREAMING_EXPORTS is set. Cores that predate it buffer every export, so
+# the tab export -- which is core's own -- can only stream where this exists.
+HAS_STREAMING_EXPORTS = hasattr(core_export, "stream_table_csv_response")
 
 
 def entry_tab_url(report_pk, status):
@@ -287,9 +294,16 @@ class EntryExportParityTest(ReportEntryFixtureMixin, NetBoxViewTestCase):
         self.assertIn(";", header)
         self.assertNotIn(",", header)
 
+    @unittest.skipUnless(HAS_STREAMING_EXPORTS, "NetBox lacks streaming export support")
     @override_settings(STREAMING_EXPORTS=True)
     def test_export_streams_when_the_deployment_asks_for_it(self):
-        """A report can hold thousands of entries, so the setting must bite."""
+        """A report can hold thousands of entries, so the setting must bite.
+
+        Streaming table exports arrived after NetBox 4.5, whose export path
+        has no STREAMING_EXPORTS branch at all. On those cores the tab
+        export correctly stays buffered, so this skips instead of demanding
+        a capability core does not have.
+        """
         response = self.client.get(f"{self.url}?export=table")
 
         self.assertTrue(response.streaming)
