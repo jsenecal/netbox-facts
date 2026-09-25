@@ -2,6 +2,14 @@
 {% load helpers %}
 {% load i18n %}
 
+{% comment %}
+The bulk controls are status-aware: each tab offers only the transitions
+its entries can make (apply/skip on pending, retry on failed, un-skip on
+skipped; the applied tab has nothing to offer). Everything here lives
+inside the bulk form, so the tab's status and an optional "select all
+matching" flag are submitted with the buttons and resolved server side.
+{% endcomment %}
+
 {% block table_controls %}
 {% if filter_form %}
 {% applied_filters child_model filter_form request.GET %}
@@ -20,14 +28,41 @@
 {% endblock %}
 
 {% block bulk_extra_controls %}
-{% if perms.netbox_facts.apply_factsreport and has_pending %}
+{% if perms.netbox_facts.apply_factsreport %}
+{% if entry_status == 'pending' or entry_status == 'failed' or entry_status == 'skipped' %}
+{% with query=request.GET.urlencode %}
+<input type="hidden" name="entry_status" value="{{ entry_status }}" />
+
+{% if table.paginator.num_pages > 1 %}
+<div id="select-all-box" class="d-none form-check me-3">
+    <input type="checkbox" id="select-all" name="_all" class="form-check-input" />
+    <label for="select-all" class="form-check-label">
+        {% blocktrans trimmed with count=table.paginator.count %}
+            Select <strong>all {{ count }} matching entries</strong>, not just this page
+        {% endblocktrans %}
+    </label>
+</div>
+{% endif %}
+
 <div class="btn-group" role="group">
-    <button type="submit" name="apply" formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}" class="btn btn-green">
+    {% if entry_status == 'pending' %}
+    <button type="submit" name="apply" formaction="{% url 'plugins:netbox_facts:factsreport_apply' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-green">
         <i class="mdi mdi-check" aria-hidden="true"></i> {% trans "Apply Selected" %}
     </button>
-    <button type="submit" name="skip" formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=object.pk %}" class="btn btn-secondary">
+    <button type="submit" name="skip" formaction="{% url 'plugins:netbox_facts:factsreport_skip' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-secondary">
         <i class="mdi mdi-close" aria-hidden="true"></i> {% trans "Skip Selected" %}
     </button>
+    {% elif entry_status == 'failed' %}
+    <button type="submit" name="retry" formaction="{% url 'plugins:netbox_facts:factsreport_retry' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-warning">
+        <i class="mdi mdi-refresh" aria-hidden="true"></i> {% trans "Retry Selected" %}
+    </button>
+    {% else %}
+    <button type="submit" name="unskip" formaction="{% url 'plugins:netbox_facts:factsreport_unskip' pk=object.pk %}{% if query %}?{{ query }}{% endif %}" class="btn btn-secondary">
+        <i class="mdi mdi-undo-variant" aria-hidden="true"></i> {% trans "Un-skip Selected" %}
+    </button>
+    {% endif %}
 </div>
+{% endwith %}
+{% endif %}
 {% endif %}
 {% endblock %}

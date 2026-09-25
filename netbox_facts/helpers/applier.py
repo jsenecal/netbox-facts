@@ -1,4 +1,4 @@
-"""Apply/skip logic for FactsReport entries."""
+"""Entry lifecycle logic (apply, skip, retry, un-skip) for FactsReport entries."""
 
 import ipaddress
 import logging
@@ -149,10 +149,79 @@ def _mark_entry_failed(entry, exc):
     entry.save(update_fields=["status", "error_message", "apply_error"])
 
 
+def _transition_entries(report, entry_pks, from_status, to_status, **reset_fields):
+    """Move selected entries of a report from one status to another.
+
+    Every transition is scoped the same two ways -- the report that owns
+    the entries, and the status the transition is allowed to start from --
+    so entries in another status, and entries belonging to another report,
+    are ignored rather than moved. Extra keyword arguments reset fields
+    that belong to the status being left behind. Returns the number of
+    entries moved.
+    """
+    return report.entries.filter(pk__in=entry_pks, status=from_status).update(status=to_status, **reset_fields)
+
+
 def skip_entries(report, entry_pks):
     """Bulk-skip selected pending entries."""
-    count = report.entries.filter(pk__in=entry_pks, status=EntryStatusChoices.STATUS_PENDING).update(
-        status=EntryStatusChoices.STATUS_SKIPPED
+    count = _transition_entries(
+        report,
+        entry_pks,
+        EntryStatusChoices.STATUS_PENDING,
+        EntryStatusChoices.STATUS_SKIPPED,
+    )
+    _update_report_status(report)
+    return count
+
+
+def retry_entries(report, entry_pks):
+    """Return selected failed entries to pending and re-apply them.
+
+    A failed entry is a dead end otherwise: the apply path is pending-only
+    by design, so retrying has to clear the previous failure and put the
+    entry back in the pending state the applier accepts. The re-apply is
+    immediate because the reviewer asking for a retry is asking for the
+    outcome, not for the entry to reappear on the pending tab.
+
+    Entries that did not fail, and entries belonging to another report,
+    are ignored. Returns (applied_count, failed_count).
+    """
+    # The PKs are resolved before the transition because the apply path
+    # that follows can no longer recognize these entries by status.
+    failed_pks = list(
+        report.entries.filter(
+            pk__in=entry_pks,
+            status=EntryStatusChoices.STATUS_FAILED,
+        ).values_list("pk", flat=True)
+    )
+    if not failed_pks:
+        return 0, 0
+
+    _transition_entries(
+        report,
+        failed_pks,
+        EntryStatusChoices.STATUS_FAILED,
+        EntryStatusChoices.STATUS_PENDING,
+        error_message="",
+        apply_error=None,
+    )
+    return apply_entries(report, failed_pks)
+
+
+def unskip_entries(report, entry_pks):
+    """Return selected skipped entries to pending, without applying them.
+
+    Un-skipping is a reconsideration, not an approval: the entry goes back
+    on the pending tab so the reviewer can look at it again and decide.
+
+    Entries in any other status, and entries belonging to another report,
+    are ignored. Returns the number of entries returned to pending.
+    """
+    count = _transition_entries(
+        report,
+        entry_pks,
+        EntryStatusChoices.STATUS_SKIPPED,
+        EntryStatusChoices.STATUS_PENDING,
     )
     _update_report_status(report)
     return count

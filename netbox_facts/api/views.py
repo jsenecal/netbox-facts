@@ -7,7 +7,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from .. import filtersets, models
 from ..exceptions import OperationNotSupported
-from ..helpers.applier import apply_entries, skip_entries
+from ..helpers.applier import apply_entries, retry_entries, skip_entries, unskip_entries
 from .serializers import (
     CollectionPlanSerializer,
     FactsReportEntrySerializer,
@@ -18,7 +18,7 @@ from .serializers import (
 
 
 class FactsMutationThrottle(UserRateThrottle):
-    """Throttle mutating actions (run, apply, skip) to 30 requests/minute."""
+    """Throttle mutating actions (run, apply, skip, retry, un-skip) to 30 requests/minute."""
 
     rate = "30/minute"
 
@@ -71,7 +71,7 @@ class CollectorViewSet(NetBoxModelViewSet):
 
 
 class FactsReportViewSet(NetBoxModelViewSet):
-    """ViewSet for FactsReport with apply/skip actions."""
+    """ViewSet for FactsReport with the entry lifecycle actions."""
 
     queryset = models.FactsReport.objects.annotate(
         entry_count=Count("entries"),
@@ -85,22 +85,34 @@ class FactsReportViewSet(NetBoxModelViewSet):
         invalid_pks = set(entry_pks) - valid_pks
         return invalid_pks or None
 
-    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
-    def apply(self, request, pk=None):
-        """Apply selected entries: POST with {"entries": [pk, pk, ...]}"""
-        report = self.get_object()
+    def _selected_entries(self, request, report):
+        """Read and validate the posted entry PKs.
+
+        Returns (entry_pks, None) once the body carries entries that all
+        belong to the report, or (None, error_response) otherwise. Every
+        entry action shares this contract.
+        """
         entry_pks = request.data.get("entries", [])
         if not entry_pks:
-            return Response(
+            return None, Response(
                 {"detail": "No entries specified."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         invalid_pks = self._validate_entry_ownership(report, entry_pks)
         if invalid_pks:
-            return Response(
+            return None, Response(
                 {"detail": f"Entries {sorted(invalid_pks)} do not belong to this report."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        return entry_pks, None
+
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
+    def apply(self, request, pk=None):
+        """Apply selected pending entries: POST with {"entries": [pk, pk, ...]}"""
+        report = self.get_object()
+        entry_pks, error = self._selected_entries(request, report)
+        if error:
+            return error
         applied, failed = apply_entries(report, entry_pks)
         return Response(
             {
@@ -111,29 +123,51 @@ class FactsReportViewSet(NetBoxModelViewSet):
 
     @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
     def skip(self, request, pk=None):
-        """Skip selected entries: POST with {"entries": [pk, pk, ...]}"""
+        """Skip selected pending entries: POST with {"entries": [pk, pk, ...]}"""
         report = self.get_object()
-        entry_pks = request.data.get("entries", [])
-        if not entry_pks:
-            return Response(
-                {"detail": "No entries specified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        invalid_pks = self._validate_entry_ownership(report, entry_pks)
-        if invalid_pks:
-            return Response(
-                {"detail": f"Entries {sorted(invalid_pks)} do not belong to this report."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        entry_pks, error = self._selected_entries(request, report)
+        if error:
+            return error
         count = skip_entries(report, entry_pks)
         return Response({"skipped": count})
+
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
+    def retry(self, request, pk=None):
+        """Retry selected failed entries: POST with {"entries": [pk, pk, ...]}
+
+        Failed entries return to pending and are re-applied in the request.
+        """
+        report = self.get_object()
+        entry_pks, error = self._selected_entries(request, report)
+        if error:
+            return error
+        applied, failed = retry_entries(report, entry_pks)
+        return Response(
+            {
+                "applied": applied,
+                "failed": failed,
+            }
+        )
+
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
+    def unskip(self, request, pk=None):
+        """Un-skip selected entries: POST with {"entries": [pk, pk, ...]}
+
+        Skipped entries return to pending for review; nothing is applied.
+        """
+        report = self.get_object()
+        entry_pks, error = self._selected_entries(request, report)
+        if error:
+            return error
+        count = unskip_entries(report, entry_pks)
+        return Response({"unskipped": count})
 
 
 class FactsReportEntryViewSet(NetBoxReadOnlyModelViewSet):
     """Read-only ViewSet listing the entries detected by a collection run.
 
     Entries are never created or edited directly: they are produced by a
-    collection run and resolved through the report-level apply/skip actions.
+    collection run and resolved through the report-level lifecycle actions.
     """
 
     queryset = models.FactsReportEntry.objects.select_related(

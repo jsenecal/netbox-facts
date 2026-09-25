@@ -582,8 +582,10 @@ def _status_entries_view(status_value, status_label, weight):
             return parent.entries.filter(status=status_value)
 
         def get_extra_context(self, request, instance):
-            has_pending = status_value == EntryStatusChoices.STATUS_PENDING
-            return {"has_pending": has_pending}
+            # The tab's status drives which lifecycle controls the template
+            # renders, and rides along in the POST so a select-all can be
+            # resolved back to this tab's entries server side.
+            return {"entry_status": status_value}
 
         def get(self, request, *args, **kwargs):
             """Answer the Export button's links, else render the tab.
@@ -611,12 +613,16 @@ _status_entries_view(EntryStatusChoices.STATUS_SKIPPED, "Skipped", 530)
 _status_entries_view(EntryStatusChoices.STATUS_FAILED, "Failed", 540)
 
 
-@register_model_view(models.FactsReport, "apply")
-class FactsReportApplyView(BaseObjectView):
-    """POST-only view to apply selected entries, or every pending entry in the background."""
+class FactsReportEntryActionView(BaseObjectView):
+    """Shared plumbing for the POST-only entry lifecycle views.
+
+    Every lifecycle action selects entries the same three ways, in
+    precedence order: a single per-row button, every entry matching the
+    tab a select-all was ticked on, or the ticked checkboxes. Subclasses
+    only implement the transition itself.
+    """
 
     queryset = models.FactsReport.objects.all()
-    template_name = "netbox_facts/factsreport_apply_confirm.html"
 
     def get_required_permission(self):
         return "netbox_facts.apply_factsreport"
@@ -625,26 +631,74 @@ class FactsReportApplyView(BaseObjectView):
         return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
     def post(self, request, pk):
-        from .helpers.applier import apply_entries
-
         report = get_object_or_404(self.queryset, pk=pk)
-
-        if request.POST.get("apply_all"):
-            return self.apply_all(request, report)
-
-        entry_pks = request.POST.getlist("pk")
+        entry_pks = self.get_entry_pks(request, report)
 
         if not entry_pks:
             messages.warning(request, _("No entries selected."))
             return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
-        applied, failed = apply_entries(report, entry_pks)
+        self.perform(request, report, entry_pks)
+        return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+    def get_entry_pks(self, request, report):
+        """Resolve the entries this POST targets."""
+        row_pk = request.POST.get("row_pk")
+        if row_pk:
+            # A per-row button submits the whole bulk form, so its own PK
+            # travels under a name the checkboxes do not use; acting on it
+            # alone is what the reviewer clicked.
+            return [row_pk]
+        if request.POST.get("_all"):
+            return self.resolve_all_entry_pks(request, report)
+        return request.POST.getlist("pk")
+
+    def resolve_all_entry_pks(self, request, report):
+        """Resolve a cross-page "select all matching" selection server side.
+
+        Only the flag, the tab's status, and the tab's filters cross the
+        wire; the entries themselves are re-derived here, scoped to this
+        report, so the selection can never reach another report's entries
+        and never grows with the size of the page.
+        """
+        entries = report.entries.all()
+
+        entry_status = request.POST.get("entry_status")
+        if entry_status in EntryStatusChoices.values():
+            entries = entries.filter(status=entry_status)
+
+        entries = filtersets.FactsReportEntryFilterSet(request.GET, entries, request=request).qs
+        return list(entries.values_list("pk", flat=True))
+
+    def perform(self, request, report, entry_pks):
+        """Run the transition on the resolved entries and report the outcome."""
+        raise NotImplementedError
+
+    def message_apply_result(self, request, applied, failed):
+        """Report the outcome of a path that applies entries."""
         if applied:
             messages.success(request, _("Applied {count} entries.").format(count=applied))
         if failed:
             messages.warning(request, _("{count} entries failed to apply.").format(count=failed))
 
-        return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+@register_model_view(models.FactsReport, "apply")
+class FactsReportApplyView(FactsReportEntryActionView):
+    """POST-only view to apply selected entries, or every pending entry in the background."""
+
+    template_name = "netbox_facts/factsreport_apply_confirm.html"
+
+    def post(self, request, pk):
+        if request.POST.get("apply_all"):
+            report = get_object_or_404(self.queryset, pk=pk)
+            return self.apply_all(request, report)
+
+        return super().post(request, pk)
+
+    def perform(self, request, report, entry_pks):
+        from .helpers.applier import apply_entries
+
+        self.message_apply_result(request, *apply_entries(report, entry_pks))
 
     def apply_all(self, request, report):
         """Confirm, then hand every pending entry of the report to a background job."""
@@ -696,31 +750,35 @@ class FactsReportApplyView(BaseObjectView):
 
 
 @register_model_view(models.FactsReport, "skip")
-class FactsReportSkipView(BaseObjectView):
+class FactsReportSkipView(FactsReportEntryActionView):
     """POST-only view to skip selected entries."""
 
-    queryset = models.FactsReport.objects.all()
-
-    def get_required_permission(self):
-        return "netbox_facts.apply_factsreport"
-
-    def get(self, request, pk):
-        return redirect("plugins:netbox_facts:factsreport", pk=pk)
-
-    def post(self, request, pk):
+    def perform(self, request, report, entry_pks):
         from .helpers.applier import skip_entries
-
-        report = get_object_or_404(self.queryset, pk=pk)
-        entry_pks = request.POST.getlist("pk")
-
-        if not entry_pks:
-            messages.warning(request, _("No entries selected."))
-            return redirect("plugins:netbox_facts:factsreport", pk=pk)
 
         count = skip_entries(report, entry_pks)
         messages.success(request, _("Skipped {count} entries.").format(count=count))
 
-        return redirect("plugins:netbox_facts:factsreport", pk=pk)
+
+@register_model_view(models.FactsReport, "retry")
+class FactsReportRetryView(FactsReportEntryActionView):
+    """POST-only view to retry selected failed entries."""
+
+    def perform(self, request, report, entry_pks):
+        from .helpers.applier import retry_entries
+
+        self.message_apply_result(request, *retry_entries(report, entry_pks))
+
+
+@register_model_view(models.FactsReport, "unskip")
+class FactsReportUnskipView(FactsReportEntryActionView):
+    """POST-only view to return selected skipped entries to pending."""
+
+    def perform(self, request, report, entry_pks):
+        from .helpers.applier import unskip_entries
+
+        count = unskip_entries(report, entry_pks)
+        messages.success(request, _("Returned {count} entries to pending.").format(count=count))
 
 
 ###

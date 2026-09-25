@@ -45,6 +45,19 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Entry lifecycle actions: a failed entry can be retried and a skipped entry
+  can be un-skipped. Retry returns the selected failed entries to pending,
+  clears the recorded failure, and re-applies them; un-skip returns skipped
+  entries to pending for review without applying anything. Both are exposed as
+  status-aware bulk controls on the Failed and Skipped tabs, as per-row
+  shortcuts on every entry row (apply/skip on pending, retry on failed,
+  un-skip on skipped), and as the report-level REST actions
+  `POST .../factsreports/<id>/retry/` and `POST .../factsreports/<id>/unskip/`,
+  with the same ownership validation and throttle as apply and skip. Entry tabs
+  that span more than one page also gained a "select all N matching entries"
+  affordance: the browser submits only the flag and the server re-resolves the
+  selection from the report, the tab's status, and the tab's current filters.
+  (#141)
 - Report entry review ergonomics: every per-status entry tab now renders a
   filter form (device, action, status, collector type, entry kind) backed by a
   new `q` search matching the entry label or the device name, and an Export
