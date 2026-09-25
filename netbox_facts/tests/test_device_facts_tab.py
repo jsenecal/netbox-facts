@@ -7,8 +7,8 @@ from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from django.utils.html import escape
+from django.utils.module_loading import import_string
 from netbox.registry import registry
-from utilities.views import get_view
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
@@ -30,6 +30,27 @@ from netbox_facts.device_views import (
 )
 from netbox_facts.models import FactsReport, FactsReportEntry
 from netbox_facts.tests.test_helpers import CollectorTestMixin
+
+
+def registered_view(model, name=""):
+    """Return the view class register_model_view() recorded for a model under `name`.
+
+    Newer cores ship utilities.views.get_view() for this, but NetBox 4.5 does
+    not, and the plugin supports 4.5 through 4.7. The registry layout read here
+    is instead the one get_model_urls() has consumed since long before that
+    helper existed, so it resolves the same view on every supported core. A
+    registration may hold either the view class or its dotted path -- that is
+    the branch get_model_urls() takes -- so both forms are resolved.
+
+    registry["views"] is a defaultdict, so membership is probed with .get() to
+    avoid a test inserting empty stores into a global registry.
+    """
+    registrations = registry["views"].get(model._meta.app_label, {}).get(model._meta.model_name, [])
+    for registration in registrations:
+        if registration["name"] == name:
+            view = registration["view"]
+            return import_string(view) if isinstance(view, str) else view
+    return None
 
 
 class DeviceFactsFixtureMixin(CollectorTestMixin):
@@ -106,7 +127,7 @@ class DeviceFactsTabRegistrationTest(DeviceFactsFixtureMixin, TestCase):
     """The Facts tab must be attached to dcim.Device with a pending-count badge (#150)."""
 
     def test_view_is_registered_against_device(self):
-        self.assertIs(get_view(Device, "facts"), DeviceFactsView)
+        self.assertIs(registered_view(Device, "facts"), DeviceFactsView)
 
     def test_tab_requires_the_report_view_permission(self):
         self.assertEqual(DeviceFactsView.tab.permission, "netbox_facts.view_factsreport")
