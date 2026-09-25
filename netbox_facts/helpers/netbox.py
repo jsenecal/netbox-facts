@@ -7,11 +7,32 @@ from typing import Any
 from dcim.models.device_components import Interface
 from dcim.models.devices import Device
 from django.db.models import Q
+from django.http import QueryDict
+from django.urls import reverse
 from ipam.models import IPAddress
 from ipam.models.ip import Prefix
 from ipam.models.vrfs import VRF
 
 from netbox_facts.constants import AUTO_D_TAG
+
+
+def filtered_list_url(route_name: str, params: dict[str, Any]) -> str:
+    """Return a list-view URL carrying a multi-valued filter query string.
+
+    ``params`` maps a filter name to the values the query string should
+    repeat it over, which is how a list view reads a multiple-choice
+    filter. A name with no values contributes nothing, and a mapping that
+    contributes nothing at all yields the bare list URL rather than a
+    dangling "?", so a caller filtering on nothing still links somewhere
+    useful.
+    """
+    query = QueryDict(mutable=True)
+    for name, values in params.items():
+        if values:
+            query.setlist(name, [str(value) for value in values])
+
+    url = reverse(route_name)
+    return f"{url}?{query.urlencode()}" if query else url
 
 
 def get_absolute_url_markdown(instance: Any, code=False, bold=False) -> str:

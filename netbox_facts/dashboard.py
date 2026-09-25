@@ -8,22 +8,22 @@ Registration happens at import time, so this module has to be imported for
 the widget to appear in the widget picker. The plugin's ready() does that.
 """
 
-from django.http import QueryDict
 from django.template.loader import render_to_string
-from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from extras.dashboard.utils import register_widget
 from extras.dashboard.widgets import DashboardWidget
 
 from .choices import REVIEW_REPORT_STATUSES
+from .helpers.netbox import filtered_list_url
 from .models import FactsReport, FactsReportEntry
 
 
 def review_list_url():
     """Return the facts report list URL filtered to the reports awaiting review."""
-    params = QueryDict(mutable=True)
-    params.setlist("status", list(REVIEW_REPORT_STATUSES))
-    return f"{reverse('plugins:netbox_facts:factsreport_list')}?{params.urlencode()}"
+    return filtered_list_url(
+        "plugins:netbox_facts:factsreport_list",
+        {"status": REVIEW_REPORT_STATUSES},
+    )
 
 
 def pending_facts_counts(user):

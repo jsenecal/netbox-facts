@@ -20,7 +20,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
-from django.http import QueryDict
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -43,6 +42,7 @@ from ..choices import (
     ConnectionTargetChoices,
 )
 from ..helpers import NapalmCollector
+from ..helpers.netbox import filtered_list_url
 
 logger = logging.getLogger("netbox_facts")
 
@@ -404,18 +404,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         proxies to handle. Callers should render the matched count unlinked
         in that case.
         """
-        params = QueryDict(mutable=True)
+        params = {}
         for dimension in SCOPE_DIMENSIONS:
             values = list(getattr(self, dimension.field).values_list(dimension.url_value, flat=True))
             if len(values) > MAX_URL_PKS_PER_DIMENSION:
                 return None
-            if values:
-                params.setlist(dimension.url_param, [str(value) for value in values])
-        if self.device_status:
-            params.setlist("status", list(self.device_status))
+            params[dimension.url_param] = values
+        params["status"] = list(self.device_status or ())
 
-        url = reverse("dcim:device_list")
-        return f"{url}?{params.urlencode()}" if params else url
+        return filtered_list_url("dcim:device_list", params)
 
     def get_scope_warning(self) -> str:
         """Return a warning when the resolved scope is larger than expected.
