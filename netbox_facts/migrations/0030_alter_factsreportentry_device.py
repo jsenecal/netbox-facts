@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('dcim', '0250_cooling_infrastructure'),
+        ('dcim', '0181_rename_device_role_device_role'),
         ('netbox_facts', '0029_collectionplan_allow_unscoped'),
     ]
 
