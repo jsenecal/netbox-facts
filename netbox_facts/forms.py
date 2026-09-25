@@ -36,9 +36,12 @@ from .choices import (
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
+    EntryActionChoices,
+    EntryKindChoices,
+    EntryStatusChoices,
     ReportStatusChoices,
 )
-from .models import CollectionPlan, FactsReport, MACAddress, MACVendor
+from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
 
 
 def get_napalm_driver_choices():
@@ -79,6 +82,7 @@ __all__ = [
     "CollectionPlanBulkEditForm",
     "CollectionPlanFilterForm",
     "FactsReportFilterForm",
+    "FactsReportEntryFilterForm",
 ]
 
 
@@ -496,3 +500,19 @@ class FactsReportFilterForm(NetBoxModelFilterSetForm):
         queryset=CollectionPlan.objects.all(), required=False, label=_("Collection Plan")
     )
     status = forms.MultipleChoiceField(choices=ReportStatusChoices, required=False, label=_("Status"))
+
+
+class FactsReportEntryFilterForm(NetBoxModelFilterSetForm):
+    """Filter form for the per-status entry tabs of a report."""
+
+    model = FactsReportEntry
+    fieldsets = (
+        FieldSet("q", "filter_id"),
+        FieldSet("device", "action", "status", name=_("Review")),
+        FieldSet("collector_type", "entry_kind", name=_("Source")),
+    )
+    device = DynamicModelMultipleChoiceField(queryset=Device.objects.all(), required=False, label=_("Device"))
+    action = forms.MultipleChoiceField(choices=EntryActionChoices, required=False, label=_("Action"))
+    status = forms.MultipleChoiceField(choices=EntryStatusChoices, required=False, label=_("Status"))
+    collector_type = forms.MultipleChoiceField(choices=CollectionTypeChoices, required=False, label=_("Collector Type"))
+    entry_kind = forms.MultipleChoiceField(choices=EntryKindChoices, required=False, label=_("Entry Kind"))

@@ -1,5 +1,7 @@
 """Views for the netbox_facts plugin."""
 
+import json
+
 from core.models.jobs import Job
 from dcim.choices import DeviceStatusChoices
 from dcim.filtersets import InterfaceFilterSet
@@ -9,8 +11,10 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import NoReverseMatch, reverse
 from django.utils.translation import gettext as _
 from extras.choices import LogLevelChoices
+from extras.utils import filename_from_model
 from extras.views import ScriptResultView
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
@@ -26,6 +30,7 @@ from utilities.views import (
 
 from . import filtersets, forms, models, tables
 from .choices import EntryActionChoices, EntryStatusChoices
+from .helpers.entry_display import build_apply_error_display, build_entry_diff
 from .models.collection_plan import SCOPE_DIMENSIONS
 
 
@@ -512,6 +517,48 @@ class FactsReportBulkDeleteView(generic.BulkDeleteView):
     table = tables.FactsReportTable
 
 
+class EntryBulkExport(object_actions.BulkExport):
+    """Export action for the entry tabs, bound to the entries themselves.
+
+    The button is rendered from the report's detail template, which hands
+    every action the report it is showing. Resolving the export against the
+    entry model instead keeps the offered export templates and data format
+    those of the rows actually being exported.
+    """
+
+    @classmethod
+    def get_context(cls, context, obj):
+        return super().get_context(context, models.FactsReportEntry)
+
+
+class _EntryExportView(generic.ObjectListView):
+    """NetBox's list-export machinery, pointed at one report's entries.
+
+    Child views render tables but carry no export handling; all of it lives
+    on ObjectListView.get() -- the current-view column set, export
+    templates, the requesting user's CSV delimiter preference, the
+    STREAMING_EXPORTS response and the table prefetching that goes with it.
+    The entry tabs hand their `export` requests to an instance of this view,
+    with its queryset replaced by the tab's entries, rather than restating
+    any of that. Its own dispatch never runs: the tab has already checked
+    the permissions and resolved the report.
+    """
+
+    queryset = models.FactsReportEntry.objects.all()
+    table = tables.FactsReportEntryTable
+    filterset = filtersets.FactsReportEntryFilterSet
+    actions = (EntryBulkExport,)
+
+    def export_table(self, table, columns=None, filename=None, delimiter=None):
+        """Name the attachment the way NetBox names export-template output.
+
+        The inherited default is `netbox_{verbose_name_plural}`, which for
+        this model yields a title-cased name with spaces in it.
+        """
+        filename = filename or f"{filename_from_model(self.queryset.model)}.csv"
+        return super().export_table(table, columns, filename, delimiter)
+
+
 def _status_entries_view(status_value, status_label, weight):
     """Factory for per-status entry tab views."""
 
@@ -521,14 +568,14 @@ def _status_entries_view(status_value, status_label, weight):
         child_model = models.FactsReportEntry
         table = tables.FactsReportEntryTable
         filterset = filtersets.FactsReportEntryFilterSet
-        actions = ()
+        filterset_form = forms.FactsReportEntryFilterForm
+        actions = (EntryBulkExport,)
         template_name = "netbox_facts/factsreport_entries.html"
         tab = ViewTab(
             label=_(status_label),
             badge=lambda x, s=status_value: x.entries.filter(status=s).count(),
             permission="netbox_facts.view_factsreport",
             weight=weight,
-            hide_if_empty=True,
         )
 
         def get_children(self, request, parent):
@@ -539,6 +586,21 @@ def _status_entries_view(status_value, status_label, weight):
             # renders, and rides along in the POST so a select-all can be
             # resolved back to this tab's entries server side.
             return {"entry_status": status_value}
+
+        def get(self, request, *args, **kwargs):
+            """Answer the Export button's links, else render the tab.
+
+            The export itself is the list view's, run against this tab's
+            entries; the filterset is applied there, as it is for any list.
+            """
+            if "export" in request.GET and EntryBulkExport in self.get_permitted_actions(
+                request.user, model=self.child_model
+            ):
+                export_view = _EntryExportView()
+                export_view.setup(request)
+                export_view.queryset = self.get_children(request, self.get_object(**kwargs))
+                return export_view.get(request)
+            return super().get(request, *args, **kwargs)
 
     _View.__name__ = f"FactsReport{status_label}EntriesView"
     _View.__qualname__ = _View.__name__
@@ -717,6 +779,75 @@ class FactsReportUnskipView(FactsReportEntryActionView):
 
         count = unskip_entries(report, entry_pks)
         messages.success(request, _("Returned {count} entries to pending.").format(count=count))
+
+
+###
+# FactsReportEntry
+###
+
+
+def _entry_tab_url(entry):
+    """Return the report tab the entry is listed on, or the report itself.
+
+    Entries are reached through a per-status tab on their report, so that
+    tab is where a reviewer came from and where a back link belongs. A
+    status with no tab of its own (an entry mid-apply) falls back to the
+    report.
+    """
+    try:
+        return reverse(f"plugins:netbox_facts:factsreport_entries_{entry.status}", args=[entry.report_id])
+    except NoReverseMatch:
+        return entry.report.get_absolute_url()
+
+
+def _pretty_json(payload):
+    """Render a captured payload as the raw evidence block shows it."""
+    return json.dumps(payload or {}, indent=2, sort_keys=True, default=str)
+
+
+@register_model_view(models.FactsReportEntry)
+class FactsReportEntryView(generic.ObjectView):
+    """Detail view for a single report entry.
+
+    Shows the comparison key by key, the payloads it was derived from,
+    and -- for a failed entry -- what NetBox rejected on apply.
+    """
+
+    queryset = models.FactsReportEntry.objects.all()
+    template_name = "netbox_facts/factsreportentry.html"
+    actions = ()
+
+    def get_required_permission(self):
+        return "netbox_facts.view_factsreport"
+
+    def has_permission(self):
+        """Gate an entry on its report rather than on the entry itself.
+
+        Entries hold no permissions of their own: they are rows of a
+        report and are visible exactly when it is. Restricting the report
+        queryset rather than the entry one keeps object-level constraints
+        granted on reports (a tenant's plans, say) in force here, which
+        the default model-level check on FactsReportEntry would miss.
+        """
+        user = self.request.user
+        if not user.has_perms((self.get_required_permission(), *self.additional_permissions)):
+            return False
+
+        self.queryset = self.queryset.filter(report__in=models.FactsReport.objects.restrict(user, "view"))
+        return True
+
+    def get_extra_context(self, request, instance):
+        apply_error = None
+        if instance.status == EntryStatusChoices.STATUS_FAILED:
+            apply_error = build_apply_error_display(instance.apply_error)
+
+        return {
+            "diff_rows": build_entry_diff(instance),
+            "apply_error": apply_error,
+            "detected_json": _pretty_json(instance.detected_values),
+            "current_json": _pretty_json(instance.current_values),
+            "parent_tab_url": _entry_tab_url(instance),
+        }
 
 
 @register_model_view(models.CollectionPlan, "reports")

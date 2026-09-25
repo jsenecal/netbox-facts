@@ -25,7 +25,7 @@ A `FactsReport` is created by every collection run and accumulates one
 | `status` | `pending`, `applying`, `applied`, `skipped`, or `failed`. `applying` is set while the entry's apply handler runs. |
 | `collector_type` | The collector that produced this entry. Selects the apply handler family. |
 | `entry_kind` | What kind of object the entry concerns: `device`, `interface`, `interface_mac`, `lag`, `ip_address`, `mac_address`, `vrf`, `inventory_item`, `module`, `cable`, `l2_circuit`, `bgp_peer_ip`, `bgp_router`, `bgp_scope`, `bgp_peer`, `ospf_neighbor`, or `other`. Set at detect time; selects the apply handler within the collector type. |
-| `device` | The device the fact was detected on. |
+| `device` | The device the fact was detected on. Reachable in reverse as `device.facts_entries`. |
 | `object_type` / `object_id` | Generic FK to the NetBox object the entry refers to. Nullable for `new` entries that have not been applied yet. |
 | `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). Display only -- apply never parses it. |
 | `display_title` | Read-only. One-line title composed from the kind, the label and the action (e.g. `Interface xe-0/0/1 changed`). |
@@ -106,6 +106,60 @@ after an upgrade, run `python manage.py migrate` once: NetBox records the
 features a model supports on its object type as part of the migration
 step.
 
+## Reviewing entries in the UI
+
+A report's entries are split across four tabs -- Pending, Applied,
+Skipped and Failed -- each badged with its count. All four are always
+shown, including at zero, so the tab you are working does not move as
+entries change status. The entry-status counts on the report page link to
+the matching tab.
+
+Each tab carries a filter form over `device`, `action`, `status`,
+`collector_type` and `entry_kind`, plus a `q` search matching the entry
+label (`object_repr`) or the device name; the quick-search box above the
+table posts the same `q`. Filters can be stored as NetBox saved filters
+and recalled from the selector beside the quick search.
+
+The **Export** button writes the entries currently selected by those
+filters, exactly as the NetBox object lists do: "Current View" exports the
+columns you have configured, "All Data" every available column, and any
+export template defined for `Facts Report Entry` is offered below those.
+CSV output uses the delimiter from your user preferences, and deployments
+that set `STREAMING_EXPORTS` stream the rows instead of buffering them.
+
+## The entry detail page
+
+Every row in a report's entry tabs links to a page for that single entry,
+at `/plugins/facts/facts-report-entry/<id>/`. It is where you review a
+pending change before applying it, or find out why one failed.
+
+- **Overview** -- the entry's title, kind, action and status, the device
+  and report it belongs to, the collector type that produced it, the
+  NetBox object it resolves to once applied, and the detection and apply
+  timestamps.
+- **Changes** -- the comparison key by key, with what NetBox holds beside
+  what the device reported. A key is marked `Modified` when both sides
+  differ, `Added` when only the device reported it, and `Removed` when
+  only NetBox still holds it; `(not set)` marks a side that holds no
+  value at all. Keys whose value did not move are not listed, and a
+  `confirmed` entry lists none. This is the same comparison the entry
+  table's Details column summarizes in one line.
+- **Raw evidence** -- the full `detected_values` and `current_values`
+  payloads as stored, in collapsible blocks. They include the keys the
+  Changes panel hides, such as `raw_output` and the collector's internal
+  identity fields.
+
+A `failed` entry also shows what the apply hit. A validation failure is
+rendered field by field exactly as NetBox rejected it; an infrastructure
+failure (an unreachable dependency, a missing handler) is shown as a
+single general message. Entries written before `apply_error` existed fall
+back to their flat `error_message`.
+
+Viewing an entry requires `netbox_facts.view_factsreport`: entries carry
+no permissions of their own and are visible exactly when their report is,
+object-level constraints included. Breadcrumbs and the **Back to Report**
+button return to the report tab the entry is listed on.
+
 ## Applying entries from the UI
 
 A report offers two apply paths:
@@ -168,6 +222,55 @@ so the action covers every matching entry rather than just the visible
 page. The transition itself is still gated by status -- a select-all
 retry only touches entries that actually failed.
 
+## Device page integration
+
+Reports are organised by collection run, but operators work device by
+device. Two entry points bring the review queue to them.
+
+### The Facts tab
+
+A device the plugin has recorded facts for carries a **Facts** tab, badged
+with the number of entries for that device still awaiting a decision. The
+tab shows:
+
+- **Pending entries** -- the same table the report tabs use, filtered to
+  this device. Entries are reviewed from their report, so the tab is a
+  reading view: apply and skip stay on the report page.
+- **Last Collected** -- the most recent collection timestamp per collector
+  type, taken from the reports that produced this device's own entries. It
+  answers "when was this device last seen by an ARP run", not "when did
+  some ARP plan last run".
+- **Collection Plans** -- the enabled plans whose scope currently resolves
+  to this device, with each plan's last run.
+
+The tab is visible to users holding `netbox_facts.view_factsreport`, and
+appears only once the plugin holds at least one entry for the device, so it
+does not clutter the pages of devices no plan has ever collected. It is
+deliberately keyed off "has any entry", not "has a pending entry": a device
+that has been collected and is simply clean still shows the tab with a `0`
+badge, because that is exactly the device whose freshness and plan-coverage
+panels are worth reading.
+
+The listed entries respect object-level permissions; the tab's badge does
+not, because NetBox hands a tab badge only the object it is counting for. A
+user restricted to a subset of entries can therefore see a badge higher
+than the rows below it.
+
+A plan's scope is a set of assignment dimensions rather than a stored
+device list, so answering "does this plan cover this device" means
+resolving the plan. The tab caps how many enabled plans it resolves for
+one page view and says so when the cap is reached, rather than letting a
+deployment with hundreds of plans turn a device page into a sweep.
+
+### The dashboard widget
+
+**Pending Facts Changes** is a dashboard widget, available from the widget
+picker on the NetBox home page like any other. It shows two numbers -- the
+total entries awaiting a decision and the reports holding them -- and both
+link to the report list filtered to the reports awaiting review (status
+`pending` or `partial`). Counts respect the viewing user's object
+permissions.
+
 ## REST endpoints
 
 - `GET /api/plugins/facts/factsreports/` -- list/filter reports.
@@ -200,10 +303,12 @@ in those request bodies, for example:
 GET /api/plugins/facts/factsreportentries/?report=12&status=pending
 ```
 
-Supported filters are `report`, `action`, `status`, `collector_type`,
-`entry_kind`, and `device`. `action`, `status`, `collector_type`, and
-`entry_kind` accept multiple values (repeat the parameter). Results are
-limited to the entries the requesting user is permitted to view.
+Supported filters are `q`, `report`, `action`, `status`,
+`collector_type`, `entry_kind`, and `device`. `q` matches a substring of
+`object_repr` or of the device name; `action`, `status`,
+`collector_type`, `entry_kind`, and `device` accept multiple values
+(repeat the parameter). Results are limited to the entries the requesting
+user is permitted to view.
 
 ## GraphQL
 
@@ -232,8 +337,15 @@ The list view supports these filters via `FactsReportFilterSet`:
 - `collection_plan` -- one or more plan IDs.
 - `status` -- one or more `ReportStatusChoices` values.
 
-The entry list (within a report) supports `action`, `status`,
-`collector_type`, `entry_kind`, and `device`.
+The entry tabs (within a report) support `q` -- a substring match on
+`object_repr` or on the device name -- plus `device`, `action`, `status`,
+`collector_type`, and `entry_kind`, via `FactsReportEntryFilterSet` and
+the filter form each tab renders.
+
+Both filtersets build on NetBox's `BaseFilterSet`, so saved filters and
+the standard lookup expressions apply. Neither builds on
+`NetBoxModelFilterSet`: reports and entries are plain models with no
+tags, custom fields, or change log for it to filter on.
 
 ## Retention
 

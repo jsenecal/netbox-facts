@@ -1,0 +1,57 @@
+{% extends 'generic/object_children.html' %}
+{% load helpers %}
+{% load i18n %}
+
+{% block table_controls %}
+<div class="row mb-3">
+  <div class="col col-md-6">
+    <div class="card">
+      <h2 class="card-header">{% trans "Last Collected" %}</h2>
+      {% if last_collected %}
+        <table class="table table-hover attr-table">
+          <tbody>
+            {% for row in last_collected %}
+              <tr>
+                <th scope="row">{{ row.label }}</th>
+                <td>{{ row.last_collected|placeholder }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="card-body text-muted">
+          {% trans "This device has not been recorded by any collection run yet." %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col col-md-6">
+    <div class="card">
+      <h2 class="card-header">{% trans "Collection Plans" %}</h2>
+      {% if covering_plans %}
+        <table class="table table-hover attr-table">
+          <tbody>
+            {% for plan in covering_plans %}
+              <tr>
+                <th scope="row"><a href="{{ plan.get_absolute_url }}">{{ plan.name }}</a></th>
+                <td>{% badge plan.get_collector_type_display bg_color=plan.get_collector_type_color %}</td>
+                <td>{{ plan.last_run|placeholder }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="card-body text-muted">
+          {% trans "No enabled collection plan currently targets this device." %}
+        </div>
+      {% endif %}
+      {% if plans_truncated %}
+        <div class="card-footer text-muted">
+          {% blocktrans with limit=covering_plan_limit %}Only the first {{ limit }} enabled plans were checked.{% endblocktrans %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{{ block.super }}
+{% endblock table_controls %}

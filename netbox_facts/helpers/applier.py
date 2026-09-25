@@ -115,12 +115,16 @@ def build_apply_error(exc):
     else:
         return {ERROR_TYPE_KEY: ERROR_TYPE_ERROR, ERROR_KEY_ALL: [str(exc)[:1000]]}
 
-    structured = {field: _error_messages(value) for field, value in messages.items()}
+    structured = {field: normalize_error_messages(value) for field, value in messages.items()}
     return {ERROR_TYPE_KEY: ERROR_TYPE_VALIDATION, **structured}
 
 
-def _error_messages(value):
-    """Normalize one field's messages to a list of plain strings."""
+def normalize_error_messages(value):
+    """Normalize one field's messages to a list of plain strings.
+
+    Public because the display side normalizes the same way when reading
+    a stored payload back.
+    """
     if isinstance(value, (list, tuple)):
         return [str(message) for message in value]
     return [str(value)]

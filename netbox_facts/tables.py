@@ -1,11 +1,13 @@
 import django_tables2 as tables
 from dcim.tables import InterfaceTable
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable
 from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, MarkdownColumn, ToggleColumn
 
 from .choices import EntryActionChoices
+from .helpers import entry_display
 from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
 
 __all__ = [
@@ -192,32 +194,21 @@ ENTRY_ROW_BUTTONS = """
 class FactsReportEntryTable(NetBoxTable):
     """Table representation of the FactsReportEntry model."""
 
-    SKIP_FIELDS = {
-        "name",
-        "component_name",
-        "parent_name",
-        "module_bay_id",
-        "module_type_id",
-        "interface",
-        "logical_interface",
-        "raw_output",
-    }
-    LABEL_MAP = {
-        "serial_number": "serial",
-        "mac_address": "MAC",
-        "ip_address": "IP",
-        "lag_parent": "LAG",
-        "remote_device": "remote",
-        "remote_interface": "remote port",
-        "remote_address": "peer",
-        "remote_as": "AS",
-    }
-    ABSENT = "(not set)"
+    # The marker for a side of the comparison that holds no value. It comes
+    # from the same module as the skip/label map _visible_labeled_keys()
+    # delegates to, so this summary and the entry detail page agree.
+    ABSENT = entry_display.ABSENT
 
     pk = ToggleColumn()
     action = ChoiceFieldColumn()
     status = ChoiceFieldColumn()
     device = tables.Column(linkify=True)
+    display_title = tables.Column(
+        verbose_name=_("Entry"),
+        accessor="display_title",
+        orderable=False,
+        linkify=lambda record: reverse("plugins:netbox_facts:factsreportentry", args=[record.pk]),
+    )
     object_repr = MarkdownColumn(verbose_name=_("Object"))
     collector_type = ChoiceFieldColumn()
     details = MarkdownColumn(verbose_name=_("Details"), orderable=False, empty_values=())
@@ -231,6 +222,7 @@ class FactsReportEntryTable(NetBoxTable):
             "status",
             "collector_type",
             "device",
+            "display_title",
             "object_repr",
             "details",
             "created",
@@ -243,21 +235,19 @@ class FactsReportEntryTable(NetBoxTable):
             "status",
             "collector_type",
             "device",
-            "object_repr",
+            "display_title",
             "details",
             "error_message",
         )
 
     def _visible_labeled_keys(self, keys):
-        """Yield (key, label) pairs for sorted keys, skipping SKIP_FIELDS.
+        """Yield (key, label) pairs for sorted keys, skipping hidden ones.
 
         Shared by every render_details loop so the skip/label preamble is
-        defined once instead of repeated per diff group.
+        defined once instead of repeated per diff group, and delegated so
+        the table and the entry detail page read one map.
         """
-        for key in sorted(keys):
-            if key in self.SKIP_FIELDS:
-                continue
-            yield key, self.LABEL_MAP.get(key, key)
+        return entry_display.visible_labeled_keys(keys)
 
     def render_details(self, record):
         detected = record.detected_values or {}
