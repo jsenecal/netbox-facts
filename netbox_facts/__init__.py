@@ -38,10 +38,17 @@ class FactsConfig(PluginConfig):
 
     def ready(self):
         super().ready()
-        # signals and retention are imported for their side effects: they connect
-        # the model receivers and register the report pruning job as a NetBox
-        # system job. events is called into explicitly, just below.
+        # These modules are imported for their side effects: signals connects the
+        # model receivers, retention registers the report pruning job as a NetBox
+        # system job, dashboard registers the pending-changes widget, and
+        # device_views attaches the Facts tab to dcim.Device. The last two
+        # register into NetBox's registries, which dcim's URLConf and the
+        # dashboard widget picker read once at startup; ready() is the only hook
+        # guaranteed to run before either, so they cannot be left to urls.py.
+        # events is called into explicitly, just below.
         from netbox_facts import (  # pylint: disable=import-outside-toplevel,unused-import # noqa: F401
+            dashboard,
+            device_views,
             events,
             retention,
             signals,
