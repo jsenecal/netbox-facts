@@ -56,6 +56,34 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   page link to the matching tab. The report and entry filtersets now build on
   NetBox's `BaseFilterSet`, which also makes saved filters apply to them.
   (#140)
+- Report entries now have a detail page of their own, linked from the new
+  "Entry" column of the entry tables: an overview of the entry's kind, action,
+  status, device, report, collector type and timestamps; a Changes panel
+  comparing what NetBox holds against what the device reported, key by key,
+  marked modified/added/removed; the raw `detected_values` and
+  `current_values` payloads as collected; and, for a failed entry, its
+  structured `apply_error` rendered field by field, distinguishing a
+  validation rejection from an infrastructure failure. The page is gated on
+  `netbox_facts.view_factsreport`, the same permission as the report it
+  belongs to. (#139)
+- Device page Facts tab: a device the plugin has recorded facts for now carries
+  a "Facts" tab, badged with the number of entries for that device still
+  awaiting a decision. It lists those pending entries and adds two panels -- the
+  most recent collection timestamp per collector type, derived from the reports
+  that produced this device's own entries, and the enabled Collection Plans
+  whose scope currently resolves to this device, with each plan's last run. The
+  tab requires `netbox_facts.view_factsreport` and is hidden on devices with no
+  facts data at all; a device that has been collected and is simply clean keeps
+  the tab with a `0` badge. Plan coverage is resolved per plan, so the tab caps
+  how many enabled plans it checks for one page view and says so when the cap is
+  reached. (#150)
+- "Pending Facts Changes" dashboard widget: shows the total entries awaiting a
+  decision and how many reports hold them, both linking to the report list
+  filtered to the reports awaiting review. Counts respect the viewing user's
+  object permissions. (#150)
+- `FactsReportEntry.device` now has a reverse accessor, `device.facts_entries`,
+  in place of the previous `related_name="+"`. Migration `0030` is
+  metadata-only and applies no schema change. (#150)
 - Collection Plan scope preview: the plan detail page now shows a "Resolved
   scope" panel with the number of devices the plan currently matches (linking
   to the device list filtered by the plan's scope), the connection target, and

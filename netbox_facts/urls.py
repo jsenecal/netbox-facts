@@ -79,4 +79,8 @@ urlpatterns = (
         "facts-report/<int:pk>/",
         include(get_model_urls("netbox_facts", "factsreport")),
     ),
+    path(
+        "facts-report-entry/<int:pk>/",
+        include(get_model_urls("netbox_facts", "factsreportentry")),
+    ),
 )
