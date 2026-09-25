@@ -26,8 +26,40 @@ __all__ = [
 ]
 
 
-class MACAddressFilterSet(NetBoxModelFilterSet):
+class QuickSearchMixin(django_filters.FilterSet):
+    """The `q` search shared by every filterset in this plugin.
+
+    A filterset names the fields its search spans in `search_fields`; the
+    value is matched case-insensitively against each of them, and a value
+    worn down to nothing narrows nothing.
+
+    Composes with either base: NetBoxModelFilterSet declares an identical
+    `q` filter of its own, and since a filter's `method` is resolved on the
+    filterset instance, this mixin coming first in the bases is what makes
+    the search below the one that runs.
+    """
+
+    search_fields = ()
+
+    q = django_filters.CharFilter(
+        method="search",
+        label=_("Search"),
+    )
+
+    def search(self, queryset, name, value):
+        value = value.strip()
+        if not value:
+            return queryset
+        query = Q()
+        for field_name in self.search_fields:
+            query |= Q(**{f"{field_name}__icontains": value})
+        return queryset.filter(query)
+
+
+class MACAddressFilterSet(QuickSearchMixin, NetBoxModelFilterSet):
     """Filter set for the MACAddress model."""
+
+    search_fields = ("mac_address",)
 
     description = django_filters.CharFilter(lookup_expr="icontains")
 
@@ -49,12 +81,11 @@ class MACAddressFilterSet(NetBoxModelFilterSet):
             },
         }
 
-    def search(self, queryset, name, value):
-        return queryset.filter(mac_address__icontains=value)
 
-
-class MACVendorFilterSet(NetBoxModelFilterSet):
+class MACVendorFilterSet(QuickSearchMixin, NetBoxModelFilterSet):
     """Filter set for the MACVendor model."""
+
+    search_fields = ("vendor_name",)
 
     class Meta:
         """Meta class for MACVendorFilterSet."""
@@ -70,12 +101,11 @@ class MACVendorFilterSet(NetBoxModelFilterSet):
             },
         }
 
-    def search(self, queryset, name, value):
-        return queryset.filter(vendor_name__icontains=value)
 
-
-class CollectorFilterSet(NetBoxModelFilterSet):
+class CollectorFilterSet(QuickSearchMixin, NetBoxModelFilterSet):
     """Filter set for the CollectionPlan model."""
+
+    search_fields = ("name",)
 
     name = django_filters.CharFilter(lookup_expr="icontains")
     priority = django_filters.MultipleChoiceFilter(
@@ -94,34 +124,6 @@ class CollectorFilterSet(NetBoxModelFilterSet):
 
         model = CollectionPlan
         fields = ["name", "priority", "status", "collector_type", "enabled"]
-
-    def search(self, queryset, name, value):
-        return queryset.filter(name__icontains=value)
-
-
-class QuickSearchMixin(django_filters.FilterSet):
-    """The `q` search shared by the report and entry filtersets.
-
-    A filterset names the fields its search spans in `search_fields`; the
-    value is matched case-insensitively against each of them, and a value
-    worn down to nothing narrows nothing.
-    """
-
-    search_fields = ()
-
-    q = django_filters.CharFilter(
-        method="search",
-        label=_("Search"),
-    )
-
-    def search(self, queryset, name, value):
-        value = value.strip()
-        if not value:
-            return queryset
-        query = Q()
-        for field_name in self.search_fields:
-            query |= Q(**{f"{field_name}__icontains": value})
-        return queryset.filter(query)
 
 
 class FactsReportFilterSet(QuickSearchMixin, BaseFilterSet):
