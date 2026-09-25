@@ -45,6 +45,17 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Report entry review ergonomics: every per-status entry tab now renders a
+  filter form (device, action, status, collector type, entry kind) backed by a
+  new `q` search matching the entry label or the device name, and an Export
+  button offering the same choices as any NetBox object list -- the configured
+  columns, all columns, or an export template -- honoring the user's CSV
+  delimiter preference and the `STREAMING_EXPORTS` setting. The four tabs are
+  no longer hidden when empty, so the tab set does not shift as entries move
+  from pending to applied mid-review, and the entry-status counts on the report
+  page link to the matching tab. The report and entry filtersets now build on
+  NetBox's `BaseFilterSet`, which also makes saved filters apply to them.
+  (#140)
 - Report entries now have a detail page of their own, linked from the new
   "Entry" column of the entry tables: an overview of the entry's kind, action,
   status, device, report, collector type and timestamps; a Changes panel

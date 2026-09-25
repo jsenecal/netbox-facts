@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import NoReverseMatch, reverse
 from django.utils.translation import gettext as _
 from extras.choices import LogLevelChoices
+from extras.utils import filename_from_model
 from extras.views import ScriptResultView
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
@@ -516,6 +517,48 @@ class FactsReportBulkDeleteView(generic.BulkDeleteView):
     table = tables.FactsReportTable
 
 
+class EntryBulkExport(object_actions.BulkExport):
+    """Export action for the entry tabs, bound to the entries themselves.
+
+    The button is rendered from the report's detail template, which hands
+    every action the report it is showing. Resolving the export against the
+    entry model instead keeps the offered export templates and data format
+    those of the rows actually being exported.
+    """
+
+    @classmethod
+    def get_context(cls, context, obj):
+        return super().get_context(context, models.FactsReportEntry)
+
+
+class _EntryExportView(generic.ObjectListView):
+    """NetBox's list-export machinery, pointed at one report's entries.
+
+    Child views render tables but carry no export handling; all of it lives
+    on ObjectListView.get() -- the current-view column set, export
+    templates, the requesting user's CSV delimiter preference, the
+    STREAMING_EXPORTS response and the table prefetching that goes with it.
+    The entry tabs hand their `export` requests to an instance of this view,
+    with its queryset replaced by the tab's entries, rather than restating
+    any of that. Its own dispatch never runs: the tab has already checked
+    the permissions and resolved the report.
+    """
+
+    queryset = models.FactsReportEntry.objects.all()
+    table = tables.FactsReportEntryTable
+    filterset = filtersets.FactsReportEntryFilterSet
+    actions = (EntryBulkExport,)
+
+    def export_table(self, table, columns=None, filename=None, delimiter=None):
+        """Name the attachment the way NetBox names export-template output.
+
+        The inherited default is `netbox_{verbose_name_plural}`, which for
+        this model yields a title-cased name with spaces in it.
+        """
+        filename = filename or f"{filename_from_model(self.queryset.model)}.csv"
+        return super().export_table(table, columns, filename, delimiter)
+
+
 def _status_entries_view(status_value, status_label, weight):
     """Factory for per-status entry tab views."""
 
@@ -525,14 +568,14 @@ def _status_entries_view(status_value, status_label, weight):
         child_model = models.FactsReportEntry
         table = tables.FactsReportEntryTable
         filterset = filtersets.FactsReportEntryFilterSet
-        actions = ()
+        filterset_form = forms.FactsReportEntryFilterForm
+        actions = (EntryBulkExport,)
         template_name = "netbox_facts/factsreport_entries.html"
         tab = ViewTab(
             label=_(status_label),
             badge=lambda x, s=status_value: x.entries.filter(status=s).count(),
             permission="netbox_facts.view_factsreport",
             weight=weight,
-            hide_if_empty=True,
         )
 
         def get_children(self, request, parent):
@@ -541,6 +584,21 @@ def _status_entries_view(status_value, status_label, weight):
         def get_extra_context(self, request, instance):
             has_pending = status_value == EntryStatusChoices.STATUS_PENDING
             return {"has_pending": has_pending}
+
+        def get(self, request, *args, **kwargs):
+            """Answer the Export button's links, else render the tab.
+
+            The export itself is the list view's, run against this tab's
+            entries; the filterset is applied there, as it is for any list.
+            """
+            if "export" in request.GET and EntryBulkExport in self.get_permitted_actions(
+                request.user, model=self.child_model
+            ):
+                export_view = _EntryExportView()
+                export_view.setup(request)
+                export_view.queryset = self.get_children(request, self.get_object(**kwargs))
+                return export_view.get(request)
+            return super().get(request, *args, **kwargs)
 
     _View.__name__ = f"FactsReport{status_label}EntriesView"
     _View.__qualname__ = _View.__name__

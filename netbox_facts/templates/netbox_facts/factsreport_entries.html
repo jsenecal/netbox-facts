@@ -2,6 +2,23 @@
 {% load helpers %}
 {% load i18n %}
 
+{% block table_controls %}
+{% if filter_form %}
+{% applied_filters child_model filter_form request.GET %}
+<div class="mb-3 d-print-none">
+    <button class="btn" type="button" data-bs-toggle="collapse" data-bs-target="#entry-filter-form"
+            aria-expanded="{% if filter_form.changed_data %}true{% else %}false{% endif %}" aria-controls="entry-filter-form">
+        <i class="mdi mdi-filter-outline" aria-hidden="true"></i> {% trans "Filters" %}
+        {% if filter_form.changed_data %}{% badge filter_form.changed_data|length bg_color="primary" %}{% endif %}
+    </button>
+    <div class="collapse{% if filter_form.changed_data %} show{% endif %}" id="entry-filter-form">
+        {% include 'inc/filter_list.html' %}
+    </div>
+</div>
+{% endif %}
+{{ block.super }}
+{% endblock %}
+
 {% block bulk_extra_controls %}
 {% if perms.netbox_facts.apply_factsreport and has_pending %}
 <div class="btn-group" role="group">

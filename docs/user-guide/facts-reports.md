@@ -106,6 +106,27 @@ after an upgrade, run `python manage.py migrate` once: NetBox records the
 features a model supports on its object type as part of the migration
 step.
 
+## Reviewing entries in the UI
+
+A report's entries are split across four tabs -- Pending, Applied,
+Skipped and Failed -- each badged with its count. All four are always
+shown, including at zero, so the tab you are working does not move as
+entries change status. The entry-status counts on the report page link to
+the matching tab.
+
+Each tab carries a filter form over `device`, `action`, `status`,
+`collector_type` and `entry_kind`, plus a `q` search matching the entry
+label (`object_repr`) or the device name; the quick-search box above the
+table posts the same `q`. Filters can be stored as NetBox saved filters
+and recalled from the selector beside the quick search.
+
+The **Export** button writes the entries currently selected by those
+filters, exactly as the NetBox object lists do: "Current View" exports the
+columns you have configured, "All Data" every available column, and any
+export template defined for `Facts Report Entry` is offered below those.
+CSV output uses the delimiter from your user preferences, and deployments
+that set `STREAMING_EXPORTS` stream the rows instead of buffering them.
+
 ## The entry detail page
 
 Every row in a report's entry tabs links to a page for that single entry,
@@ -235,10 +256,12 @@ PKs to pass in those request bodies, for example:
 GET /api/plugins/facts/factsreportentries/?report=12&status=pending
 ```
 
-Supported filters are `report`, `action`, `status`, `collector_type`,
-`entry_kind`, and `device`. `action`, `status`, `collector_type`, and
-`entry_kind` accept multiple values (repeat the parameter). Results are
-limited to the entries the requesting user is permitted to view.
+Supported filters are `q`, `report`, `action`, `status`,
+`collector_type`, `entry_kind`, and `device`. `q` matches a substring of
+`object_repr` or of the device name; `action`, `status`,
+`collector_type`, `entry_kind`, and `device` accept multiple values
+(repeat the parameter). Results are limited to the entries the requesting
+user is permitted to view.
 
 ## GraphQL
 
@@ -267,8 +290,15 @@ The list view supports these filters via `FactsReportFilterSet`:
 - `collection_plan` -- one or more plan IDs.
 - `status` -- one or more `ReportStatusChoices` values.
 
-The entry list (within a report) supports `action`, `status`,
-`collector_type`, `entry_kind`, and `device`.
+The entry tabs (within a report) support `q` -- a substring match on
+`object_repr` or on the device name -- plus `device`, `action`, `status`,
+`collector_type`, and `entry_kind`, via `FactsReportEntryFilterSet` and
+the filter form each tab renders.
+
+Both filtersets build on NetBox's `BaseFilterSet`, so saved filters and
+the standard lookup expressions apply. Neither builds on
+`NetBoxModelFilterSet`: reports and entries are plain models with no
+tags, custom fields, or change log for it to filter on.
 
 ## Retention
 
