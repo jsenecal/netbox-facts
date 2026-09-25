@@ -15,16 +15,8 @@ from django.utils.translation import gettext_lazy as _
 from extras.dashboard.utils import register_widget
 from extras.dashboard.widgets import DashboardWidget
 
-from .choices import ReportStatusChoices
+from .choices import REVIEW_REPORT_STATUSES
 from .models import FactsReport, FactsReportEntry
-
-#: Report statuses that still hold entries nobody has decided on. A report
-#: leaves this set only once every entry has been applied, skipped or has
-#: failed, which is exactly what _update_report_status() records.
-REVIEW_REPORT_STATUSES = (
-    ReportStatusChoices.STATUS_PENDING,
-    ReportStatusChoices.STATUS_PARTIAL,
-)
 
 
 def review_list_url():
