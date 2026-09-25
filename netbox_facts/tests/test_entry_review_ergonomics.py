@@ -2,14 +2,16 @@
 
 Reviewing a report means working its per-status entry tabs, so those tabs
 carry a real filter form (instead of hand-typed query parameters), keep
-their place while entries move from pending to applied, and hand the
-reviewer a CSV of whatever the current filters select.
+their place while entries move from pending to applied, and export
+whatever the current filters select the way any object list does.
 """
 
 import csv
 
-from django.test import TestCase
+from core.models import ObjectType
+from django.test import TestCase, override_settings
 from django.urls import resolve, reverse
+from extras.models import ExportTemplate
 from netbox.object_actions import BulkExport
 from utilities.testing import TestCase as NetBoxViewTestCase
 
@@ -253,6 +255,73 @@ class EntryExportTest(ReportEntryFixtureMixin, NetBoxViewTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("text/csv", response["Content-Type"])
+
+
+class EntryExportParityTest(ReportEntryFixtureMixin, NetBoxViewTestCase):
+    """The tab export must behave like NetBox's own list export (#140)."""
+
+    user_permissions = (
+        "netbox_facts.view_factsreport",
+        "netbox_facts.view_factsreportentry",
+        "extras.view_exporttemplate",
+    )
+
+    def setUp(self):
+        super().setUp()
+        device, self.report = self.create_report("Parity")
+        self.entry = self.create_entry(
+            self.report,
+            device,
+            EntryStatusChoices.STATUS_PENDING,
+            "Interface ge-0/0/4",
+        )
+        self.url = entry_tab_url(self.report.pk, EntryStatusChoices.STATUS_PENDING)
+
+    def test_export_honors_the_users_csv_delimiter(self):
+        """A reviewer who set semicolons gets semicolons here too."""
+        self.user.config.set("csv_delimiter", "semicolon", commit=True)
+
+        response = self.client.get(f"{self.url}?export=table")
+
+        header = response.content.decode().splitlines()[0]
+        self.assertIn(";", header)
+        self.assertNotIn(",", header)
+
+    @override_settings(STREAMING_EXPORTS=True)
+    def test_export_streams_when_the_deployment_asks_for_it(self):
+        """A report can hold thousands of entries, so the setting must bite."""
+        response = self.client.get(f"{self.url}?export=table")
+
+        self.assertTrue(response.streaming)
+        self.assertIn(self.entry.object_repr, b"".join(response.streaming_content).decode())
+
+    def test_all_data_export_covers_columns_the_current_view_omits(self):
+        """An All Data export is the whole table, not the configured columns."""
+        response = self.client.get(f"{self.url}?export")
+
+        self.assertIn("Applied at", response.content.decode().splitlines()[0])
+
+    def test_named_export_template_is_rendered(self):
+        template = ExportTemplate.objects.create(
+            name="entry-labels",
+            template_code="{% for entry in queryset %}{{ entry.object_repr }}{% endfor %}",
+        )
+        template.object_types.set([ObjectType.objects.get_for_model(FactsReportEntry)])
+
+        response = self.client.get(f"{self.url}?export=entry-labels")
+
+        self.assertEqual(response.content.decode().strip(), self.entry.object_repr)
+
+    def test_unknown_export_template_is_not_silently_exported_as_a_table(self):
+        """Naming a template that does not exist is an error, not a CSV."""
+        response = self.client.get(f"{self.url}?export=no-such-template")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_export_attachment_is_named_after_the_entry_model(self):
+        response = self.client.get(f"{self.url}?export=table")
+
+        self.assertIn("netbox_facts_report_entries.csv", response["Content-Disposition"])
 
 
 class ReportStatCardLinkTest(ReportEntryFixtureMixin, NetBoxViewTestCase):

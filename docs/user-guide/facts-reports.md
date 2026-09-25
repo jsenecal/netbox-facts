@@ -121,8 +121,11 @@ table posts the same `q`. Filters can be stored as NetBox saved filters
 and recalled from the selector beside the quick search.
 
 The **Export** button writes the entries currently selected by those
-filters to CSV: "Current View" exports the visible columns, "All Data"
-every available column.
+filters, exactly as the NetBox object lists do: "Current View" exports the
+columns you have configured, "All Data" every available column, and any
+export template defined for `Facts Report Entry` is offered below those.
+CSV output uses the delimiter from your user preferences, and deployments
+that set `STREAMING_EXPORTS` stream the rows instead of buffering them.
 
 ## Applying entries from the UI
 

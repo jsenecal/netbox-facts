@@ -11,6 +11,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.translation import gettext as _
 from extras.choices import LogLevelChoices
+from extras.utils import filename_from_model
 from extras.views import ScriptResultView
 from ipam.filtersets import IPAddressFilterSet
 from ipam.models import IPAddress
@@ -18,7 +19,6 @@ from ipam.tables.ip import IPAddressTable
 from netbox import object_actions
 from netbox.views import generic
 from netbox.views.generic.base import BaseObjectView
-from utilities.export import TableExport
 from utilities.htmx import htmx_partial
 from utilities.views import (
     ViewTab,
@@ -527,6 +527,34 @@ class EntryBulkExport(object_actions.BulkExport):
         return super().get_context(context, models.FactsReportEntry)
 
 
+class _EntryExportView(generic.ObjectListView):
+    """NetBox's list-export machinery, pointed at one report's entries.
+
+    Child views render tables but carry no export handling; all of it lives
+    on ObjectListView.get() -- the current-view column set, export
+    templates, the requesting user's CSV delimiter preference, the
+    STREAMING_EXPORTS response and the table prefetching that goes with it.
+    The entry tabs hand their `export` requests to an instance of this view,
+    with its queryset replaced by the tab's entries, rather than restating
+    any of that. Its own dispatch never runs: the tab has already checked
+    the permissions and resolved the report.
+    """
+
+    queryset = models.FactsReportEntry.objects.all()
+    table = tables.FactsReportEntryTable
+    filterset = filtersets.FactsReportEntryFilterSet
+    actions = (EntryBulkExport,)
+
+    def export_table(self, table, columns=None, filename=None, delimiter=None):
+        """Name the attachment the way NetBox names export-template output.
+
+        The inherited default is `netbox_{verbose_name_plural}`, which for
+        this model yields a title-cased name with spaces in it.
+        """
+        filename = filename or f"{filename_from_model(self.queryset.model)}.csv"
+        return super().export_table(table, columns, filename, delimiter)
+
+
 def _status_entries_view(status_value, status_label, weight):
     """Factory for per-status entry tab views."""
 
@@ -554,36 +582,19 @@ def _status_entries_view(status_value, status_label, weight):
             return {"has_pending": has_pending}
 
         def get(self, request, *args, **kwargs):
-            """Serve a CSV export when one is asked for, else render the tab.
+            """Answer the Export button's links, else render the tab.
 
-            Child views render tables but, unlike the object list view, carry
-            no export handling of their own, so the Export button's links have
-            to be answered here.
+            The export itself is the list view's, run against this tab's
+            entries; the filterset is applied there, as it is for any list.
             """
             if "export" in request.GET and EntryBulkExport in self.get_permitted_actions(
                 request.user, model=self.child_model
             ):
-                return self.export_entries(request, **kwargs)
+                export_view = _EntryExportView()
+                export_view.setup(request)
+                export_view.queryset = self.get_children(request, self.get_object(**kwargs))
+                return export_view.get(request)
             return super().get(request, *args, **kwargs)
-
-        def export_entries(self, request, **kwargs):
-            """Return the filtered entries of this tab as a CSV attachment."""
-            entries = self.get_children(request, self.get_object(**kwargs))
-            entries = self.filterset(request.GET, entries, request=request).qs
-            table = self.get_table(entries, request, bulk_actions=False)
-
-            exclude_columns = {"pk", "actions"}
-            if request.GET["export"] == "table":
-                # Match what the reviewer is looking at, not every column.
-                selected = {name for name, _label in table.selected_columns}
-                exclude_columns |= {name for name, _label in table.available_columns} - selected
-
-            exporter = TableExport(
-                export_format=TableExport.CSV,
-                table=table,
-                exclude_columns=exclude_columns,
-            )
-            return exporter.response(filename=f"netbox_{self.child_model._meta.model_name}.csv")
 
     _View.__name__ = f"FactsReport{status_label}EntriesView"
     _View.__qualname__ = _View.__name__
