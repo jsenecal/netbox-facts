@@ -30,6 +30,7 @@ class FactsConfig(PluginConfig):
         "napalm_password": "",
         "napalm_timeout": 60,
         "global_napalm_args": {},
+        "platform_driver_custom_field": "napalm_driver",
         "valid_interfaces_re": ".*",
         "job_timeout": 1800,
         "report_retention_days": 0,

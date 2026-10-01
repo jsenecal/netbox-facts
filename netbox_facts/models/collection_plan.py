@@ -36,10 +36,14 @@ from utilities.request import copy_safe_request
 from netbox_facts.exceptions import OperationNotSupported
 
 from ..choices import (
+    ENHANCED_DRIVER_PREFIX,
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
     ConnectionTargetChoices,
+    collector_supported_drivers,
+    driver_supports_collector,
+    normalize_driver_name,
 )
 from ..helpers import NapalmCollector
 from ..helpers.netbox import filtered_list_url
@@ -82,6 +86,57 @@ SCOPE_DIMENSIONS: tuple[ScopeDimension, ...] = (
 #: otherwise emit a multi-hundred-KB href that exceeds browser and server
 #: URL length limits.
 MAX_URL_PKS_PER_DIMENSION = 100
+
+
+def platform_driver_custom_field() -> str:
+    """Return the Platform custom field that carries a NAPALM driver name."""
+    return get_plugin_config("netbox_facts", "platform_driver_custom_field", "napalm_driver") or ""
+
+
+def platform_napalm_driver_name(platform) -> str:
+    """Return the NAPALM driver name a Platform stands for, or an empty string.
+
+    NetBox carried Platform.napalm_driver only until 3.6, which removed it
+    along with the rest of core NAPALM support, and 4.x offers no
+    replacement field. The mapping is therefore the plugin's own
+    convention: a text or selection custom field on dcim.Platform, named by
+    the platform_driver_custom_field setting, falling back to the
+    platform's slug -- which already reads as a driver name on the usual
+    platforms (junos, ios, eos).
+
+    The custom field is read straight off the stored JSON rather than
+    through .cf, which would resolve every custom field defined for
+    Platform and cache the result on the instance; a text value needs no
+    deserializing, and resolution runs once per device in a collection run.
+    """
+    if platform is None:
+        return ""
+    field_name = platform_driver_custom_field()
+    if field_name:
+        value = (platform.custom_field_data or {}).get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return platform.slug or ""
+
+
+def load_napalm_driver(driver_name: str) -> type[NetworkDriver]:
+    """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+
+    Plugin-local drivers are imported directly because napalm's
+    get_network_driver() rejects dotted module paths outside its own
+    namespaces before attempting any import.
+
+    Raises ModuleImportError when no driver answers to the name.
+    """
+    bare_name = normalize_driver_name(driver_name)
+    try:
+        module = importlib.import_module(f"{ENHANCED_DRIVER_PREFIX}{bare_name}")
+    except ModuleNotFoundError:
+        return get_network_driver(bare_name)
+    for obj in vars(module).values():
+        if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
+            return obj
+    return get_network_driver(bare_name)
 
 
 def scope_warning_threshold() -> int:
@@ -146,8 +201,12 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     napalm_driver = models.CharField(
         max_length=50,
+        blank=True,
         verbose_name="NAPALM driver",
-        help_text=_("The name of the NAPALM driver to use when interacting with devices"),
+        help_text=_(
+            "The NAPALM driver to use for every device this plan targets. Leave blank to resolve the driver "
+            "per device from its platform, which lets one plan span several vendors."
+        ),
     )
     napalm_args = models.JSONField(
         default=dict,
@@ -253,6 +312,21 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """Clean the object."""
         if isinstance(self.napalm_args, str):
             self.napalm_args = dict()
+
+        if not driver_supports_collector(self.collector_type, self.napalm_driver):
+            raise ValidationError(
+                {
+                    "napalm_driver": _(
+                        "The {collector} collector only has an implementation for these NAPALM drivers: "
+                        "{drivers}. Pick one of those, or leave the driver blank to resolve it per device "
+                        "from the device platform -- devices that resolve to another driver are then skipped "
+                        "instead of failing the run."
+                    ).format(
+                        collector=self.get_collector_type_display(),
+                        drivers=", ".join(collector_supported_drivers(self.collector_type) or ()),
+                    )
+                }
+            )
 
         if not self.allow_unscoped and not self.has_scope():
             raise ValidationError(
@@ -452,21 +526,41 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         napalm_args.pop("debug", None)
         return napalm_args
 
-    def get_napalm_driver(self) -> type[NetworkDriver]:
-        """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+    def get_napalm_driver(self) -> type[NetworkDriver] | None:
+        """Return the driver class this plan forces on every device.
 
-        Plugin-local drivers are imported directly because napalm's
-        get_network_driver() rejects dotted module paths outside its own
-        namespaces before attempting any import.
+        None when the plan names no driver: the driver is then resolved per
+        device from the device's platform, which only a run can do.
         """
-        try:
-            module = importlib.import_module(f"netbox_facts.napalm.{self.napalm_driver}")
-        except ModuleNotFoundError:
-            return get_network_driver(self.napalm_driver)
-        for obj in vars(module).values():
-            if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
-                return obj
-        return get_network_driver(self.napalm_driver)
+        if not self.napalm_driver:
+            return None
+        return load_napalm_driver(self.napalm_driver)
+
+    def get_napalm_driver_name_for(self, device) -> str:
+        """Return the NAPALM driver name to dial one device with, or "".
+
+        A driver named on the plan is an override and applies to every
+        device; otherwise the device's own platform decides, so a single
+        plan can span several vendors.
+        """
+        if self.napalm_driver:
+            return self.napalm_driver
+        return platform_napalm_driver_name(device.platform)
+
+    def get_napalm_driver_for(self, device) -> type[NetworkDriver] | None:
+        """Return the driver class for one device, or None when unresolvable.
+
+        The enhanced-driver preference applies to a name resolved from a
+        platform exactly as it does to one named on the plan.
+
+        Raises ModuleImportError when a name resolves to no installed
+        driver, which a caller iterating devices treats as a per-device
+        skip rather than a failed run.
+        """
+        driver_name = self.get_napalm_driver_name_for(device)
+        if not driver_name:
+            return None
+        return load_napalm_driver(driver_name)
 
     def enqueue_collection_job(self, request):
         """
