@@ -37,7 +37,10 @@ from netbox_facts.choices import (
     EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
+    collector_supported_drivers,
+    driver_supports_collector,
     entry_kind_token,
+    normalize_driver_name,
 )
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.events import enqueue_report_ready
@@ -79,6 +82,31 @@ except ImportError:
     HAS_NETBOX_ROUTING = False
 
 
+class DeviceSkipReasons:
+    """Why a run passed over a device, and how the run summary names it.
+
+    A skipped device costs the run nothing but a log line, so the tally is
+    what tells a reviewer that a plan quietly collected from half its
+    scope. LABELS is ordered as the summary lists the reasons: first what
+    could not be resolved before dialing, then what the device itself did
+    not answer.
+    """
+
+    NO_DRIVER = "no_driver"
+    UNKNOWN_DRIVER = "unknown_driver"
+    INCOMPATIBLE_DRIVER = "incompatible_driver"
+    NO_IP = "no_ip"
+    UNREACHABLE = "unreachable"
+
+    LABELS = {
+        NO_DRIVER: "no NAPALM driver from platform",
+        UNKNOWN_DRIVER: "NAPALM driver not installed",
+        INCOMPATIBLE_DRIVER: "driver unsupported by this collector",
+        NO_IP: "no usable IP address",
+        UNREACHABLE: "unreachable",
+    }
+
+
 class NapalmCollector:
     """Class to run collection jobs."""
 
@@ -109,8 +137,13 @@ class NapalmCollector:
         self._seen_ips: set = set()
         self._missing_ifaces: set = set()
         self._skipped_ip_ifaces: set = set()
+        self._skipped_devices: dict[str, int] = {}
+        self._device_count = 0
+        self._current_driver_name = ""
 
-        # Get the NAPALM driver
+        # Load the plan's driver override once, if it names one. A plan that
+        # names none resolves a driver per device from the device's platform,
+        # which only the per-device loop can do.
         try:
             self._napalm_driver = plan.get_napalm_driver()
         except (ModuleImportError, ModuleNotFoundError) as exc:
@@ -1582,30 +1615,47 @@ class NapalmCollector:
 
         self._log_success("Ethernet switching collection completed")
 
+    @property
+    def _driver_name(self) -> str:
+        """The NAPALM driver name in force for the device being collected.
+
+        Falls back to the plan's own driver so a collector method invoked
+        outside execute()'s per-device loop still dispatches.
+        """
+        return getattr(self, "_current_driver_name", "") or self.plan.napalm_driver
+
     def _get_vendor_method(self, method_name):
         """
-        Get vendor-specific implementation based on NAPALM driver.
+        Get the vendor-specific implementation for the driver in force.
 
-        To add support for a new vendor:
-        1. Implement a method named _{method_name}_{vendor}(self, driver)
-        2. Add the driver name to the vendor_map below
+        method_name is a collector type, so the drivers a collector can
+        dispatch to are read off COLLECTOR_SUPPORTED_DRIVERS -- the same
+        table plan validation and the per-device loop check. Adding a
+        vendor therefore means implementing
+        _{method_name}_{vendor}(self, driver) and adding the vendor to that
+        collector's row; there is no second list to keep in step.
 
         Example for adding EOS support for l2_circuits:
             def _l2_circuits_eos(self, driver):
                 ...
-            # Then add to vendor_map: 'eos': f'_{method_name}_eos'
+            # Then add 'eos' to COLLECTOR_SUPPORTED_DRIVERS['l2_circuits']
+
+        The table also bounds the attribute lookup, which keeps a driver
+        name that reached us from a platform slug or custom field from
+        naming any other method. The driver name is normalized first, so a
+        plan naming the enhanced driver by its dotted module path
+        dispatches like one naming the vendor. Reaching the raise means a
+        device slipped past both compatibility checks; it is the last
+        guard, not the expected gate.
         """
-        vendor_map = {
-            "junos": f"_{method_name}_junos",
-            "netbox_facts.napalm.junos": f"_{method_name}_junos",
-        }
-        driver_name = self.plan.napalm_driver
-        impl_name = vendor_map.get(driver_name)
-        if impl_name and hasattr(self, impl_name):
-            return getattr(self, impl_name)
-        supported = [k for k, v in vendor_map.items() if hasattr(self, v)]
+        supported = collector_supported_drivers(method_name) or ()
+        driver_name = normalize_driver_name(self._driver_name)
+        if driver_name in supported:
+            impl = getattr(self, f"_{method_name}_{driver_name}", None)
+            if impl is not None:
+                return impl
         raise NotImplementedError(
-            f"{method_name} is not implemented for driver '{driver_name}'. Supported drivers: {supported}"
+            f"{method_name} is not implemented for driver '{driver_name}'. Supported drivers: {list(supported)}"
         )
 
     def l2_circuits(self, driver: NetworkDriver):
@@ -2091,11 +2141,80 @@ class NapalmCollector:
         except (NapalmException, django.db.IntegrityError, ValueError, AttributeError) as exc:
             self._log_warning(f"netbox-routing OSPF integration error: {exc}")
 
+    def _skip_device(self, reason):
+        """Record that the run passed over the current device."""
+        self._skipped_devices[reason] = self._skipped_devices.get(reason, 0) + 1
+
+    def _resolve_device_driver(self, device) -> tuple[type[NetworkDriver], str] | None:
+        """Return the driver class and name to dial one device with, or None.
+
+        None means this device is skipped; it has already been logged and
+        tallied. The compatibility check runs for a plan-level driver too:
+        a plan stored before that validation existed then skips the devices
+        its collector cannot serve instead of aborting the run at the first
+        of them.
+        """
+        driver_name = self.plan.get_napalm_driver_name_for(device)
+        if not driver_name:
+            self._log_warning(
+                "Device has no platform and the plan names no driver, so no NAPALM driver can be resolved. Skipping."
+            )
+            self._skip_device(DeviceSkipReasons.NO_DRIVER)
+            return None
+
+        if not driver_supports_collector(self._collector_type, driver_name):
+            self._log_warning(
+                f"The {self.plan.get_collector_type_display()} collector has no implementation for NAPALM "
+                f"driver `{driver_name}`. Skipping."
+            )
+            self._skip_device(DeviceSkipReasons.INCOMPATIBLE_DRIVER)
+            return None
+
+        # A plan-level override was loaded once in __init__, where a bad name
+        # already failed the run; only a platform-resolved name is loaded here.
+        if self._napalm_driver is not None:
+            return self._napalm_driver, driver_name
+
+        try:
+            driver_class = self.plan.get_napalm_driver_for(device)
+        except (ModuleImportError, ModuleNotFoundError) as exc:
+            self._log_warning(
+                f"NAPALM driver `{driver_name}` resolved from platform `{device.platform}` could not be "
+                f"loaded: {exc}. Skipping."
+            )
+            self._skip_device(DeviceSkipReasons.UNKNOWN_DRIVER)
+            return None
+        return driver_class, driver_name
+
+    def _open_napalm_session(self, driver_class, hostname):
+        """Return a NAPALM session for one device, ready to be entered."""
+        return driver_class(
+            hostname,
+            self._napalm_username,
+            self._napalm_password,
+            optional_args=self._napalm_args,
+        )
+
+    def _log_run_summary(self):
+        """Log one line tallying what the run collected and what it skipped."""
+        self._log_prefix = ""
+        skipped = sum(self._skipped_devices.values())
+        message = f"Run summary: {self._device_count - skipped} of {self._device_count} devices collected"
+        if skipped:
+            detail = ", ".join(
+                f"{label}: {self._skipped_devices[reason]}"
+                for reason, label in DeviceSkipReasons.LABELS.items()
+                if reason in self._skipped_devices
+            )
+            message += f"; {skipped} skipped ({detail})"
+        self._log_info(message)
+
     def execute(self):
         """Execute the collection job."""
         from netbox_facts.models.facts_report import FactsReport
 
-        assert self._napalm_driver is not None
+        self._skipped_devices = {}
+        self._device_count = 0
 
         # Create a report for this run
         self._report = FactsReport.objects.create(
@@ -2113,10 +2232,18 @@ class NapalmCollector:
             for device in self._devices:
                 self._current_device = device
                 self._log_prefix = get_absolute_url_markdown(device, bold=True)
+                self._device_count += 1
 
                 self._log_info(
                     f"Starting {self.plan.get_collector_type_display()} collection"  # type: ignore
                 )
+
+                # Resolved before any network access, so a device this plan
+                # cannot collect from costs no connection to discover.
+                resolved = self._resolve_device_driver(device)
+                if resolved is None:
+                    continue
+                driver_class, self._current_driver_name = resolved
 
                 try:
                     connection_ips = get_connection_ips(
@@ -2125,18 +2252,14 @@ class NapalmCollector:
                     )
                 except ValueError:
                     self._log_warning("Device has no usable IP address configured. Skipping.")
+                    self._skip_device(DeviceSkipReasons.NO_IP)
                     continue
 
                 connected = False
                 for ip, label in connection_ips:
                     self._log_info(f"Connecting via {label} IP `{ip}`")
                     try:
-                        with self._napalm_driver(
-                            ip,
-                            self._napalm_username,
-                            self._napalm_password,
-                            optional_args=self._napalm_args,
-                        ) as driver:
+                        with self._open_napalm_session(driver_class, ip) as driver:
                             collect(driver)
                         connected = True
                         break
@@ -2146,6 +2269,9 @@ class NapalmCollector:
 
                 if not connected:
                     self._log_failure("All connection attempts failed.")
+                    self._skip_device(DeviceSkipReasons.UNREACHABLE)
+
+            self._log_run_summary()
         except Exception as exc:
             # Safety net: mark the report as failed on unhandled exceptions
             self._report.update_summary()

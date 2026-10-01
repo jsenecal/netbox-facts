@@ -37,10 +37,14 @@ from utilities.request import copy_safe_request
 from netbox_facts.exceptions import OperationNotSupported
 
 from ..choices import (
+    ENHANCED_DRIVER_PREFIX,
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
     ConnectionTargetChoices,
+    collector_supported_drivers,
+    driver_supports_collector,
+    normalize_driver_name,
 )
 from ..helpers import NapalmCollector
 from ..helpers.napalm import (
@@ -49,6 +53,7 @@ from ..helpers.napalm import (
     strip_napalm_credentials,
 )
 from ..helpers.netbox import filtered_list_url
+from ..helpers.scheduling import next_cron_occurrence, validate_cron_expression
 
 logger = logging.getLogger("netbox_facts")
 
@@ -88,6 +93,57 @@ SCOPE_DIMENSIONS: tuple[ScopeDimension, ...] = (
 #: otherwise emit a multi-hundred-KB href that exceeds browser and server
 #: URL length limits.
 MAX_URL_PKS_PER_DIMENSION = 100
+
+
+def platform_driver_custom_field() -> str:
+    """Return the Platform custom field that carries a NAPALM driver name."""
+    return get_plugin_config("netbox_facts", "platform_driver_custom_field", "napalm_driver") or ""
+
+
+def platform_napalm_driver_name(platform) -> str:
+    """Return the NAPALM driver name a Platform stands for, or an empty string.
+
+    NetBox carried Platform.napalm_driver only until 3.6, which removed it
+    along with the rest of core NAPALM support, and 4.x offers no
+    replacement field. The mapping is therefore the plugin's own
+    convention: a text or selection custom field on dcim.Platform, named by
+    the platform_driver_custom_field setting, falling back to the
+    platform's slug -- which already reads as a driver name on the usual
+    platforms (junos, ios, eos).
+
+    The custom field is read straight off the stored JSON rather than
+    through .cf, which would resolve every custom field defined for
+    Platform and cache the result on the instance; a text value needs no
+    deserializing, and resolution runs once per device in a collection run.
+    """
+    if platform is None:
+        return ""
+    field_name = platform_driver_custom_field()
+    if field_name:
+        value = (platform.custom_field_data or {}).get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return platform.slug or ""
+
+
+def load_napalm_driver(driver_name: str) -> type[NetworkDriver]:
+    """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+
+    Plugin-local drivers are imported directly because napalm's
+    get_network_driver() rejects dotted module paths outside its own
+    namespaces before attempting any import.
+
+    Raises ModuleImportError when no driver answers to the name.
+    """
+    bare_name = normalize_driver_name(driver_name)
+    try:
+        module = importlib.import_module(f"{ENHANCED_DRIVER_PREFIX}{bare_name}")
+    except ModuleNotFoundError:
+        return get_network_driver(bare_name)
+    for obj in vars(module).values():
+        if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
+            return obj
+    return get_network_driver(bare_name)
 
 
 def scope_warning_threshold() -> int:
@@ -152,8 +208,12 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     napalm_driver = models.CharField(
         max_length=50,
+        blank=True,
         verbose_name="NAPALM driver",
-        help_text=_("The name of the NAPALM driver to use when interacting with devices"),
+        help_text=_(
+            "The NAPALM driver to use for every device this plan targets. Leave blank to resolve the driver "
+            "per device from its platform, which lets one plan span several vendors."
+        ),
     )
     napalm_args = models.JSONField(
         default=dict,
@@ -164,6 +224,10 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     scheduled_at = models.DateTimeField(
         verbose_name=_("scheduled at"),
+        help_text=_(
+            "When the first run is due. On its own this schedules a single run; alongside an interval or a cron "
+            "schedule it holds the first run back until this time."
+        ),
         blank=True,
         null=True,
     )
@@ -172,6 +236,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         verbose_name=_("Interval (minutes)"),
         blank=True,
         null=True,
+    )
+    cron_schedule = models.CharField(
+        verbose_name=_("cron schedule"),
+        max_length=100,
+        blank=True,
+        help_text=_(
+            "Five-field cron expression evaluated in the server time zone, such as <code>0 2 * * 1-5</code> for "
+            "02:00 on weekdays. Mutually exclusive with the interval."
+        ),
     )
 
     last_run = models.DateTimeField(verbose_name=_("last run"), blank=True, null=True, editable=False)
@@ -228,6 +301,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "napalm_driver",
         "napalm_args",
         "interval",
+        "cron_schedule",
         "detect_only",
         "connection_target",
         "allow_unscoped",
@@ -259,6 +333,31 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """Clean the object."""
         if isinstance(self.napalm_args, str):
             self.napalm_args = dict()
+
+        if not driver_supports_collector(self.collector_type, self.napalm_driver):
+            raise ValidationError(
+                {
+                    "napalm_driver": _(
+                        "The {collector} collector only has an implementation for these NAPALM drivers: "
+                        "{drivers}. Pick one of those, or leave the driver blank to resolve it per device "
+                        "from the device platform -- devices that resolve to another driver are then skipped "
+                        "instead of failing the run."
+                    ).format(
+                        collector=self.get_collector_type_display(),
+                        drivers=", ".join(collector_supported_drivers(self.collector_type) or ()),
+                    )
+                }
+            )
+
+        if self.cron_schedule and self.interval:
+            message = _("A plan repeats either on an interval or on a cron schedule, not both.")
+            raise ValidationError({"interval": message, "cron_schedule": message})
+
+        if self.cron_schedule:
+            try:
+                validate_cron_expression(self.cron_schedule)
+            except ValidationError as error:
+                raise ValidationError({"cron_schedule": error.messages}) from error
 
         if not self.allow_unscoped and not self.has_scope():
             raise ValidationError(
@@ -293,9 +392,99 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return self.jobs.all().order_by("-created").first()
 
     @property
-    def scheduled_at_next(self):
-        """Return the scheduled time of the next run."""
-        return self.last_run + timedelta(minutes=self.interval)
+    def next_run(self):
+        """Return when this plan is next due to run, or None."""
+        return self.get_next_run()
+
+    def _schedule_anchor(self, reference):
+        """Return scheduled_at while it is still a not-before anchor.
+
+        An anchor that has passed constrains nothing: a recurrence has
+        already started by then, and a single run has already happened.
+        """
+        if self.scheduled_at and self.scheduled_at > reference:
+            return self.scheduled_at
+        return None
+
+    def get_next_run(self, reference=None):
+        """Return when the plan is next due, measured from reference (now by default).
+
+        Three schedule shapes, in the order they take precedence:
+
+        * A cron schedule fires next at the first occurrence after the
+          reference, or after scheduled_at while that anchor is ahead.
+        * An interval waits for scheduled_at while that anchor is ahead,
+          then runs one interval after the last run. A plan that has
+          never run is due immediately, which reads as the reference.
+        * scheduled_at on its own is a single run at that time, so
+          nothing is due once it has passed.
+
+        A disabled plan is never due: saving one drops its schedule.
+        """
+        if not self.enabled:
+            return None
+
+        reference = reference or timezone.now()
+        if self.interval and not self._schedule_anchor(reference):
+            if self.last_run:
+                return self.last_run + timedelta(minutes=self.interval)
+            return reference
+
+        parameters = self.get_schedule_parameters(reference)
+        return parameters[0] if parameters else None
+
+    def get_schedule_parameters(self, reference=None):
+        """Return the (schedule_at, interval) a background job should carry.
+
+        None means the plan has no schedule at all, so any job already
+        scheduled for it is stale.
+
+        An interval plan with no future anchor deliberately carries no
+        schedule_at. NetBox's enqueue_once() compares the schedule of the
+        job it finds against the one being requested, so handing it a
+        fresh "now" on every save would delete the pending job and start
+        another run every time the plan is edited. The next occurrence of
+        a cron expression is safe to pass because it does not move until
+        that occurrence has happened.
+        """
+        if not self.enabled:
+            return None
+
+        reference = reference or timezone.now()
+        anchor = self._schedule_anchor(reference)
+
+        if self.cron_schedule:
+            next_occurrence = next_cron_occurrence(self.cron_schedule, anchor or reference)
+            return (next_occurrence, None) if next_occurrence else None
+        if self.interval:
+            return anchor, self.interval
+        if anchor:
+            return anchor, None
+        return None
+
+    def enqueue_schedule(self) -> bool:
+        """Enqueue the schedule this plan currently describes.
+
+        Returns False when the plan has no schedule, which tells the
+        caller that any job still scheduled for it is stale.
+        """
+        from netbox_facts.jobs import CollectionJobRunner
+
+        parameters = self.get_schedule_parameters()
+        if parameters is None:
+            return False
+
+        schedule_at, interval = parameters
+        CollectionJobRunner.enqueue_once(
+            instance=self,
+            schedule_at=schedule_at,
+            interval=interval,
+            user=self.run_as,
+            queue_name=self.priority,
+        )
+        return True
+
+    enqueue_schedule.alters_data = True
 
     def check_stalled(self):
         """Update the status of the collector if stalled.
@@ -480,21 +669,41 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         napalm_args.pop("debug", None)
         return napalm_args
 
-    def get_napalm_driver(self) -> type[NetworkDriver]:
-        """Return a NAPALM driver class, preferring plugin-local enhanced drivers.
+    def get_napalm_driver(self) -> type[NetworkDriver] | None:
+        """Return the driver class this plan forces on every device.
 
-        Plugin-local drivers are imported directly because napalm's
-        get_network_driver() rejects dotted module paths outside its own
-        namespaces before attempting any import.
+        None when the plan names no driver: the driver is then resolved per
+        device from the device's platform, which only a run can do.
         """
-        try:
-            module = importlib.import_module(f"netbox_facts.napalm.{self.napalm_driver}")
-        except ModuleNotFoundError:
-            return get_network_driver(self.napalm_driver)
-        for obj in vars(module).values():
-            if isinstance(obj, type) and issubclass(obj, NetworkDriver) and obj.__module__ == module.__name__:
-                return obj
-        return get_network_driver(self.napalm_driver)
+        if not self.napalm_driver:
+            return None
+        return load_napalm_driver(self.napalm_driver)
+
+    def get_napalm_driver_name_for(self, device) -> str:
+        """Return the NAPALM driver name to dial one device with, or "".
+
+        A driver named on the plan is an override and applies to every
+        device; otherwise the device's own platform decides, so a single
+        plan can span several vendors.
+        """
+        if self.napalm_driver:
+            return self.napalm_driver
+        return platform_napalm_driver_name(device.platform)
+
+    def get_napalm_driver_for(self, device) -> type[NetworkDriver] | None:
+        """Return the driver class for one device, or None when unresolvable.
+
+        The enhanced-driver preference applies to a name resolved from a
+        platform exactly as it does to one named on the plan.
+
+        Raises ModuleImportError when a name resolves to no installed
+        driver, which a caller iterating devices treats as a per-device
+        skip rather than a failed run.
+        """
+        driver_name = self.get_napalm_driver_name_for(device)
+        if not driver_name:
+            return None
+        return load_napalm_driver(driver_name)
 
     def enqueue_collection_job(self, request):
         """

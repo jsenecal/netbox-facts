@@ -94,13 +94,65 @@ warning. See [Configuration](../getting-started/configuration.md).
 | Field | Notes |
 |---|---|
 | `collector_type` | One of the values in `CollectionTypeChoices`. See [Collectors Overview](../collectors/index.md). |
-| `napalm_driver` | A NAPALM driver name (e.g. `junos`, `ios`, `eos`). Resolved by `get_network_driver()`; the plugin first tries `netbox_facts.napalm.<name>` so internal vendor overrides win, then falls back to upstream. |
+| `napalm_driver` | Optional. A NAPALM driver name (e.g. `junos`, `ios`, `eos`) forced on every device in the plan's scope. Leave it blank -- `(from device platform)` in the form -- to resolve the driver per device instead. |
 | `napalm_args` | JSON merged on top of the plugin-level `global_napalm_args`. Special keys `username` and `password` are extracted before the rest is passed as `optional_args`. |
 
 The edit form fills the `username`, `password` and `secret` keys from a
 dedicated **Credentials** fieldset rather than from the `napalm_args` JSON
 box, so credentials are never typed into (or echoed from) the raw JSON;
 see [per-plan credentials](../getting-started/configuration.md#per-plan-credentials).
+
+### Driver resolution
+
+A driver name is turned into a driver class the same way whether it came
+from the plan or from a platform: the plugin first tries
+`netbox_facts.napalm.<name>` so its enhanced vendor drivers win, then falls
+back to upstream `get_network_driver()`, which also finds community
+`napalm_<name>` packages.
+
+Where the *name* comes from depends on whether the plan sets one:
+
+- **`napalm_driver` set** -- that driver is used for every device in scope.
+  This is the override, and it is what a single-vendor plan wants.
+- **`napalm_driver` blank** -- the driver is resolved per device from
+  `device.platform`, so one plan can span several vendors.
+
+NetBox dropped `Platform.napalm_driver` in 3.6 together with the rest of
+core NAPALM support, and 4.x offers no replacement field, so the
+platform-to-driver mapping is this plugin's own convention:
+
+1. A custom field on `dcim.Platform` named by the
+   `platform_driver_custom_field` plugin setting (default `napalm_driver`).
+   Create it as a **text** or **selection** custom field assigned to the
+   Platform object type, and set it to a driver name such as `junos`. An
+   unset or blank value falls through to the next step.
+2. Otherwise the platform's **slug**, which already reads as a driver name
+   on the usual platforms (`junos`, `ios`, `eos`, `nxos`, `iosxr`).
+
+The mapping is read off the platform the device points at directly; it is
+not inherited from a parent platform, so a nested platform such as
+`junos-21.4R3` needs its own custom-field value (its slug is not a driver
+name).
+
+A device the convention yields nothing usable for is **skipped**, with a
+warning naming the reason on the plan's run log and a tally in the run
+summary line. The run itself continues. Three cases skip a device:
+
+| Case | Log reason |
+|---|---|
+| The device has no platform and the plan names no driver | `no NAPALM driver from platform` |
+| The resolved name matches no installed driver | `NAPALM driver not installed` |
+| The resolved driver has no implementation for this collector | `driver unsupported by this collector` |
+
+The last case is the run-time half of collector/driver compatibility; see
+[Collectors Overview](../collectors/index.md). Resolution happens before
+any network access, so a device that cannot be collected from costs no
+connection to discover.
+
+One thing a mixed-vendor plan does *not* get is per-vendor connection
+options: `napalm_args` (and the credentials in it) are per plan, so every
+driver the plan resolves receives the same `optional_args`. Keep separate
+plans when the vendors need different transports, ports or credentials.
 
 ## Connection target
 
@@ -131,14 +183,21 @@ See [Detect-Only Workflow](detect-only.md) for the full apply flow.
 
 ## Scheduling
 
-Scheduling is driven entirely by the `interval` field plus the plan's
-`enabled` flag:
+Scheduling is driven by the `interval` and `cron_schedule` fields, the
+`scheduled_at` start time, and the plan's `enabled` flag:
 
-- `interval` blank: the plan does not auto-schedule. Manual runs only.
-- `interval = N`: every save schedules `CollectionJobRunner.enqueue_once()`
-  to run every N minutes via NetBox's `JobRunner` framework.
-- `enabled = False`: the `post_save` signal cancels any pending scheduled
-  job for the plan.
+- `interval` and `cron_schedule` both blank: the plan does not
+  auto-schedule. Manual runs only, unless `scheduled_at` is set -- which
+  schedules exactly one run at that time.
+- `interval = N`: runs every N minutes via NetBox's `JobRunner`
+  framework, starting at `scheduled_at` when that time is still ahead.
+- `cron_schedule = <expression>`: runs at each firing of a five-field
+  cron expression. Mutually exclusive with `interval`.
+- `enabled = False`: the `post_save` signal cancels any future-dated job
+  for the plan.
+
+The plan's **Next run** is computed from these fields and `last_run`, and
+is shown on the detail page, the plan list, and the REST API.
 
 Implementation: see `handle_collection_job_change()` in
 `netbox_facts/signals.py`.

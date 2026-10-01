@@ -13,6 +13,7 @@ declares in `netbox_facts/__init__.py`.
 | `napalm_password` | str | `""` | Default NAPALM password, used by every plan that does not set its own. Left empty, an empty password is passed to NAPALM and each device connection fails on authentication; only a missing username is refused up front. |
 | `napalm_timeout` | int | `60` | Connection timeout passed to the NAPALM driver as `optional_args["timeout"]` when the per-plan `napalm_args` does not already set it. |
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
+| `platform_driver_custom_field` | str | `"napalm_driver"` | Name of the `dcim.Platform` custom field consulted for a NAPALM driver name when a Collection Plan leaves `napalm_driver` blank. Create it as a text or selection custom field on the Platform object type. When it is unset or blank on a platform, the platform's slug is used instead. Set this setting to `""` to use slugs only. See [Driver resolution](../user-guide/collection-plans.md#driver-resolution). |
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |
 | `job_timeout` | int | `1800` | Maximum runtime in seconds passed to RQ when enqueuing a `CollectionJobRunner` job. |
 | `report_retention_days` | int | `0` | Age in days after which Facts Reports are deleted by the daily retention job. `0` disables pruning and keeps every report forever. Reports holding pending entries are never deleted, whatever their age. |
@@ -136,6 +137,15 @@ actions that are not plain CRUD:
 Grant these permissions via the standard NetBox permission system to the
 user or group that should be allowed to mutate NetBox from a detect-only
 run, trigger collection runs, or review run results.
+
+`apply_factsreport` and `run_collector` gate the UI views only. The REST
+API does not check them: NetBox's token permission class maps every `POST`
+to the model's standard `add_*` permission, so the report-level actions
+(`apply`, `skip`, `retry`, `unskip`) require `netbox_facts.add_factsreport`
+and `CollectionPlan`'s `run` action requires
+`netbox_facts.add_collectionplan` -- see the REST endpoints section of
+[Facts Reports](../user-guide/facts-reports.md#rest-endpoints) for the
+pinned behavior.
 
 ## Job timeout vs NAPALM timeout
 

@@ -32,10 +32,20 @@ class CollectionJobRunner(FactsJobRunner):
 
     @classmethod
     def enqueue(cls, *args, **kwargs):
-        """Enqueue a collection job, setting the plan status to QUEUED."""
+        """Enqueue a collection job, setting the plan status to QUEUED.
+
+        Only an immediate job marks the plan queued. A future-dated
+        successor -- the next firing of a cron schedule, or a first run
+        the user deferred -- leaves the status alone: the plan is idle
+        until that time arrives, and claiming otherwise would hide the
+        Run button and refuse manual runs for the whole wait.
+        """
         from netbox_facts.models import CollectionPlan
 
         job = super().enqueue(*args, **kwargs)
+
+        if kwargs.get("schedule_at"):
+            return job
 
         # Update the CollectionPlan's status to queued
         if instance := job.object:
@@ -43,6 +53,37 @@ class CollectionJobRunner(FactsJobRunner):
             CollectionPlan.objects.filter(pk=instance.pk).update(status=CollectorStatusChoices.QUEUED)
 
         return job
+
+    @classmethod
+    def handle(cls, job, *args, **kwargs):
+        """Run the job, then give a cron-scheduled plan its successor.
+
+        Core's JobRunner.handle() reschedules a recurring job from the
+        interval stored on the job itself, which cannot express "02:00 on
+        weekdays"; a cron plan therefore enqueues jobs with no interval
+        and computes each successor from its expression instead.
+        Scheduling from a finally block follows the same shape as core,
+        so a run that failed still leaves the plan with a schedule.
+        """
+        try:
+            super().handle(job, *args, **kwargs)
+        finally:
+            cls.schedule_next_cron_run(job)
+
+    @classmethod
+    def schedule_next_cron_run(cls, job):
+        """Enqueue the next firing of the plan's cron schedule, if it has one."""
+        from netbox_facts.models import CollectionPlan
+
+        if job.interval:
+            # A recurring interval job is rescheduled by core itself.
+            return
+
+        plan = CollectionPlan.objects.filter(pk=job.object_id).first()
+        if plan is None or not plan.cron_schedule:
+            return
+
+        plan.enqueue_schedule()
 
     def run(self, request=None, *args, **kwargs):
         """Execute the collection plan."""

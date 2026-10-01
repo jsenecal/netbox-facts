@@ -36,6 +36,7 @@ from netbox_facts.helpers.napalm import (
     mask_napalm_credentials,
     restore_masked_credentials,
 )
+from netbox_facts.helpers.scheduling import CRON_HELP
 
 from .choices import (
     CollectionTypeChoices,
@@ -66,7 +67,9 @@ def get_napalm_driver_choices():
     # Built-in NAPALM drivers (exclude "base")
     builtin_drivers = sorted(d for d in SUPPORTED_DRIVERS if d != "base")
 
-    choices = [("", "---------")]
+    # The blank choice is a real option, not a prompt: it defers the driver to
+    # each device's platform instead of forcing one on the whole scope.
+    choices = [("", _("(from device platform)"))]
     if custom_drivers:
         choices += [(d, f"{d} (enhanced)") for d in custom_drivers]
     choices += [(d, d) for d in builtin_drivers if d not in custom_drivers]
@@ -240,8 +243,13 @@ class CollectorForm(NetBoxModelForm):
 
     napalm_driver = forms.ChoiceField(
         choices=get_napalm_driver_choices,
+        required=False,
         label=_("NAPALM Driver"),
-        help_text=_("The NAPALM driver to use when connecting to devices"),
+        help_text=_(
+            "The NAPALM driver to use for every device this plan targets. Leave it on "
+            "'(from device platform)' to resolve the driver per device, so one plan can span "
+            "several vendors; devices whose platform names no usable driver are then skipped."
+        ),
     )
 
     scheduled_at = forms.DateTimeField(
@@ -256,6 +264,12 @@ class CollectorForm(NetBoxModelForm):
         label=_("Repeat every"),
         widget=NumberWithOptions(options=JobIntervalChoices),
         help_text=_("Interval at which this collection task is re-run (in minutes)"),
+    )
+    cron_schedule = forms.CharField(
+        required=False,
+        label=_("Cron schedule"),
+        widget=forms.TextInput(attrs={"placeholder": "0 2 * * 1-5"}),
+        help_text=CRON_HELP,
     )
 
     # The credential fields are a front end for three keys of the napalm_args
@@ -309,6 +323,7 @@ class CollectorForm(NetBoxModelForm):
         FieldSet(
             "scheduled_at",
             "interval",
+            "cron_schedule",
             name=_("Scheduling"),
         ),
         FieldSet("napalm_driver", "napalm_args", "connection_target", name=_("Runtime settings")),
@@ -345,6 +360,7 @@ class CollectorForm(NetBoxModelForm):
             "comments",
             "scheduled_at",
             "interval",
+            "cron_schedule",
             "napalm_driver",
             "napalm_args",
             "connection_target",
@@ -449,13 +465,15 @@ class CollectorForm(NetBoxModelForm):
 
     def clean(self):
         self._store_credential_fields()
-        scheduled_time = self.cleaned_data.get("scheduled_at")
-        if scheduled_time and scheduled_time < local_now():
-            raise forms.ValidationError({"scheduled_at": _("Scheduled time must be in the future.")})
 
-        # When interval is used without schedule at, schedule for the current time
-        if self.cleaned_data.get("interval") and not scheduled_time:
-            self.cleaned_data["scheduled_at"] = local_now()
+        # A start time being entered now must be in the future, because
+        # one already in the past schedules nothing. A start time that
+        # has merely passed stays stored and inert, so re-validating it
+        # on a later edit would fail a field the user never touched --
+        # only a changed value is checked.
+        scheduled_time = self.cleaned_data.get("scheduled_at")
+        if "scheduled_at" in self.changed_data and scheduled_time and scheduled_time < local_now():
+            raise forms.ValidationError({"scheduled_at": _("Scheduled time must be in the future.")})
 
         return self.cleaned_data
 

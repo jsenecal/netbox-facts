@@ -103,6 +103,9 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
     # the interactive path only honors it for superusers. Letting any account
     # with change permission set it would hand them another user's credentials.
     run_as = UserSerializer(nested=True, read_only=True)
+    # Computed from the plan's schedule rather than stored, so a client
+    # reads when the next run is due without replaying the rules itself.
+    next_run = serializers.DateTimeField(read_only=True)
 
     def to_representation(self, instance):
         """Censor credential values stored in napalm_args."""
@@ -152,7 +155,9 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "connection_target",
             "scheduled_at",
             "interval",
+            "cron_schedule",
             "last_run",
+            "next_run",
             "run_as",
             "tags",
             "custom_fields",

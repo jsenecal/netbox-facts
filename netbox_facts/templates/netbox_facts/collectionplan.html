@@ -154,12 +154,24 @@
             <div class="card-body">
                 <table class="table table-hover attr-table">
                     <tr>
-                        <th scope="row">Scheduled at</th>
-                        <td>{% if object.scheduled_at %}{{ object.scheduled_at | localtime }} ({{ object.scheduled_at | localtime | date:'e' }}){% else %}Never{% endif %}</td>
+                        <th scope="row">{% trans "Scheduled at" %}</th>
+                        <td>{% if object.scheduled_at %}{{ object.scheduled_at | localtime }} ({{ object.scheduled_at | localtime | date:'e' }}){% else %}{% trans "Never" %}{% endif %}</td>
                     </tr>
                     <tr>
-                        <th scope="row">Interval</th>
-                        <td>{% if object.interval %}Every {{ object.interval }} minutes{% else %}None{% endif %}</td>
+                        <th scope="row">{% trans "Interval" %}</th>
+                        <td>{% if object.interval %}{% blocktrans with minutes=object.interval %}Every {{ minutes }} minutes{% endblocktrans %}{% else %}{% trans "None" %}{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Cron schedule" %}</th>
+                        <td>{% if object.cron_schedule %}<code>{{ object.cron_schedule }}</code>{% else %}{% trans "None" %}{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Last run" %}</th>
+                        <td>{% if object.last_run %}{{ object.last_run | localtime }} ({{ object.last_run | localtime | date:'e' }}){% else %}{% trans "Never" %}{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">{% trans "Next run" %}</th>
+                        <td>{% with next_run=object.next_run %}{% if next_run %}{{ next_run | localtime }} ({{ next_run | localtime | date:'e' }}){% else %}{% trans "Not scheduled" %}{% endif %}{% endwith %}</td>
                     </tr>
                 </table>
 

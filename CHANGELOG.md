@@ -16,6 +16,22 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   browser history and proxy logs, and then in an add form with no stored
   value to censor it against. A clone now starts with the plan's other NAPALM
   driver options and no credentials. (#149)
+- `scheduled_at` is now honored instead of collected, validated and discarded: a plan with a future `scheduled_at` and no recurrence runs exactly once at that time (previously it got no job at all), and an interval plan with a future `scheduled_at` waits for it instead of starting its first run the moment the plan is saved. A `scheduled_at` already in the past schedules nothing, so editing a plan no longer triggers an unexpected run. A future-dated job also no longer sets the plan's status to `queued`, so the Run button and manual runs stay available while a plan waits for its slot. (#90)
+- The Facts Reports and detect-only docs claimed `completed_at` is stamped
+  "whenever the status reaches a non-Pending state"; that is wrong for
+  `Partial`, which does not stamp it. Corrected to describe the real rule:
+  `completed_at` is set when a report leaves the review states (`Pending`,
+  `Partial`) and lands on `Applied`, `Completed`, or `Failed`, and is left
+  untouched otherwise, so a report reopened by an un-skip keeps the
+  completion timestamp it already recorded.
+- The Facts Reports and configuration docs did not say how the REST API
+  authorizes the report-level write actions (`apply`, `skip`, `retry`,
+  `unskip`) and the plan's `run` action. They are plain `POST` actions, so
+  NetBox's token permission class maps them to the standard
+  `add_factsreport` / `add_collectionplan` permissions, not the UI's
+  `apply_factsreport` / `run_collector` custom permissions. Documented so
+  API consumers granted only the custom permissions are not surprised by a
+  403.
 - The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
 - The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
@@ -67,6 +83,40 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   `POST .../collectionplans/<id>/run/`) rather than failing once per device
   inside the job log. The collector and the check share one resolution
   helper, so they cannot drift. (#149)
+- A Collection Plan's `napalm_driver` is now optional. Left blank, the driver
+  is resolved per device from `device.platform`, so one plan can span several
+  vendors; set, it stays an override applied to every device in scope. NetBox
+  removed `Platform.napalm_driver` in 3.6 and 4.x has no replacement, so the
+  mapping is the plugin's own convention: a `dcim.Platform` custom field named
+  by the new `platform_driver_custom_field` setting (default `napalm_driver`),
+  falling back to the platform's slug. The enhanced-driver preference
+  (`netbox_facts.napalm.<name>`) applies to a resolved name exactly as to an
+  explicit one. A device whose platform yields no usable driver is skipped with
+  a warning naming the reason, and counted in a new end-of-run summary line
+  that also tallies devices skipped for a missing IP or an unreachable host.
+  (#147)
+- A collector/driver compatibility table (`COLLECTOR_SUPPORTED_DRIVERS` in
+  `choices.py`) encodes which NAPALM drivers each collector has an
+  implementation for -- `l2_circuits`, `evpn` and `ospf` are Junos-only.
+  `CollectionPlan.clean()` now rejects a plan whose explicit driver its
+  collector cannot serve, so an `evpn` plan can no longer be saved with `ios`
+  and rediscovered as a failed job on every scheduled run. A blank-driver plan
+  defers the check to run time, where an incompatible device is skipped before
+  any connection is opened rather than aborting the whole report. (#83, #147)
+- Cron-style scheduling: a collection plan accepts a five-field cron expression
+  (`cron_schedule`, for example `0 2 * * 1-5`) as an alternative to the flat
+  interval, evaluated in NetBox's configured time zone. The expression is
+  validated on save, is mutually exclusive with the interval, and each run
+  enqueues its own successor so a cron schedule survives a failed run. Plans
+  now expose a computed `next_run` on the detail page, in the REST API, and on
+  the plan list, which also gains Enabled, Last run, Next run, Interval and
+  Cron schedule columns, a per-row Run button, and a badge-style Detect Only
+  column. (#146, #90)
+- `FactsReportEntry` now advertises the `export_templates` model feature, so
+  it appears in the object-type picker when creating an Export Template
+  under Operations > Export Templates. The entry export path already
+  rendered ExportTemplates correctly; only the picker was missing the type.
+
 - Entry lifecycle actions: a failed entry can be retried and a skipped entry
   can be un-skipped. Retry returns the selected failed entries to pending,
   clears the recorded failure, and re-applies them; un-skip returns skipped
@@ -206,6 +256,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
   `napalm_username` / `napalm_password`. Clearing the plan's NAPALM username
   field removes the plan-level key, so the plan authenticates with the
   plugin-level credential again. (#149)
+- The Collection Plan form's NAPALM driver dropdown now offers
+  `(from device platform)` as a real first choice instead of a `---------`
+  prompt, and the REST API no longer requires `napalm_driver` when creating a
+  plan. Vendor dispatch inside a run follows the driver resolved for the device
+  being collected rather than the plan's field. (#147)
 - The quick search (`q`) on the MAC address, MAC vendor and collection plan lists now trims surrounding whitespace before matching, aligning it with the report and entry searches; a whitespace-only query returns the unfiltered list instead of matching literal spaces.
 - The Collection Plan detail page's Assignment panel no longer dumps every
   assigned object: each scoping dimension lists at most ten entries and
