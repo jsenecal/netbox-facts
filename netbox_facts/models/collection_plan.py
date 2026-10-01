@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 import logging
 from datetime import timedelta
 from typing import Any, NamedTuple
@@ -42,7 +43,11 @@ from ..choices import (
     ConnectionTargetChoices,
 )
 from ..helpers import NapalmCollector
-from ..helpers.napalm import resolve_napalm_credentials
+from ..helpers.napalm import (
+    NAPALM_SENSITIVE_KEYS,
+    resolve_napalm_credentials,
+    strip_napalm_credentials,
+)
 from ..helpers.netbox import filtered_list_url
 
 logger = logging.getLogger("netbox_facts")
@@ -428,6 +433,28 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             "This plan matches {count} devices, above the configured warning threshold of {threshold}. "
             "Every run will connect to each of them."
         ).format(count=count, threshold=scope_warning_threshold())
+
+    def clone(self) -> dict[str, Any]:
+        """Return the attributes a new plan cloned from this one starts with.
+
+        The NAPALM arguments are worth carrying over for their driver
+        options, but not for their credentials: NetBox renders cloned
+        attributes into the creation link's querystring, which would put a
+        stored password into browser history and proxy logs, and then into
+        an add form that has no stored value to censor it against. A clone
+        therefore starts with the driver options and no credentials at
+        all, including the enable secret.
+        """
+        attrs = super().clone()
+        if "napalm_args" not in attrs:
+            return attrs
+        stored = self.napalm_args if isinstance(self.napalm_args, dict) else {}
+        cloneable = strip_napalm_credentials(stored, keys=NAPALM_SENSITIVE_KEYS)
+        if cloneable:
+            attrs["napalm_args"] = json.dumps(cloneable)
+        else:
+            del attrs["napalm_args"]
+        return attrs
 
     def _merge_napalm_args(self) -> dict[str, Any]:
         """Merge global and per-plan NAPALM arguments without filtering.

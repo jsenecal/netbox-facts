@@ -294,6 +294,37 @@ class PlanCredentialFormFieldsTest(CollectorTestMixin, DjangoTestCase):
         self.assertIn("credential", str(form.fields["napalm_args"].help_text).lower())
 
 
+class ClonedPlanCredentialsTest(CollectorTestMixin, DjangoTestCase):
+    """Cloning a plan carries its driver options but none of its secrets.
+
+    The attributes clone() returns are rendered into the creation link's
+    querystring, so a credential left in them reaches browser history,
+    proxy logs, and an unmasked add form.
+    """
+
+    def test_clone_drops_the_credentials_and_keeps_the_driver_options(self):
+        plan = self._create_plan(
+            name="Cloneable Plan",
+            napalm_args={"username": "svc-user", "password": "s3cret", "secret": "en4ble", "port": 22},
+        )
+
+        attrs = plan.clone()
+
+        self.assertEqual(json.loads(attrs["napalm_args"]), {"port": 22})
+        for value in ("svc-user", "s3cret", "en4ble"):
+            self.assertNotIn(value, str(attrs))
+
+    def test_clone_omits_napalm_args_when_only_credentials_are_stored(self):
+        plan = self._create_plan(
+            name="Credentials Only Plan",
+            napalm_args={"username": "svc-user", "password": "s3cret"},
+        )
+
+        attrs = plan.clone()
+
+        self.assertNotIn("napalm_args", attrs)
+
+
 class EnqueuePreflightTest(CollectorTestMixin, DjangoTestCase):
     """enqueue_collection_job refuses a plan with no resolvable credentials."""
 

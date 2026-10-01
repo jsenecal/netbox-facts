@@ -10,6 +10,12 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- Cloning a Collection Plan no longer carries its credentials into the new
+  plan's creation link. NetBox renders cloned attributes into the link's
+  querystring, so a stored username, password or enable secret ended up in
+  browser history and proxy logs, and then in an add form with no stored
+  value to censor it against. A clone now starts with the plan's other NAPALM
+  driver options and no credentials. (#149)
 - The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
 - The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)

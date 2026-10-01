@@ -49,14 +49,20 @@ def resolve_napalm_credentials(napalm_args: dict[str, Any] | None) -> tuple[str,
     return username or "", password or ""
 
 
-def strip_napalm_credentials(napalm_args: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of napalm_args without the positional credentials.
+def strip_napalm_credentials(
+    napalm_args: dict[str, Any],
+    keys: tuple[str, ...] = NAPALM_CREDENTIAL_KEYS,
+) -> dict[str, Any]:
+    """Return a copy of napalm_args without the given credential keys.
 
-    The remaining keys are what the driver receives as optional_args. The
-    enable secret stays among them on purpose: NAPALM reads it from
-    optional_args, even though the read paths censor it like a password.
+    The default drops the two credentials NAPALM takes positionally, which
+    is what the driver call needs: everything left over is passed as
+    optional_args, the enable secret included, because NAPALM reads the
+    secret from there even though the read paths censor it like a
+    password. A caller that must not carry a secret at all -- cloning a
+    plan, for one -- passes NAPALM_SENSITIVE_KEYS instead.
     """
-    return {key: value for key, value in napalm_args.items() if key not in NAPALM_CREDENTIAL_KEYS}
+    return {key: value for key, value in napalm_args.items() if key not in keys}
 
 
 def parse_network_instances(instances) -> dict[str, dict[str, str | list[str] | None]]:
