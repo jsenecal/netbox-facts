@@ -198,6 +198,37 @@ class PlanCredentialFormFieldsTest(CollectorTestMixin, DjangoTestCase):
         self.assertEqual(saved.napalm_args["password"], "s3cret")
         self.assertEqual(saved.napalm_args["secret"], "en4ble")
 
+    def test_blanking_the_username_field_clears_the_plan_credential(self):
+        """The username field renders its value, so a blank submission means "drop it".
+
+        Its help text promises a fallback to the plugin-level setting, and
+        the field is the only credential input able to show the operator
+        what it is clearing.
+        """
+        plan = self._stored_plan(name="Cleared Username Plan")
+
+        form = CollectorForm(
+            data=form_data(
+                name=plan.name,
+                napalm_username="",
+                napalm_password="",
+                napalm_secret="",
+                napalm_args=json.dumps(
+                    {"username": CENSOR_TOKEN, "password": CENSOR_TOKEN, "port": 22},
+                ),
+            ),
+            instance=plan,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertNotIn("username", saved.napalm_args)
+        # A blank password cannot be told from an unchanged one, so it keeps.
+        self.assertEqual(saved.napalm_args["password"], "s3cret")
+        with plugin_credentials(username="config-user", password="config-pass"):
+            username, _password = resolve_napalm_credentials(saved.napalm_args)
+        self.assertEqual(username, "config-user")
+
     def test_censored_submission_keeps_the_stored_credentials(self):
         """A round-tripped censor token means "keep the stored value"."""
         plan = self._stored_plan(name="Censored Submission Plan")

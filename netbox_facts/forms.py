@@ -408,9 +408,18 @@ class CollectorForm(NetBoxModelForm):
         document, so they go through the restore step the JSON field
         already uses rather than a second mechanism of their own: a
         censored value -- round-tripped from the placeholder, or from the
-        masked JSON -- keeps whatever is stored, and a field left blank
-        leaves the stored value alone. Keys the fields do not own are
-        never touched.
+        masked JSON -- keeps whatever is stored. Keys the fields do not
+        own are never touched.
+
+        Blank means different things to the two kinds of field. The
+        password and secret inputs cannot render what they hold, so a
+        blank one is indistinguishable from an untouched one and keeps the
+        stored value. The username input does render its value, so
+        clearing it is a deliberate instruction to drop the plan-level
+        username and fall back to the plugin configuration -- which is
+        what the field's help text promises. It is dropped after the
+        restore step, which would otherwise hand the key back from either
+        the masked JSON or the field's own re-submitted value.
         """
         napalm_args = self.cleaned_data.get("napalm_args")
         napalm_args = dict(napalm_args) if isinstance(napalm_args, dict) else {}
@@ -419,7 +428,24 @@ class CollectorForm(NetBoxModelForm):
             submitted = self.cleaned_data.get(f"napalm_{key}")
             if submitted:
                 napalm_args[key] = submitted
-        self.cleaned_data["napalm_args"] = restore_masked_credentials(napalm_args, stored)
+        napalm_args = restore_masked_credentials(napalm_args, stored)
+        if self._field_submitted_blank("napalm_username"):
+            napalm_args.pop("username", None)
+        self.cleaned_data["napalm_args"] = napalm_args
+
+    def _field_submitted_blank(self, name) -> bool:
+        """Return True when a bound submission carried this field, empty.
+
+        A field missing from the payload entirely is not an instruction to
+        clear anything, so it has to be told apart from one submitted with
+        an empty value.
+        """
+        if not self.is_bound:
+            return False
+        field = self.fields[name]
+        if field.widget.value_omitted_from_data(self.data, self.files, self.add_prefix(name)):
+            return False
+        return not self.cleaned_data.get(name)
 
     def clean(self):
         self._store_credential_fields()

@@ -195,6 +195,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- An empty-string `username` or `password` stored in a plan's NAPALM arguments
+  no longer shadows the plugin-level credential; it now falls back to
+  `napalm_username` / `napalm_password`. Clearing the plan's NAPALM username
+  field removes the plan-level key, so the plan authenticates with the
+  plugin-level credential again. (#149)
 - The quick search (`q`) on the MAC address, MAC vendor and collection plan lists now trims surrounding whitespace before matching, aligning it with the report and entry searches; a whitespace-only query returns the unfiltered list instead of matching literal spaces.
 - The Collection Plan detail page's Assignment panel no longer dumps every
   assigned object: each scoping dimension lists at most ten entries and
