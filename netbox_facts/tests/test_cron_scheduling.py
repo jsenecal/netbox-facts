@@ -27,6 +27,7 @@ from rest_framework.test import APIRequestFactory
 
 from netbox_facts.api.serializers import CollectionPlanSerializer
 from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
+from netbox_facts.forms import CollectorForm
 from netbox_facts.helpers.scheduling import next_cron_occurrence, validate_cron_expression
 from netbox_facts.jobs import CollectionJobRunner
 from netbox_facts.models import CollectionPlan
@@ -385,6 +386,51 @@ class CronSuccessorTest(CollectorTestMixin, TestCase):
             CollectionJobRunner.schedule_next_cron_run(self._job_for(plan))
 
         mock_enqueue.assert_not_called()
+
+
+class ScheduledAtFormValidationTest(TestCase):
+    """Tests for when the edit form enforces a future start time."""
+
+    @staticmethod
+    def _form_data(plan, **overrides):
+        """Return an edit-form submission that leaves the schedule as stored."""
+        rendered = CollectorForm(instance=plan)
+        data = {
+            "name": plan.name,
+            "priority": plan.priority,
+            "collector_type": plan.collector_type,
+            "napalm_driver": plan.napalm_driver,
+            "connection_target": plan.connection_target,
+            "device_status": [DeviceStatusChoices.STATUS_ACTIVE],
+            "description": plan.description,
+            "scheduled_at": rendered["scheduled_at"].value(),
+        }
+        data.update(overrides)
+        return data
+
+    def test_an_untouched_passed_start_time_does_not_block_an_edit(self):
+        """A one-time plan that has fired stays editable.
+
+        Its start time stays stored and inert once it has passed, so
+        validating it again would fail an edit to a field the user never
+        touched.
+        """
+        plan = _build_plan(scheduled_at=timezone.now() - timedelta(days=1))
+        plan.save()
+
+        form = CollectorForm(data=self._form_data(plan, description="Renamed scope"), instance=plan)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_entering_a_past_start_time_is_still_rejected(self):
+        plan = _build_plan()
+        plan.save()
+
+        form = CollectorForm(
+            data=self._form_data(plan, scheduled_at=timezone.now() - timedelta(hours=2)),
+            instance=plan,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("scheduled_at", form.errors)
 
 
 class PlanSerializerSchedulingTest(TestCase):

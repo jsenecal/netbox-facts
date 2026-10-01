@@ -355,12 +355,13 @@ class CollectorForm(NetBoxModelForm):
         return value
 
     def clean(self):
-        # A start time in the past schedules nothing, so reject it here
-        # rather than storing a value the plan will ignore. An interval
-        # plan left without one starts on save, which is what a blank
-        # start time has always meant.
+        # A start time being entered now must be in the future, because
+        # one already in the past schedules nothing. A start time that
+        # has merely passed stays stored and inert, so re-validating it
+        # on a later edit would fail a field the user never touched --
+        # only a changed value is checked.
         scheduled_time = self.cleaned_data.get("scheduled_at")
-        if scheduled_time and scheduled_time < local_now():
+        if "scheduled_at" in self.changed_data and scheduled_time and scheduled_time < local_now():
             raise forms.ValidationError({"scheduled_at": _("Scheduled time must be in the future.")})
 
         return self.cleaned_data
