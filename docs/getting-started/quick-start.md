@@ -98,9 +98,14 @@ status becomes `Applied` (if any entry was applied) or `Completed`.
 
 ## 6. Schedule recurring runs
 
-Edit the plan and set **Interval (minutes)**. The `post_save` signal
-calls `CollectionJobRunner.enqueue_once()`, mirroring NetBox's
-`DataSource` sync pattern. Disabling the plan or clearing the interval
-cancels any pending scheduled job.
+Edit the plan and set either **Interval (minutes)** for a flat
+recurrence, or **Cron schedule** for a five-field cron expression such
+as `0 2 * * 1-5` (02:00 on weekdays). **Schedule at** sets the start
+time: on its own it schedules a single run, and alongside a recurrence
+it holds the first run back until that time.
+
+The `post_save` signal calls `CollectionJobRunner.enqueue_once()`,
+mirroring NetBox's `DataSource` sync pattern. Disabling the plan or
+clearing the recurrence cancels any pending scheduled job.
 
 See [Scheduling and Jobs](../user-guide/scheduling.md) for details.

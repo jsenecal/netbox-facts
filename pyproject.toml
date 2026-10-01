@@ -23,6 +23,7 @@ classifiers = [
 ]
 keywords = ["netbox", "netbox-plugin", "napalm", "network-automation"]
 dependencies = [
+    "croniter>=2.0",
     "napalm~=5.2.0",
     "requests~=2.34.0",
 ]

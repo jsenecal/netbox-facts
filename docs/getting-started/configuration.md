@@ -91,6 +91,15 @@ Grant these permissions via the standard NetBox permission system to the
 user or group that should be allowed to mutate NetBox from a detect-only
 run, trigger collection runs, or review run results.
 
+`apply_factsreport` and `run_collector` gate the UI views only. The REST
+API does not check them: NetBox's token permission class maps every `POST`
+to the model's standard `add_*` permission, so the report-level actions
+(`apply`, `skip`, `retry`, `unskip`) require `netbox_facts.add_factsreport`
+and `CollectionPlan`'s `run` action requires
+`netbox_facts.add_collectionplan` -- see the REST endpoints section of
+[Facts Reports](../user-guide/facts-reports.md#rest-endpoints) for the
+pinned behavior.
+
 ## Job timeout vs NAPALM timeout
 
 These are independent:

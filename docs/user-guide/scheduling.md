@@ -20,27 +20,87 @@ From the plan detail page, click **Run** (or `POST` to
 `enqueue()` injects the plugin's `job_timeout` (default 1800s) when the
 caller does not pass one, then sets the plan's status to `queued`.
 
-## Recurring runs
+## Schedule semantics
 
-Set the plan's `interval` (in minutes). The `post_save` signal
-`handle_collection_job_change` calls
-`CollectionJobRunner.enqueue_once(instance=plan, interval=plan.interval, ...)`,
-which is the upstream NetBox idiom that ensures only one scheduled job
-exists per plan.
+A plan carries three scheduling fields. Two of them describe a recurrence
+and are mutually exclusive; the third is a start time.
 
-Unsetting the interval, or disabling the plan, deletes any pending
-scheduled job for that plan.
+| `interval` | `cron_schedule` | `scheduled_at` | Behavior |
+|---|---|---|---|
+| blank | blank | blank | Manual runs only. Nothing is scheduled. |
+| blank | blank | future time | One single run, at `scheduled_at`. |
+| `N` | blank | blank | Runs now, then every `N` minutes. |
+| `N` | blank | future time | First run at `scheduled_at`, then every `N` minutes. |
+| blank | expression | blank | Runs at each firing of the expression. |
+| blank | expression | future time | Runs at the first firing after `scheduled_at`, then at each firing. |
+| `N` | expression | -- | Validation error: pick one recurrence. |
+
+`scheduled_at` is a not-before anchor, never a recurrence of its own: a
+time already in the past schedules nothing, so a one-time plan does not
+fire again on the next save and a recurring plan is not held back by an
+anchor it has already passed.
+
+The **Next run** value shown on the plan detail page, on the plan list,
+and in the REST API is computed from these three fields plus `last_run`.
+A disabled plan has no next run.
+
+### Cron expressions
+
+`cron_schedule` takes a standard five-field expression (minute, hour,
+day of month, month, day of week) and is evaluated in NetBox's
+configured time zone -- `0 2 * * 1-5` is 02:00 on weekdays where the
+maintenance window lives, not 02:00 UTC. The seconds field and the
+`@daily`-style nicknames are rejected.
+
+```
+0 2 * * 1-5     02:00, Monday through Friday
+*/15 * * * *    every 15 minutes
+0 */4 * * *     every four hours, on the hour
+0 3 1 * *       03:00 on the first of each month
+30 22 * * 6     22:30 on Saturdays
+```
+
+A cron plan carries no interval on its background job: NetBox reschedules
+a recurring job from the interval stored on the job itself, which cannot
+express "02:00 on weekdays". Instead `CollectionJobRunner` computes the
+next firing after each run (including a failed one) and enqueues the
+successor itself, so a cron schedule survives a failing device as well as
+an interval schedule does.
+
+### How a schedule reaches the queue
+
+The `post_save` signal `handle_collection_job_change` asks the plan for
+the `(schedule_at, interval)` pair its fields describe and passes it to
+`CollectionJobRunner.enqueue_once()`, the upstream NetBox idiom that
+keeps exactly one scheduled job per plan. Clearing the recurrence, or
+disabling the plan, deletes any future-dated job it still has.
+
+An interval plan with no future anchor is deliberately enqueued without a
+`schedule_at`: `enqueue_once()` compares the stored schedule against the
+requested one, so handing it a fresh "now" on every save would delete the
+pending job and start another run each time the plan is edited.
+
+A future-dated job does not set the plan's status to `queued`. The plan
+is idle until its slot arrives, so the Run button stays available and a
+manual run alongside a schedule is still possible.
 
 ## Scheduling through the REST API
 
-`interval`, `scheduled_at`, and `connection_target` are writable on
-`/api/plugins/facts/collectionplans/`, so a recurring schedule can be set
-up with a `PATCH` instead of the plan edit form:
+`interval`, `cron_schedule`, `scheduled_at`, and `connection_target` are
+writable on `/api/plugins/facts/collectionplans/`, so a schedule can be
+set up with a `PATCH` instead of the plan edit form:
 
 ```
 PATCH /api/plugins/facts/collectionplans/12/
 {"interval": 1440, "scheduled_at": "2026-01-01T02:00:00Z"}
 ```
+
+```
+PATCH /api/plugins/facts/collectionplans/12/
+{"interval": null, "cron_schedule": "0 2 * * 1-5"}
+```
+
+`next_run` is read-only and computed, not stored.
 
 `last_run` and `run_as` are read-only. `last_run` is stamped by the
 collection job itself. `run_as` is read-only because it is the identity a

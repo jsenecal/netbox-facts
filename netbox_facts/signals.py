@@ -65,24 +65,20 @@ def handle_collection_job_change(instance: CollectionPlan, created=False, **kwar
     """
     Schedule or cancel collection jobs when a CollectionPlan is saved.
     Mirrors the DataSource sync scheduling pattern from core/signals.py.
+
+    The plan enqueues whatever schedule its fields now describe; this
+    handler only has to clear up after a schedule the plan no longer
+    has.
     """
     from netbox_facts.jobs import CollectionJobRunner
 
-    if instance.enabled and instance.interval:
-        CollectionJobRunner.enqueue_once(
-            instance=instance,
-            interval=instance.interval,
-            user=instance.run_as,
-            queue_name=instance.priority,
-        )
-    elif not created:
-        # Delete any previously scheduled recurring jobs for this CollectionPlan
+    if not instance.enqueue_schedule() and not created:
+        # Drop the schedule this plan no longer describes. Only
+        # future-dated jobs are candidates: a pending job has already
+        # been handed to a worker, and a cron or one-time job carries no
+        # interval, so the scheduled status is the only thing they have
+        # in common.
         for job in (
-            CollectionJobRunner.get_jobs(instance)
-            .defer("data")
-            .filter(
-                interval__isnull=False,
-                status=JobStatusChoices.STATUS_SCHEDULED,
-            )
+            CollectionJobRunner.get_jobs(instance).defer("data").filter(status=JobStatusChoices.STATUS_SCHEDULED)
         ):
             job.delete()

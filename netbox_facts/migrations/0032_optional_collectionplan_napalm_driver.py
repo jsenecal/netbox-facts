@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("netbox_facts", "0030_alter_factsreportentry_device"),
+        ("netbox_facts", "0031_collectionplan_cron_schedule"),
     ]
 
     operations = [
