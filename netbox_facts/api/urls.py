@@ -33,4 +33,9 @@ router.register(
     views.FactsReportEntryViewSet,
 )
 
+router.register(
+    "factsreportdeviceoutcomes",
+    views.FactsReportDeviceOutcomeViewSet,
+)
+
 urlpatterns = router.urls

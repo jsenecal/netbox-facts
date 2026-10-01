@@ -9,19 +9,28 @@ from .choices import (
     CollectionTypeChoices,
     CollectorPriorityChoices,
     CollectorStatusChoices,
+    DeviceOutcomeChoices,
     EntryActionChoices,
     EntryKindChoices,
     EntryStatusChoices,
     ReportStatusChoices,
 )
 from .fields import MACPrefixField
-from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
+from .models import (
+    CollectionPlan,
+    FactsReport,
+    FactsReportDeviceOutcome,
+    FactsReportEntry,
+    MACAddress,
+    MACVendor,
+)
 
 __all__ = [
     "MACAddressFilterSet",
     "MACVendorFilterSet",
     "CollectorFilterSet",
     "FactsReportFilterSet",
+    "FactsReportDeviceOutcomeFilterSet",
     "FactsReportEntryFilterSet",
 ]
 
@@ -148,6 +157,27 @@ class FactsReportFilterSet(QuickSearchMixin, BaseFilterSet):
     class Meta:
         model = FactsReport
         fields = ["collection_plan", "status"]
+
+
+class FactsReportDeviceOutcomeFilterSet(QuickSearchMixin, BaseFilterSet):
+    """Filter set for the FactsReportDeviceOutcome model.
+
+    The search spans the device column the table is scanned by and the
+    short failure detail, so "which devices timed out" can be asked
+    without knowing the outcome's value.
+    """
+
+    search_fields = ("device__name", "message")
+
+    outcome = django_filters.MultipleChoiceFilter(choices=DeviceOutcomeChoices)
+    device = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        label=_("Device"),
+    )
+
+    class Meta:
+        model = FactsReportDeviceOutcome
+        fields = ["report", "outcome", "device"]
 
 
 class FactsReportEntryFilterSet(QuickSearchMixin, BaseFilterSet):

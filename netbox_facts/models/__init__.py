@@ -6,6 +6,7 @@ from .mac import (
     MACAddressIPAddressRelation,
     MACVendor,
 )
+from .outcomes import FactsReportDeviceOutcome
 
 __all__ = [
     "MACAddress",
@@ -14,5 +15,6 @@ __all__ = [
     "MACAddressInterfaceRelation",
     "MACAddressIPAddressRelation",
     "FactsReport",
+    "FactsReportDeviceOutcome",
     "FactsReportEntry",
 ]

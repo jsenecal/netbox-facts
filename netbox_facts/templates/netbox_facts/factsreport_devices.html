@@ -1,0 +1,18 @@
+{% extends 'generic/object_children.html' %}
+{% load i18n %}
+
+{% comment %}
+The Devices tab accounts for a run device by device: one row per device it
+attempted, with the reason it was passed over when it was. The line above
+the table repeats the report page's grouping so a long table can be read
+without scrolling back to it.
+{% endcomment %}
+
+{% block table_controls %}
+<p class="text-muted">
+  {% blocktrans trimmed with attempted=device_counts.device_count collected=device_counts.device_ok_count failed=device_counts.device_failed_count skipped=device_counts.device_skipped_count %}
+    {{ attempted }} devices attempted: {{ collected }} collected, {{ failed }} failed, {{ skipped }} skipped.
+  {% endblocktrans %}
+</p>
+{{ block.super }}
+{% endblock %}

@@ -152,6 +152,53 @@ REVIEW_REPORT_STATUSES = (
 )
 
 
+class DeviceOutcomeChoices(ChoiceSet):
+    """What became of one device during a collection run.
+
+    One value per reason a run can have for not collecting from a device,
+    plus the one for having collected from it. The collector tallies those
+    reasons for its run summary already; this is the same taxonomy made
+    durable, one row per attempted device, so a reviewer can answer "what
+    happened to this device" months later from the report alone.
+    """
+
+    OUTCOME_OK = "ok"
+    OUTCOME_UNREACHABLE = "unreachable"
+    OUTCOME_AUTH_FAILED = "auth_failed"
+    OUTCOME_DRIVER_ERROR = "driver_error"
+    OUTCOME_SKIPPED_NO_IP = "skipped_no_ip"
+    OUTCOME_SKIPPED_NO_DRIVER = "skipped_no_driver"
+    OUTCOME_SKIPPED_INCOMPATIBLE = "skipped_incompatible"
+
+    CHOICES = (
+        (OUTCOME_OK, _("Collected"), "green"),
+        (OUTCOME_UNREACHABLE, _("Unreachable"), "red"),
+        (OUTCOME_AUTH_FAILED, _("Authentication failed"), "red"),
+        (OUTCOME_DRIVER_ERROR, _("Driver error"), "orange"),
+        (OUTCOME_SKIPPED_NO_IP, _("Skipped: no usable IP"), "gray"),
+        (OUTCOME_SKIPPED_NO_DRIVER, _("Skipped: no driver"), "gray"),
+        (OUTCOME_SKIPPED_INCOMPATIBLE, _("Skipped: incompatible driver"), "gray"),
+    )
+
+
+# How the report page and the API group the outcomes into three numbers. The
+# split is between a fault to chase -- credentials refused, a driver the
+# deployment has not installed, a device that never answered -- and scope to
+# fix, where the plan held nothing to dial the device with in the first
+# place. Every outcome but OUTCOME_OK belongs to exactly one of the two,
+# which is what lets the three counts be read as a partition.
+FAILED_DEVICE_OUTCOMES = (
+    DeviceOutcomeChoices.OUTCOME_UNREACHABLE,
+    DeviceOutcomeChoices.OUTCOME_AUTH_FAILED,
+    DeviceOutcomeChoices.OUTCOME_DRIVER_ERROR,
+)
+SKIPPED_DEVICE_OUTCOMES = (
+    DeviceOutcomeChoices.OUTCOME_SKIPPED_NO_IP,
+    DeviceOutcomeChoices.OUTCOME_SKIPPED_NO_DRIVER,
+    DeviceOutcomeChoices.OUTCOME_SKIPPED_INCOMPATIBLE,
+)
+
+
 class EntryActionChoices(ChoiceSet):
     ACTION_NEW = "new"
     ACTION_CHANGED = "changed"

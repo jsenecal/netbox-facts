@@ -14,7 +14,7 @@ A `FactsReport` is created by every collection run and accumulates one
 | `created_by` | User who triggered the run, when available. |
 | `completed_at` | Timestamp set when the report reaches a terminal status. |
 | `summary` | Cached counts by action: `{new, changed, confirmed, stale}`. Recomputed by `update_summary()`. |
-| `error_message` | Populated when a top-level collection failure aborts the run. |
+| `error_message` | Populated when a top-level collection failure aborts the run, and when a run finished without collecting from a single device (see [Run outcomes](#run-outcomes)). |
 
 ## Entry fields
 
@@ -39,7 +39,67 @@ A `FactsReport` is created by every collection run and accumulates one
 
 The entry table indexes `(report, action)`, `(report, status)`,
 `(report, entry_kind)`, and `(object_type, object_id)` for the common UI
-filter paths.
+filter paths. The outcome table indexes `(report, outcome)`.
+
+## Run outcomes
+
+A report's entries say what a run found; they cannot say what it tried. A
+run therefore records one `FactsReportDeviceOutcome` per device it
+attempted, so "eight of these twelve devices never answered" survives the
+job log it was written to. The model lives at
+`netbox_facts/models/outcomes.py`.
+
+| Field | Notes |
+|---|---|
+| `report` | FK to the parent report. Reachable in reverse as `report.device_outcomes`. |
+| `device` | The device the run attempted. |
+| `outcome` | What became of it; see the table below. |
+| `duration` | Seconds spent dialing and collecting. Null for a device that was never dialed. |
+| `entry_count` | How many report entries this device's pass produced. |
+| `message` | One line of evidence: the connection or authentication error as reported, or the reason's own label when there is nothing more to say. |
+
+The outcomes are the collector's own skip reasons made durable -- the same
+categories its run-summary log line tallies:
+
+| Outcome | Meaning | Dialed? |
+|---|---|---|
+| `ok` | Collected from. | yes |
+| `unreachable` | Every connection attempt failed. | yes |
+| `auth_failed` | The device refused the credentials. | yes |
+| `driver_error` | The NAPALM driver named by the device's platform is not installed. | no |
+| `skipped_no_ip` | No usable IP address for the plan's connection target. | no |
+| `skipped_no_driver` | The device has no platform and the plan names no driver. | no |
+| `skipped_incompatible` | The collector has no implementation for the device's driver. | no |
+
+A device is dialed only once its driver and an address have been resolved,
+which is why the three pre-dial outcomes carry no `duration`: there was no
+connection to time. `unreachable` and `auth_failed` do carry one -- how
+long a device took to not answer is worth knowing.
+
+The report page shows three numbers for a run -- collected, failed and
+skipped -- where failed covers the outcomes above that were dialed and did
+not work out, and skipped covers the ones that were never dialed. The
+first is a fault to chase, the second is plan scope to fix. The **Devices**
+tab lists the rows themselves, badged with the number of devices
+attempted, with the outcome as a colored badge, the dial time and the
+entries each device produced.
+
+### Status when nothing was collected
+
+A run that collected from no device at all finishes **Failed**, with the
+distribution in `error_message`:
+
+```
+0 of 12 devices collected: 8 unreachable, 4 no NAPALM driver from platform
+```
+
+Previously such a run finished `Pending` like any other detect-only run,
+which reads as a clean run that found nothing. Partial failure is left as
+it was -- one device collected still makes a report worth reviewing -- and
+the device counts are what make the shortfall visible. No new report status
+is involved: a run that collected nothing wears the same `failed` as a run
+that crashed, and the `netbox_facts.report_ready` event is still raised for
+it, so an event rule can act on exactly that case.
 
 ## Status reconciliation
 
@@ -89,8 +149,11 @@ The payload is the report as the REST API serializes it:
 | `summary` | Counts by action: `{"new": N, "changed": N, "confirmed": N, "stale": N}`. |
 | `error_message`, `created`, `completed_at` | As stored on the report. |
 
-`entry_count` is annotated onto the API queryset rather than stored on the
-report, so it is absent from the payload; use `summary` instead.
+`entry_count` and the device counts (`device_count`, `device_ok_count`,
+`device_failed_count`, `device_skipped_count`) are annotated onto the API
+queryset rather than stored on the report, so they are absent from the
+payload; use `summary` for the entry counts, and `status` plus
+`error_message` for a run that reached nothing.
 
 Conditions are evaluated against that payload, so a rule that fires only
 when a detect-only run found something to review looks like:
@@ -115,7 +178,9 @@ A report's entries are split across four tabs -- Pending, Applied,
 Skipped and Failed -- each badged with its count. All four are always
 shown, including at zero, so the tab you are working does not move as
 entries change status. The entry-status counts on the report page link to
-the matching tab.
+the matching tab. A fifth tab, **Devices**, precedes them and lists the
+run's per-device outcomes rather than its entries; the device counts on
+the report page link to it.
 
 Each tab carries a filter form over `device`, `action`, `status`,
 `collector_type` and `entry_kind`, plus a `q` search matching the entry
@@ -290,6 +355,10 @@ permissions.
   with `{"unskipped": N}`.
 - `GET /api/plugins/facts/factsreportentries/` -- list/filter entries.
 - `GET /api/plugins/facts/factsreportentries/<id>/` -- single entry.
+- `GET /api/plugins/facts/factsreportdeviceoutcomes/` -- list/filter the
+  per-device outcomes of a run.
+- `GET /api/plugins/facts/factsreportdeviceoutcomes/<id>/` -- single
+  outcome.
 
 The `apply`, `skip`, `retry`, and `unskip` endpoints validate that all
 submitted entry PKs belong to the report (returns `400` if not) and are
@@ -324,6 +393,20 @@ Supported filters are `q`, `report`, `action`, `status`,
 (repeat the parameter). Results are limited to the entries the requesting
 user is permitted to view.
 
+The outcome endpoint is read-only for the same reason: outcomes are
+written once, when a run finalizes its report. Its filters are `q`,
+`report`, `outcome`, and `device`, where `q` matches a substring of the
+device name or of the recorded message, and `outcome` and `device` accept
+multiple values. It answers the device-side question an entry list cannot:
+
+```
+GET /api/plugins/facts/factsreportdeviceoutcomes/?report=12&outcome=unreachable
+```
+
+A report's own representation carries the same counts as the report page:
+`device_count`, `device_ok_count`, `device_failed_count` and
+`device_skipped_count`, all read-only.
+
 ## GraphQL
 
 The plugin contributes five object types to NetBox's GraphQL schema. Type
@@ -356,10 +439,15 @@ The entry tabs (within a report) support `q` -- a substring match on
 `collector_type`, and `entry_kind`, via `FactsReportEntryFilterSet` and
 the filter form each tab renders.
 
-Both filtersets build on NetBox's `BaseFilterSet`, so saved filters and
-the standard lookup expressions apply. Neither builds on
-`NetBoxModelFilterSet`: reports and entries are plain models with no
-tags, custom fields, or change log for it to filter on.
+The Devices tab filters through `FactsReportDeviceOutcomeFilterSet` on
+`q`, `report`, `outcome`, and `device`, taken from the URL; unlike the
+entry tabs it renders no filter form of its own, so narrowing it means
+appending the parameter (for example `?outcome=unreachable`).
+
+All three filtersets build on NetBox's `BaseFilterSet`, so saved filters
+and the standard lookup expressions apply. None builds on
+`NetBoxModelFilterSet`: reports, entries, and outcomes are plain models
+with no tags, custom fields, or change log for it to filter on.
 
 ## Retention
 

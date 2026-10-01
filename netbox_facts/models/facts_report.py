@@ -105,6 +105,23 @@ class FactsReport(BaseModel, EventRulesMixin):
         """Return this report's entries that are still awaiting apply."""
         return self.entries.pending()
 
+    @property
+    def device_outcome_counts(self):
+        """Return how many devices this run collected, failed and skipped.
+
+        The grouping is the one the REST API annotates onto its queryset,
+        read off the same definition, so the report page and an API client
+        cannot come to disagree about how many devices failed.
+        """
+        from .outcomes import DEVICE_OUTCOME_COUNT_ANNOTATIONS
+
+        return (
+            FactsReport.objects.filter(pk=self.pk)
+            .annotate(**DEVICE_OUTCOME_COUNT_ANNOTATIONS)
+            .values(*DEVICE_OUTCOME_COUNT_ANNOTATIONS)
+            .get()
+        )
+
     def update_summary(self):
         """Recompute cached summary counts from entries."""
         from django.db.models import Count

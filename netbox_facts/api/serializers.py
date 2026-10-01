@@ -8,7 +8,15 @@ from rest_framework import serializers
 from users.api.serializers import UserSerializer
 
 from ..helpers.napalm import mask_napalm_credentials, restore_masked_credentials
-from ..models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
+from ..models import (
+    CollectionPlan,
+    FactsReport,
+    FactsReportDeviceOutcome,
+    FactsReportEntry,
+    MACAddress,
+    MACVendor,
+)
+from ..models.outcomes import DEVICE_OUTCOME_COUNT_ANNOTATIONS
 from .nested_serializers import NestedMACVendorSerializer
 
 
@@ -212,6 +220,23 @@ class FactsReportEntrySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class FactsReportDeviceOutcomeSerializer(serializers.ModelSerializer):
+    """Serializer for FactsReportDeviceOutcome."""
+
+    class Meta:
+        model = FactsReportDeviceOutcome
+        fields = (
+            "id",
+            "report",
+            "device",
+            "outcome",
+            "duration",
+            "entry_count",
+            "message",
+        )
+        read_only_fields = fields
+
+
 class FactsReportSerializer(serializers.ModelSerializer):
     """Serializer for FactsReport."""
 
@@ -220,6 +245,14 @@ class FactsReportSerializer(serializers.ModelSerializer):
     )
     display = serializers.SerializerMethodField()
     entry_count = serializers.IntegerField(read_only=True)
+    # Counted on the viewset's queryset rather than stored on the report, so
+    # a client reads how a run fared device by device without listing the
+    # outcome rows. Like entry_count, each is absent from a representation
+    # built from an unannotated instance rather than rendered as a zero.
+    device_count = serializers.IntegerField(read_only=True)
+    device_ok_count = serializers.IntegerField(read_only=True)
+    device_failed_count = serializers.IntegerField(read_only=True)
+    device_skipped_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = FactsReport
@@ -232,6 +265,7 @@ class FactsReportSerializer(serializers.ModelSerializer):
             "summary",
             "error_message",
             "entry_count",
+            *DEVICE_OUTCOME_COUNT_ANNOTATIONS,
             "created",
             "completed_at",
         )
