@@ -31,6 +31,7 @@ from utilities.forms.widgets.misc import NumberWithOptions
 
 from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
 from netbox_facts.helpers.napalm import mask_napalm_credentials, restore_masked_credentials
+from netbox_facts.helpers.scheduling import CRON_HELP
 
 from .choices import (
     CollectionTypeChoices,
@@ -252,6 +253,12 @@ class CollectorForm(NetBoxModelForm):
         widget=NumberWithOptions(options=JobIntervalChoices),
         help_text=_("Interval at which this collection task is re-run (in minutes)"),
     )
+    cron_schedule = forms.CharField(
+        required=False,
+        label=_("Cron schedule"),
+        widget=forms.TextInput(attrs={"placeholder": "0 2 * * 1-5"}),
+        help_text=CRON_HELP,
+    )
 
     fieldsets = (
         FieldSet(
@@ -283,6 +290,7 @@ class CollectorForm(NetBoxModelForm):
         FieldSet(
             "scheduled_at",
             "interval",
+            "cron_schedule",
             name=_("Scheduling"),
         ),
         FieldSet("napalm_driver", "napalm_args", "connection_target", name=_("Runtime settings")),
@@ -313,6 +321,7 @@ class CollectorForm(NetBoxModelForm):
             "comments",
             "scheduled_at",
             "interval",
+            "cron_schedule",
             "napalm_driver",
             "napalm_args",
             "connection_target",
@@ -346,13 +355,14 @@ class CollectorForm(NetBoxModelForm):
         return value
 
     def clean(self):
+        # A start time being entered now must be in the future, because
+        # one already in the past schedules nothing. A start time that
+        # has merely passed stays stored and inert, so re-validating it
+        # on a later edit would fail a field the user never touched --
+        # only a changed value is checked.
         scheduled_time = self.cleaned_data.get("scheduled_at")
-        if scheduled_time and scheduled_time < local_now():
+        if "scheduled_at" in self.changed_data and scheduled_time and scheduled_time < local_now():
             raise forms.ValidationError({"scheduled_at": _("Scheduled time must be in the future.")})
-
-        # When interval is used without schedule at, schedule for the current time
-        if self.cleaned_data.get("interval") and not scheduled_time:
-            self.cleaned_data["scheduled_at"] = local_now()
 
         return self.cleaned_data
 

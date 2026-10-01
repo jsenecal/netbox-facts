@@ -4,7 +4,14 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from netbox.tables import NetBoxTable
-from netbox.tables.columns import ActionsColumn, ChoiceFieldColumn, DateTimeColumn, MarkdownColumn, ToggleColumn
+from netbox.tables.columns import (
+    ActionsColumn,
+    BooleanColumn,
+    ChoiceFieldColumn,
+    DateTimeColumn,
+    MarkdownColumn,
+    ToggleColumn,
+)
 
 from .choices import EntryActionChoices
 from .helpers import entry_display
@@ -84,10 +91,40 @@ class MACVendorTable(DatedNetboxTable):
         default_columns = ("vendor_name", "mac_prefix", "instance_count")
 
 
+# Per-row run shortcut, following the Data Sources list: the button lives
+# inside the list view's bulk form and submits it to the plan's run view
+# with its own pk, so one click runs one plan. A plan that cannot run
+# right now shows the same disabled button and reason as its detail page.
+COLLECTION_PLAN_RUN_BUTTON = """
+{% load i18n %}
+{% if perms.netbox_facts.run_collector %}
+  {% if record.ready %}
+    <button type="submit" formmethod="post" class="btn btn-sm btn-primary"
+            formaction="{% url 'plugins:netbox_facts:collectionplan_run' pk=record.pk %}">
+      <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
+    </button>
+  {% else %}
+    <span class="inline-block" tabindex="0" data-bs-toggle="tooltip" data-bs-placement="left"
+          title="{{ record.run_disabled_reason }}">
+      <button class="btn btn-sm btn-primary" disabled>
+        <i class="mdi mdi-sync" aria-hidden="true"></i> {% trans "Run" %}
+      </button>
+    </span>
+  {% endif %}
+{% endif %}
+"""
+
+
 class CollectorTable(NetBoxTable):
     """Table representation of the Collector model."""
 
     name = tables.Column(linkify=True)  # type: ignore
+    enabled = BooleanColumn(verbose_name=_("Enabled"))
+    detect_only = BooleanColumn(verbose_name=_("Detect Only"))
+    last_run = DateTimeColumn(verbose_name=_("Last Run"))
+    next_run = DateTimeColumn(verbose_name=_("Next Run"), accessor="next_run", orderable=False)
+    cron_schedule = tables.Column(verbose_name=_("Cron Schedule"))
+    actions = ActionsColumn(extra_buttons=COLLECTION_PLAN_RUN_BUTTON)
 
     class Meta(NetBoxTable.Meta):
         model = CollectionPlan
@@ -98,7 +135,12 @@ class CollectorTable(NetBoxTable):
             "priority",
             "status",
             "collector_type",
+            "enabled",
             "detect_only",
+            "interval",
+            "cron_schedule",
+            "last_run",
+            "next_run",
             "description",
             "tags",
             "actions",
@@ -107,8 +149,22 @@ class CollectorTable(NetBoxTable):
             "name",
             "status",
             "collector_type",
+            "enabled",
+            "last_run",
+            "next_run",
             "description",
         )
+
+    def render_detect_only(self, value):
+        """Render the plan's run mode as a badge, the way a choice reads.
+
+        Whether a run writes to NetBox or only reports is the most
+        consequential thing about a plan, so it gets the weight of a
+        labelled badge instead of a checkmark a reader has to decode.
+        """
+        if value:
+            return format_html('<span class="badge text-bg-cyan">{}</span>', _("Detect only"))
+        return format_html('<span class="badge text-bg-purple">{}</span>', _("Apply"))
 
 
 class FactsReportTable(NetBoxTable):

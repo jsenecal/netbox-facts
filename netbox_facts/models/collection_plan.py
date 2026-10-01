@@ -43,6 +43,7 @@ from ..choices import (
 )
 from ..helpers import NapalmCollector
 from ..helpers.netbox import filtered_list_url
+from ..helpers.scheduling import next_cron_occurrence, validate_cron_expression
 
 logger = logging.getLogger("netbox_facts")
 
@@ -158,6 +159,10 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
 
     scheduled_at = models.DateTimeField(
         verbose_name=_("scheduled at"),
+        help_text=_(
+            "When the first run is due. On its own this schedules a single run; alongside an interval or a cron "
+            "schedule it holds the first run back until this time."
+        ),
         blank=True,
         null=True,
     )
@@ -166,6 +171,15 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         verbose_name=_("Interval (minutes)"),
         blank=True,
         null=True,
+    )
+    cron_schedule = models.CharField(
+        verbose_name=_("cron schedule"),
+        max_length=100,
+        blank=True,
+        help_text=_(
+            "Five-field cron expression evaluated in the server time zone, such as <code>0 2 * * 1-5</code> for "
+            "02:00 on weekdays. Mutually exclusive with the interval."
+        ),
     )
 
     last_run = models.DateTimeField(verbose_name=_("last run"), blank=True, null=True, editable=False)
@@ -222,6 +236,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "napalm_driver",
         "napalm_args",
         "interval",
+        "cron_schedule",
         "detect_only",
         "connection_target",
         "allow_unscoped",
@@ -253,6 +268,16 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """Clean the object."""
         if isinstance(self.napalm_args, str):
             self.napalm_args = dict()
+
+        if self.cron_schedule and self.interval:
+            message = _("A plan repeats either on an interval or on a cron schedule, not both.")
+            raise ValidationError({"interval": message, "cron_schedule": message})
+
+        if self.cron_schedule:
+            try:
+                validate_cron_expression(self.cron_schedule)
+            except ValidationError as error:
+                raise ValidationError({"cron_schedule": error.messages}) from error
 
         if not self.allow_unscoped and not self.has_scope():
             raise ValidationError(
@@ -287,9 +312,99 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         return self.jobs.all().order_by("-created").first()
 
     @property
-    def scheduled_at_next(self):
-        """Return the scheduled time of the next run."""
-        return self.last_run + timedelta(minutes=self.interval)
+    def next_run(self):
+        """Return when this plan is next due to run, or None."""
+        return self.get_next_run()
+
+    def _schedule_anchor(self, reference):
+        """Return scheduled_at while it is still a not-before anchor.
+
+        An anchor that has passed constrains nothing: a recurrence has
+        already started by then, and a single run has already happened.
+        """
+        if self.scheduled_at and self.scheduled_at > reference:
+            return self.scheduled_at
+        return None
+
+    def get_next_run(self, reference=None):
+        """Return when the plan is next due, measured from reference (now by default).
+
+        Three schedule shapes, in the order they take precedence:
+
+        * A cron schedule fires next at the first occurrence after the
+          reference, or after scheduled_at while that anchor is ahead.
+        * An interval waits for scheduled_at while that anchor is ahead,
+          then runs one interval after the last run. A plan that has
+          never run is due immediately, which reads as the reference.
+        * scheduled_at on its own is a single run at that time, so
+          nothing is due once it has passed.
+
+        A disabled plan is never due: saving one drops its schedule.
+        """
+        if not self.enabled:
+            return None
+
+        reference = reference or timezone.now()
+        if self.interval and not self._schedule_anchor(reference):
+            if self.last_run:
+                return self.last_run + timedelta(minutes=self.interval)
+            return reference
+
+        parameters = self.get_schedule_parameters(reference)
+        return parameters[0] if parameters else None
+
+    def get_schedule_parameters(self, reference=None):
+        """Return the (schedule_at, interval) a background job should carry.
+
+        None means the plan has no schedule at all, so any job already
+        scheduled for it is stale.
+
+        An interval plan with no future anchor deliberately carries no
+        schedule_at. NetBox's enqueue_once() compares the schedule of the
+        job it finds against the one being requested, so handing it a
+        fresh "now" on every save would delete the pending job and start
+        another run every time the plan is edited. The next occurrence of
+        a cron expression is safe to pass because it does not move until
+        that occurrence has happened.
+        """
+        if not self.enabled:
+            return None
+
+        reference = reference or timezone.now()
+        anchor = self._schedule_anchor(reference)
+
+        if self.cron_schedule:
+            next_occurrence = next_cron_occurrence(self.cron_schedule, anchor or reference)
+            return (next_occurrence, None) if next_occurrence else None
+        if self.interval:
+            return anchor, self.interval
+        if anchor:
+            return anchor, None
+        return None
+
+    def enqueue_schedule(self) -> bool:
+        """Enqueue the schedule this plan currently describes.
+
+        Returns False when the plan has no schedule, which tells the
+        caller that any job still scheduled for it is stale.
+        """
+        from netbox_facts.jobs import CollectionJobRunner
+
+        parameters = self.get_schedule_parameters()
+        if parameters is None:
+            return False
+
+        schedule_at, interval = parameters
+        CollectionJobRunner.enqueue_once(
+            instance=self,
+            schedule_at=schedule_at,
+            interval=interval,
+            user=self.run_as,
+            queue_name=self.priority,
+        )
+        return True
+
+    enqueue_schedule.alters_data = True
 
     def check_stalled(self):
         """Update the status of the collector if stalled.

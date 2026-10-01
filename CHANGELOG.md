@@ -10,6 +10,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- `scheduled_at` is now honored instead of collected, validated and discarded: a plan with a future `scheduled_at` and no recurrence runs exactly once at that time (previously it got no job at all), and an interval plan with a future `scheduled_at` waits for it instead of starting its first run the moment the plan is saved. A `scheduled_at` already in the past schedules nothing, so editing a plan no longer triggers an unexpected run. A future-dated job also no longer sets the plan's status to `queued`, so the Run button and manual runs stay available while a plan waits for its slot. (#90)
 - The Facts Reports and detect-only docs claimed `completed_at` is stamped
   "whenever the status reaches a non-Pending state"; that is wrong for
   `Partial`, which does not stamp it. Corrected to describe the real rule:
@@ -60,6 +61,15 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Cron-style scheduling: a collection plan accepts a five-field cron expression
+  (`cron_schedule`, for example `0 2 * * 1-5`) as an alternative to the flat
+  interval, evaluated in NetBox's configured time zone. The expression is
+  validated on save, is mutually exclusive with the interval, and each run
+  enqueues its own successor so a cron schedule survives a failed run. Plans
+  now expose a computed `next_run` on the detail page, in the REST API, and on
+  the plan list, which also gains Enabled, Last run, Next run, Interval and
+  Cron schedule columns, a per-row Run button, and a badge-style Detect Only
+  column. (#146, #90)
 - `FactsReportEntry` now advertises the `export_templates` model feature, so
   it appears in the object-type picker when creating an Export Template
   under Operations > Export Templates. The entry export path already
