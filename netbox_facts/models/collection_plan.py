@@ -382,6 +382,30 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             return anchor, None
         return None
 
+    def enqueue_schedule(self) -> bool:
+        """Enqueue the schedule this plan currently describes.
+
+        Returns False when the plan has no schedule, which tells the
+        caller that any job still scheduled for it is stale.
+        """
+        from netbox_facts.jobs import CollectionJobRunner
+
+        parameters = self.get_schedule_parameters()
+        if parameters is None:
+            return False
+
+        schedule_at, interval = parameters
+        CollectionJobRunner.enqueue_once(
+            instance=self,
+            schedule_at=schedule_at,
+            interval=interval,
+            user=self.run_as,
+            queue_name=self.priority,
+        )
+        return True
+
+    enqueue_schedule.alters_data = True
+
     def check_stalled(self):
         """Update the status of the collector if stalled.
 

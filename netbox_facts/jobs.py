@@ -83,18 +83,7 @@ class CollectionJobRunner(FactsJobRunner):
         if plan is None or not plan.cron_schedule:
             return
 
-        parameters = plan.get_schedule_parameters()
-        if parameters is None:
-            return
-
-        schedule_at, interval = parameters
-        cls.enqueue_once(
-            instance=plan,
-            schedule_at=schedule_at,
-            interval=interval,
-            user=plan.run_as,
-            queue_name=plan.priority,
-        )
+        plan.enqueue_schedule()
 
     def run(self, request=None, *args, **kwargs):
         """Execute the collection plan."""
