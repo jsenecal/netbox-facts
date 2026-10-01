@@ -30,6 +30,50 @@ class CollectionTypeChoices(ChoiceSet):
     ]
 
 
+#: Module prefix a plugin-local enhanced driver carries when a plan names it
+#: by its dotted path. Both forms stand for the same vendor, so compatibility
+#: and vendor dispatch resolve them to one name.
+ENHANCED_DRIVER_PREFIX = "netbox_facts.napalm."
+
+#: The NAPALM drivers each collector can run against. A collector absent from
+#: this table reaches the device through standard NAPALM getters that every
+#: driver implements, so it runs against any of them. The listed ones dispatch
+#: to a vendor-specific implementation instead: a driver outside their list has
+#: nothing to dispatch to, which is why the pairing is rejected before a plan
+#: is saved rather than discovered after a live connection.
+COLLECTOR_SUPPORTED_DRIVERS = {
+    CollectionTypeChoices.TYPE_L2CIRCTUITS: ("junos",),
+    CollectionTypeChoices.TYPE_EVPN: ("junos",),
+    CollectionTypeChoices.TYPE_OSPF: ("junos",),
+}
+
+
+def normalize_driver_name(driver_name):
+    """Return the bare vendor name a NAPALM driver name stands for."""
+    name = (driver_name or "").strip().lower()
+    if name.startswith(ENHANCED_DRIVER_PREFIX):
+        name = name[len(ENHANCED_DRIVER_PREFIX) :]
+    return name
+
+
+def collector_supported_drivers(collector_type):
+    """Return the drivers a collector supports, or None when it accepts any."""
+    return COLLECTOR_SUPPORTED_DRIVERS.get(collector_type)
+
+
+def driver_supports_collector(collector_type, driver_name):
+    """Return True when a NAPALM driver can run a collector type.
+
+    An unnamed driver is compatible with everything: it is resolved per
+    device at run time, where each resolved driver is checked on its own.
+    """
+    supported = collector_supported_drivers(collector_type)
+    name = normalize_driver_name(driver_name)
+    if supported is None or not name:
+        return True
+    return name in supported
+
+
 class ConnectionTargetChoices(ChoiceSet):
     TARGET_PRIMARY = "primary"
     TARGET_OOB = "oob"

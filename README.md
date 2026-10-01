@@ -92,6 +92,7 @@ PLUGINS_CONFIG = {
 | `napalm_username` | str | `""` | Default NAPALM username for device connections |
 | `napalm_password` | str | `""` | Default NAPALM password for device connections |
 | `global_napalm_args` | dict | `{}` | Additional arguments passed to all NAPALM driver instances |
+| `platform_driver_custom_field` | str | `"napalm_driver"` | `dcim.Platform` custom field holding a NAPALM driver name, used when a Collection Plan leaves its driver blank; falls back to the platform slug |
 | `valid_interfaces_re` | str | `".*"` | Regex to filter which interfaces are processed |
 | `job_timeout` | int | `1800` | Maximum RQ job runtime in seconds (30 min default) |
 | `napalm_timeout` | int | `60` | NAPALM connection timeout in seconds |

@@ -61,6 +61,26 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- A Collection Plan's `napalm_driver` is now optional. Left blank, the driver
+  is resolved per device from `device.platform`, so one plan can span several
+  vendors; set, it stays an override applied to every device in scope. NetBox
+  removed `Platform.napalm_driver` in 3.6 and 4.x has no replacement, so the
+  mapping is the plugin's own convention: a `dcim.Platform` custom field named
+  by the new `platform_driver_custom_field` setting (default `napalm_driver`),
+  falling back to the platform's slug. The enhanced-driver preference
+  (`netbox_facts.napalm.<name>`) applies to a resolved name exactly as to an
+  explicit one. A device whose platform yields no usable driver is skipped with
+  a warning naming the reason, and counted in a new end-of-run summary line
+  that also tallies devices skipped for a missing IP or an unreachable host.
+  (#147)
+- A collector/driver compatibility table (`COLLECTOR_SUPPORTED_DRIVERS` in
+  `choices.py`) encodes which NAPALM drivers each collector has an
+  implementation for -- `l2_circuits`, `evpn` and `ospf` are Junos-only.
+  `CollectionPlan.clean()` now rejects a plan whose explicit driver its
+  collector cannot serve, so an `evpn` plan can no longer be saved with `ios`
+  and rediscovered as a failed job on every scheduled run. A blank-driver plan
+  defers the check to run time, where an incompatible device is skipped before
+  any connection is opened rather than aborting the whole report. (#83, #147)
 - Cron-style scheduling: a collection plan accepts a five-field cron expression
   (`cron_schedule`, for example `0 2 * * 1-5`) as an alternative to the flat
   interval, evaluated in NetBox's configured time zone. The expression is
@@ -209,6 +229,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- The Collection Plan form's NAPALM driver dropdown now offers
+  `(from device platform)` as a real first choice instead of a `---------`
+  prompt, and the REST API no longer requires `napalm_driver` when creating a
+  plan. Vendor dispatch inside a run follows the driver resolved for the device
+  being collected rather than the plan's field. (#147)
 - The quick search (`q`) on the MAC address, MAC vendor and collection plan lists now trims surrounding whitespace before matching, aligning it with the report and entry searches; a whitespace-only query returns the unfiltered list instead of matching literal spaces.
 - The Collection Plan detail page's Assignment panel no longer dumps every
   assigned object: each scoping dimension lists at most ten entries and

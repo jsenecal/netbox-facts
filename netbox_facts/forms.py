@@ -62,7 +62,9 @@ def get_napalm_driver_choices():
     # Built-in NAPALM drivers (exclude "base")
     builtin_drivers = sorted(d for d in SUPPORTED_DRIVERS if d != "base")
 
-    choices = [("", "---------")]
+    # The blank choice is a real option, not a prompt: it defers the driver to
+    # each device's platform instead of forcing one on the whole scope.
+    choices = [("", _("(from device platform)"))]
     if custom_drivers:
         choices += [(d, f"{d} (enhanced)") for d in custom_drivers]
     choices += [(d, d) for d in builtin_drivers if d not in custom_drivers]
@@ -236,8 +238,13 @@ class CollectorForm(NetBoxModelForm):
 
     napalm_driver = forms.ChoiceField(
         choices=get_napalm_driver_choices,
+        required=False,
         label=_("NAPALM Driver"),
-        help_text=_("The NAPALM driver to use when connecting to devices"),
+        help_text=_(
+            "The NAPALM driver to use for every device this plan targets. Leave it on "
+            "'(from device platform)' to resolve the driver per device, so one plan can span "
+            "several vendors; devices whose platform names no usable driver are then skipped."
+        ),
     )
 
     scheduled_at = forms.DateTimeField(
