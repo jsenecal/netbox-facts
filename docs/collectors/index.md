@@ -20,6 +20,33 @@ The runner is `NapalmCollector` in `netbox_facts/helpers/collector.py`.
 Each collector method matches the type key (e.g. `arp()`,
 `ethernet_switching()`).
 
+## Driver compatibility
+
+The collectors marked "Yes (Junos only)" above reach the device through a
+vendor-specific implementation rather than a standard NAPALM getter, so
+they can only run against a driver that has one. That table is encoded in
+`COLLECTOR_SUPPORTED_DRIVERS` (`netbox_facts/choices.py`) and enforced
+twice:
+
+- **At save time.** A plan that names an incompatible driver fails
+  validation on the `napalm_driver` field. An `evpn` plan cannot be saved
+  with `ios`.
+- **At run time.** A plan that leaves `napalm_driver` blank resolves a
+  driver per device, so compatibility is not knowable until the run. Each
+  device whose resolved driver has no implementation is skipped with a
+  warning and counted in the run summary; the rest of the scope is still
+  collected. This is how a Junos-only collector behaves on a mixed-vendor
+  scope: it collects from the Junos devices and passes over the others.
+
+A driver named by its plugin-local dotted path
+(`netbox_facts.napalm.junos`) is treated as the vendor it enhances
+(`junos`) by both checks and by the vendor dispatch itself.
+
+Adding a vendor to one of these collectors means implementing
+`_<collector>_<vendor>()` and adding the driver to that collector's row in
+`COLLECTOR_SUPPORTED_DRIVERS`. `_get_vendor_method()` dispatches off that
+same table, so there is no second list to keep in step.
+
 ## Detect-only and apply
 
 Every collector follows the same pattern:
