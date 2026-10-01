@@ -48,6 +48,8 @@ from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
+    resolve_napalm_credentials,
+    strip_napalm_credentials,
 )
 from netbox_facts.helpers.netbox import (
     claim_device_interface,
@@ -114,17 +116,13 @@ class NapalmCollector:
     def __init__(self, plan) -> None:
         self.plan: CollectionPlan = plan
         self._collector_type = plan.collector_type
-        self._napalm_args = plan.get_napalm_args()
+        merged_napalm_args = plan.get_napalm_args()
         self._napalm_driver: type[NetworkDriver] | None = None
-        # Per-plan username/password override global defaults
-        self._napalm_username = self._napalm_args.pop(
-            "username",
-            get_plugin_config("netbox_facts", "napalm_username", "netbox"),
-        )
-        self._napalm_password = self._napalm_args.pop(
-            "password",
-            get_plugin_config("netbox_facts", "napalm_password", "netbox"),
-        )
+        # Per-plan credentials override the plugin-level defaults. The check
+        # that runs before a plan is enqueued resolves them through the same
+        # helper, so a plan it lets through is one this connects as.
+        self._napalm_username, self._napalm_password = resolve_napalm_credentials(merged_napalm_args)
+        self._napalm_args = strip_napalm_credentials(merged_napalm_args)
         self._interfaces_re = re.compile(get_plugin_config("netbox_facts", "valid_interfaces_re"))
         # Inject NAPALM connection timeout into optional_args
         napalm_timeout = get_plugin_config("netbox_facts", "napalm_timeout", 60)

@@ -21,8 +21,14 @@ Useful fields:
 
 - **Detect-only**: tick this. It causes the run to produce a
   `FactsReport` instead of mutating NetBox.
-- **NAPALM arguments**: JSON. Include `{"username": "...", "password": "..."}`
-  if this plan should not use the global credentials.
+- **NAPALM username** / **NAPALM password**: per-plan credentials. Leave
+  both blank to use the plugin-level `napalm_username` and
+  `napalm_password` settings; a plan that resolves neither is refused when
+  you click **Run**. Add a **NAPALM enable secret** only for drivers that
+  need one.
+- **NAPALM arguments**: JSON for any other driver argument (`port`,
+  `transport`, ...). Credentials belong in the fields above; see
+  [per-plan credentials](configuration.md#per-plan-credentials).
 - **Connection target**: leave on `Primary IP` unless you want OOB
   fallback.
 - **Interval (minutes)**: leave blank for an on-demand plan, or set a

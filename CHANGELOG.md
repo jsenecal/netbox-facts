@@ -10,6 +10,12 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- Cloning a Collection Plan no longer carries its credentials into the new
+  plan's creation link. NetBox renders cloned attributes into the link's
+  querystring, so a stored username, password or enable secret ended up in
+  browser history and proxy logs, and then in an add form with no stored
+  value to censor it against. A clone now starts with the plan's other NAPALM
+  driver options and no credentials. (#149)
 - `scheduled_at` is now honored instead of collected, validated and discarded: a plan with a future `scheduled_at` and no recurrence runs exactly once at that time (previously it got no job at all), and an interval plan with a future `scheduled_at` waits for it instead of starting its first run the moment the plan is saved. A `scheduled_at` already in the past schedules nothing, so editing a plan no longer triggers an unexpected run. A future-dated job also no longer sets the plan's status to `queued`, so the Run button and manual runs stay available while a plan waits for its slot. (#90)
 - The Facts Reports and detect-only docs claimed `completed_at` is stamped
   "whenever the status reaches a non-Pending state"; that is wrong for
@@ -61,6 +67,22 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Per-plan credentials are now first-class fields on the Collection Plan edit
+  form -- **NAPALM username**, **NAPALM password** and **NAPALM enable
+  secret** -- instead of undocumented magic keys inside the NAPALM arguments
+  JSON. The two secret fields never render a stored value: a stored secret
+  shows as a `********` placeholder, leaving the field blank keeps it, and
+  submitting the censored value back preserves it, exactly as the JSON field
+  already did. The fields write to the same `napalm_args` keys, so the JSON
+  path stays supported for the REST API and bulk import, and no migration is
+  involved. (#149)
+- A plan is now checked for credentials before it is enqueued: when no
+  username resolves from the plan, `global_napalm_args`, or the plugin-level
+  `napalm_username` setting, the run is refused with "no NAPALM credentials
+  are configured for this plan" (a warning in the UI, HTTP 409 on
+  `POST .../collectionplans/<id>/run/`) rather than failing once per device
+  inside the job log. The collector and the check share one resolution
+  helper, so they cannot drift. (#149)
 - A Collection Plan's `napalm_driver` is now optional. Left blank, the driver
   is resolved per device from `device.platform`, so one plan can span several
   vendors; set, it stays an override applied to every device in scope. NetBox
@@ -229,6 +251,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- An empty-string `username` or `password` stored in a plan's NAPALM arguments
+  no longer shadows the plugin-level credential; it now falls back to
+  `napalm_username` / `napalm_password`. Clearing the plan's NAPALM username
+  field removes the plan-level key, so the plan authenticates with the
+  plugin-level credential again. (#149)
 - The Collection Plan form's NAPALM driver dropdown now offers
   `(from device platform)` as a real first choice instead of a `---------`
   prompt, and the REST API no longer requires `napalm_driver` when creating a

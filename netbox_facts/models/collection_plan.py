@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 import logging
 from datetime import timedelta
 from typing import Any, NamedTuple
@@ -46,6 +47,11 @@ from ..choices import (
     normalize_driver_name,
 )
 from ..helpers import NapalmCollector
+from ..helpers.napalm import (
+    NAPALM_SENSITIVE_KEYS,
+    resolve_napalm_credentials,
+    strip_napalm_credentials,
+)
 from ..helpers.netbox import filtered_list_url
 from ..helpers.scheduling import next_cron_occurrence, validate_cron_expression
 
@@ -617,6 +623,28 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
             "Every run will connect to each of them."
         ).format(count=count, threshold=scope_warning_threshold())
 
+    def clone(self) -> dict[str, Any]:
+        """Return the attributes a new plan cloned from this one starts with.
+
+        The NAPALM arguments are worth carrying over for their driver
+        options, but not for their credentials: NetBox renders cloned
+        attributes into the creation link's querystring, which would put a
+        stored password into browser history and proxy logs, and then into
+        an add form that has no stored value to censor it against. A clone
+        therefore starts with the driver options and no credentials at
+        all, including the enable secret.
+        """
+        attrs = super().clone()
+        if "napalm_args" not in attrs:
+            return attrs
+        stored = self.napalm_args if isinstance(self.napalm_args, dict) else {}
+        cloneable = strip_napalm_credentials(stored, keys=NAPALM_SENSITIVE_KEYS)
+        if cloneable:
+            attrs["napalm_args"] = json.dumps(cloneable)
+        else:
+            del attrs["napalm_args"]
+        return attrs
+
     def _merge_napalm_args(self) -> dict[str, Any]:
         """Merge global and per-plan NAPALM arguments without filtering.
 
@@ -681,7 +709,11 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """
         Enqueue a background job to perform the facts collection.
 
-        Raises OperationNotSupported if the plan is already queued or working.
+        Raises OperationNotSupported if the plan is already queued or
+        working, or if no credential resolves for it. The credential check
+        is worth making here because the alternative is one connection
+        failure per device, logged inside a job the operator has to open to
+        learn that nothing was ever configured.
         """
         from netbox_facts.jobs import CollectionJobRunner
 
@@ -691,6 +723,14 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         ):
             raise OperationNotSupported(
                 f"Cannot enqueue collection job; plan is already {self.get_status_display().lower()}."
+            )
+
+        username, _password = resolve_napalm_credentials(self.get_napalm_args())
+        if not username:
+            raise OperationNotSupported(
+                "Cannot enqueue collection job; no NAPALM credentials are configured for this plan. "
+                "Set a username and password on the plan, or set napalm_username and napalm_password "
+                "in the plugin configuration."
             )
 
         user = self.run_as if request.user.is_superuser and self.run_as is not None else request.user

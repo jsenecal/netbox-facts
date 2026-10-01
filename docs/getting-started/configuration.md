@@ -9,8 +9,8 @@ declares in `netbox_facts/__init__.py`.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `top_level_menu` | bool | `True` | Render the plugin as an **Operational Facts** top-level menu. When `False`, entries appear under **Plugins**. |
-| `napalm_username` | str | `""` | Default NAPALM username for device connections. If left empty and not overridden per plan, an empty username is passed to NAPALM and the connection fails per device. |
-| `napalm_password` | str | `""` | Default NAPALM password. If left empty and not overridden per plan, an empty password is passed to NAPALM and the connection fails per device. |
+| `napalm_username` | str | `""` | Default NAPALM username for device connections, used by every plan that does not set its own. A plan with no username here and none of its own is refused when it is run (see [per-plan credentials](#per-plan-credentials)). |
+| `napalm_password` | str | `""` | Default NAPALM password, used by every plan that does not set its own. Left empty, an empty password is passed to NAPALM and each device connection fails on authentication; only a missing username is refused up front. |
 | `napalm_timeout` | int | `60` | Connection timeout passed to the NAPALM driver as `optional_args["timeout"]` when the per-plan `napalm_args` does not already set it. |
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
 | `platform_driver_custom_field` | str | `"napalm_driver"` | Name of the `dcim.Platform` custom field consulted for a NAPALM driver name when a Collection Plan leaves `napalm_driver` blank. Create it as a text or selection custom field on the Platform object type. When it is unset or blank on a platform, the platform's slug is used instead. Set this setting to `""` to use slugs only. See [Driver resolution](../user-guide/collection-plans.md#driver-resolution). |
@@ -41,21 +41,68 @@ PLUGINS_CONFIG = {
 
 ## Per-plan credentials
 
-Each Collection Plan has a **NAPALM arguments** JSON field that is merged on
-top of `global_napalm_args`. To override the username and password for a
-specific plan, include `username` and `password` keys:
+Each Collection Plan carries its own credentials in a **Credentials**
+section on the edit form:
+
+| Field | Purpose |
+|---|---|
+| **NAPALM username** | Username this plan connects with. |
+| **NAPALM password** | Password this plan connects with. |
+| **NAPALM enable secret** | Enable / privileged-mode secret, passed to the driver as `optional_args["secret"]`. Only some drivers use it. |
+
+A field left blank falls back to the plugin-level settings
+(`napalm_username`, `napalm_password`), so a plan only needs these filled
+in when it must authenticate differently from the rest of the fleet.
+
+Blank means something slightly different for the username than for the
+two secrets, because only the username field can show you what it holds:
+
+- **NAPALM username** renders its stored value. Clearing the field drops
+  the plan's own username, and the plan goes back to the plugin-level
+  `napalm_username`.
+- **NAPALM password** and **NAPALM enable secret** never render a stored
+  value. When one is set, the field shows `********` as a placeholder, and
+  leaving it blank keeps the stored value -- a blank field there cannot be
+  told from an untouched one, so saving a plan never silently wipes its
+  password. To clear one, remove its key from the **NAPALM arguments**
+  JSON field.
+
+Resolution order -- the same one the collector and the pre-run check
+share:
+
+1. the plan's own credential fields (stored in its `napalm_args`);
+2. `global_napalm_args` from the plugin configuration;
+3. the plugin-level `napalm_username` / `napalm_password` settings.
+
+A plan that resolves no username from any of the three is refused when it
+is run, with "no NAPALM credentials are configured for this plan",
+instead of failing once per device deep in the job log.
+
+### The JSON path (REST API and bulk import)
+
+The credential fields are a front end for three keys in the plan's
+`napalm_args` JSON, which remains the supported path for the REST API and
+for bulk import. Cloning is the exception: a cloned plan deliberately
+starts with the original's other driver options and no credentials,
+because NetBox renders cloned attributes into the creation link's
+querystring.
 
 ```json
 {
     "username": "collector-user",
-    "password": "collector-pass"
+    "password": "collector-pass",
+    "secret": "enable-secret"
 }
 ```
 
-These two keys are extracted by the collector before the remainder is
-passed to NAPALM as `optional_args`, so they will not interfere with driver
-options. See `NapalmCollector.__init__` in
-`netbox_facts/helpers/collector.py` for the resolution order.
+`username` and `password` are consumed as the driver's positional
+credentials and never reach `optional_args`; every other key -- `secret`
+included -- is passed through to the driver as `optional_args`, so
+credentials cannot interfere with driver options. All three values are
+censored as `********` in REST API responses and on the edit form, and
+submitting a censored value back preserves the stored one. See
+`resolve_napalm_credentials()` in `netbox_facts/helpers/napalm.py` for the
+resolution order both the collector and the pre-run check use.
 
 ## Connection target
 

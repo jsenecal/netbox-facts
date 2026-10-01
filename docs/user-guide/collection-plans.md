@@ -97,6 +97,11 @@ warning. See [Configuration](../getting-started/configuration.md).
 | `napalm_driver` | Optional. A NAPALM driver name (e.g. `junos`, `ios`, `eos`) forced on every device in the plan's scope. Leave it blank -- `(from device platform)` in the form -- to resolve the driver per device instead. |
 | `napalm_args` | JSON merged on top of the plugin-level `global_napalm_args`. Special keys `username` and `password` are extracted before the rest is passed as `optional_args`. |
 
+The edit form fills the `username`, `password` and `secret` keys from a
+dedicated **Credentials** fieldset rather than from the `napalm_args` JSON
+box, so credentials are never typed into (or echoed from) the raw JSON;
+see [per-plan credentials](../getting-started/configuration.md#per-plan-credentials).
+
 ### Driver resolution
 
 A driver name is turned into a driver class the same way whether it came

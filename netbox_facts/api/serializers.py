@@ -170,6 +170,19 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "display",
             "name",
         )
+        extra_kwargs = {
+            # The edit form offers dedicated credential fields; over the API
+            # the same three keys of this document are the supported path.
+            "napalm_args": {
+                "help_text": (
+                    "Arguments passed to the NAPALM driver as optional_args (JSON format). The username, "
+                    "password and secret keys hold this plan's credentials, overriding the plugin-level "
+                    "defaults; username and password are consumed as the driver's positional credentials "
+                    "and never reach optional_args. All three are censored on read; submitting a censored "
+                    "value back preserves the stored one."
+                ),
+            },
+        }
 
 
 class FactsReportEntrySerializer(serializers.ModelSerializer):

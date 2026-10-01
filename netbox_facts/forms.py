@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.forms import MultipleChoiceField
 from django.utils.translation import gettext_lazy as _
 from extras.models.tags import Tag
+from netbox.constants import CENSOR_TOKEN
 from netbox.context import current_request
 from netbox.forms import (
     NetBoxModelBulkEditForm,
@@ -30,7 +31,11 @@ from utilities.forms.widgets.datetime import DateTimePicker
 from utilities.forms.widgets.misc import NumberWithOptions
 
 from netbox_facts.helpers.collector import HAS_NETBOX_ROUTING
-from netbox_facts.helpers.napalm import mask_napalm_credentials, restore_masked_credentials
+from netbox_facts.helpers.napalm import (
+    NAPALM_SENSITIVE_KEYS,
+    mask_napalm_credentials,
+    restore_masked_credentials,
+)
 from netbox_facts.helpers.scheduling import CRON_HELP
 
 from .choices import (
@@ -267,6 +272,27 @@ class CollectorForm(NetBoxModelForm):
         help_text=CRON_HELP,
     )
 
+    # The credential fields are a front end for three keys of the napalm_args
+    # JSON document rather than model fields of their own, so nothing here is
+    # listed in Meta.fields; _store_credential_fields() folds them back in.
+    napalm_username = forms.CharField(
+        required=False,
+        label=_("NAPALM username"),
+        help_text=_("Username this plan connects with. Leave blank to use the plugin-level napalm_username setting."),
+    )
+    napalm_password = forms.CharField(
+        required=False,
+        label=_("NAPALM password"),
+        widget=forms.PasswordInput(render_value=False),
+        help_text=_("Password this plan connects with. Leave blank to use the plugin-level napalm_password setting."),
+    )
+    napalm_secret = forms.CharField(
+        required=False,
+        label=_("NAPALM enable secret"),
+        widget=forms.PasswordInput(render_value=False),
+        help_text=_("Enable secret, for the drivers that need one. Leave blank when it does not apply."),
+    )
+
     fieldsets = (
         FieldSet(
             "name",
@@ -301,6 +327,12 @@ class CollectorForm(NetBoxModelForm):
             name=_("Scheduling"),
         ),
         FieldSet("napalm_driver", "napalm_args", "connection_target", name=_("Runtime settings")),
+        FieldSet(
+            "napalm_username",
+            "napalm_password",
+            "napalm_secret",
+            name=_("Credentials"),
+        ),
     )
 
     class Meta:
@@ -346,13 +378,37 @@ class CollectorForm(NetBoxModelForm):
             ]
         now = local_now().strftime("%Y-%m-%d %H:%M:%S %Z")
         self.fields["scheduled_at"].help_text += _(" (current server time: <strong>{now}</strong>)").format(now=now)
+        self.fields["napalm_args"].help_text = _(
+            "Arguments passed to the NAPALM driver as optional_args (JSON format). Credentials belong in "
+            "the fields below, which write to this same document; a value entered there wins over the "
+            "matching key here."
+        )
         if self.instance.pk:
             # Censor stored credentials instead of rendering them verbatim
             if isinstance(self.instance.napalm_args, dict):
                 self.initial["napalm_args"] = mask_napalm_credentials(self.instance.napalm_args)
+                self._init_credential_fields(self.instance.napalm_args)
             self.initial["matched_devices"] = describe_plan_scope(self.instance)
         else:
             del self.fields["matched_devices"]
+
+    def _init_credential_fields(self, stored):
+        """Seed the credential fields from the arguments stored on the plan.
+
+        The username is shown as stored, because it is an account name
+        rather than a secret. The other two advertise a stored value with
+        the same censor token the JSON field is masked with, as a
+        placeholder: the operator can see that a credential is set and
+        round-trip the token to keep it, without it ever being echoed.
+        """
+        masked = mask_napalm_credentials(stored)
+        self.initial["napalm_username"] = stored.get("username") or ""
+        for key in ("password", "secret"):
+            if masked.get(key) != CENSOR_TOKEN:
+                continue
+            field = self.fields[f"napalm_{key}"]
+            field.widget.attrs["placeholder"] = CENSOR_TOKEN
+            field.help_text = _("A value is stored for this plan. Leave this blank to keep it, or type a new one.")
 
     def clean_napalm_args(self):
         """Keep stored credentials when the censored values are submitted unchanged."""
@@ -361,7 +417,55 @@ class CollectorForm(NetBoxModelForm):
             value = restore_masked_credentials(value, self.instance.napalm_args)
         return value
 
+    def _store_credential_fields(self):
+        """Fold the credential fields into the napalm_args document.
+
+        The fields are a front end for credential keys of the same JSON
+        document, so they go through the restore step the JSON field
+        already uses rather than a second mechanism of their own: a
+        censored value -- round-tripped from the placeholder, or from the
+        masked JSON -- keeps whatever is stored. Keys the fields do not
+        own are never touched.
+
+        Blank means different things to the two kinds of field. The
+        password and secret inputs cannot render what they hold, so a
+        blank one is indistinguishable from an untouched one and keeps the
+        stored value. The username input does render its value, so
+        clearing it is a deliberate instruction to drop the plan-level
+        username and fall back to the plugin configuration -- which is
+        what the field's help text promises. It is dropped after the
+        restore step, which would otherwise hand the key back from either
+        the masked JSON or the field's own re-submitted value.
+        """
+        napalm_args = self.cleaned_data.get("napalm_args")
+        napalm_args = dict(napalm_args) if isinstance(napalm_args, dict) else {}
+        stored = self.instance.napalm_args if isinstance(self.instance.napalm_args, dict) else {}
+        for key in NAPALM_SENSITIVE_KEYS:
+            submitted = self.cleaned_data.get(f"napalm_{key}")
+            if submitted:
+                napalm_args[key] = submitted
+        napalm_args = restore_masked_credentials(napalm_args, stored)
+        if self._field_submitted_blank("napalm_username"):
+            napalm_args.pop("username", None)
+        self.cleaned_data["napalm_args"] = napalm_args
+
+    def _field_submitted_blank(self, name) -> bool:
+        """Return True when a bound submission carried this field, empty.
+
+        A field missing from the payload entirely is not an instruction to
+        clear anything, so it has to be told apart from one submitted with
+        an empty value.
+        """
+        if not self.is_bound:
+            return False
+        field = self.fields[name]
+        if field.widget.value_omitted_from_data(self.data, self.files, self.add_prefix(name)):
+            return False
+        return not self.cleaned_data.get(name)
+
     def clean(self):
+        self._store_credential_fields()
+
         # A start time being entered now must be in the future, because
         # one already in the past schedules nothing. A start time that
         # has merely passed stays stored and inert, so re-validating it
