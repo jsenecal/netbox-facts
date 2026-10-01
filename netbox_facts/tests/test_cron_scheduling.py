@@ -17,7 +17,9 @@ from core.choices import JobStatusChoices
 from core.models import Job
 from dcim.choices import DeviceStatusChoices
 from django.core.exceptions import ValidationError
+from django.template import Context, Template
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 from netbox.jobs import JobRunner
 from rest_framework.request import Request
@@ -28,6 +30,7 @@ from netbox_facts.choices import CollectionTypeChoices, CollectorStatusChoices
 from netbox_facts.helpers.scheduling import next_cron_occurrence, validate_cron_expression
 from netbox_facts.jobs import CollectionJobRunner
 from netbox_facts.models import CollectionPlan
+from netbox_facts.tables import COLLECTION_PLAN_RUN_BUTTON, CollectorTable
 from netbox_facts.tests.test_helpers import CollectorTestMixin
 
 
@@ -366,3 +369,45 @@ class PlanSerializerSchedulingTest(TestCase):
         expected = serializer.fields["next_run"].to_representation(plan.scheduled_at)
         self.assertEqual(serializer.data["next_run"], expected)
         self.assertEqual(serializer.data["cron_schedule"], "")
+
+
+class PlanTableSchedulingTest(TestCase):
+    """Tests for the operational columns and row action on the plan list (#146)."""
+
+    def test_operational_columns_are_offered_and_the_live_ones_shown(self):
+        """The list carries the schedule state, without customizing columns."""
+        for name in ("enabled", "last_run", "next_run", "interval", "cron_schedule"):
+            self.assertIn(name, CollectorTable.base_columns)
+        for name in ("enabled", "last_run", "next_run"):
+            self.assertIn(name, CollectorTable.Meta.default_columns)
+
+    def test_detect_only_renders_as_a_badge(self):
+        table = CollectorTable(CollectionPlan.objects.none())
+        self.assertIn("badge", table.render_detect_only(True))
+        self.assertIn("badge", table.render_detect_only(False))
+        self.assertNotEqual(table.render_detect_only(True), table.render_detect_only(False))
+
+    def _render_run_button(self, plan):
+        context = Context(
+            {
+                "record": plan,
+                "perms": {"netbox_facts": {"run_collector": True}},
+            }
+        )
+        return Template(COLLECTION_PLAN_RUN_BUTTON).render(context)
+
+    def test_run_button_posts_to_the_run_view(self):
+        plan = _build_plan()
+        plan.save()
+
+        rendered = self._render_run_button(plan)
+        self.assertIn(reverse("plugins:netbox_facts:collectionplan_run", args=[plan.pk]), rendered)
+        self.assertNotIn("disabled", rendered)
+
+    def test_run_button_is_disabled_with_the_reason_a_plan_cannot_run(self):
+        plan = _build_plan(enabled=False)
+        plan.save()
+
+        rendered = self._render_run_button(plan)
+        self.assertIn("disabled", rendered)
+        self.assertIn(str(plan.run_disabled_reason), rendered)
