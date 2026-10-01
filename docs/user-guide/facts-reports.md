@@ -55,8 +55,11 @@ filter paths.
 | No `pending`, no `applied` (mix of `skipped` / `failed`) | `Completed` |
 | Otherwise | `Partial` |
 
-`completed_at` is stamped whenever the status reaches a non-`Pending`
-state.
+`completed_at` is stamped when the report leaves the review states
+(`Pending` and `Partial`) and lands on `Applied`, `Completed`, or `Failed`.
+It is left as it stands while the report sits in a review state, so a
+report that reopens into `Partial` after an un-skip keeps the completion
+timestamp it already recorded rather than clearing it.
 
 ## Notifications
 
