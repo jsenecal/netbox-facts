@@ -125,11 +125,13 @@ Skip is similar but does not invoke handlers; it just bulk-updates
 `_update_report_status()` derives the report status from its entries:
 
 - All `pending` -> `Pending`.
-- All `applied` -> `Applied` (and `completed_at` is set).
-- All `failed` -> `Failed`.
-- No `pending` left, mix of `applied` and others -> `Applied`.
-- No `pending` left, no `applied` -> `Completed`.
-- Otherwise -> `Partial`.
+- All `applied` -> `Applied` (`completed_at` is set).
+- All `failed` -> `Failed` (`completed_at` is set).
+- No `pending` left, mix of `applied` and others -> `Applied` (`completed_at` is set).
+- No `pending` left, no `applied` -> `Completed` (`completed_at` is set).
+- Otherwise -> `Partial` (`completed_at` is left as it stands; a report
+  reopened by an un-skip keeps the completion timestamp it already
+  recorded).
 
 ## Permissions
 
