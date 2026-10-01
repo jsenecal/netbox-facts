@@ -41,7 +41,7 @@ When disabled (apply mode):
 |---|---|
 | `pending` | Default. The entry has not been applied or skipped. |
 | `applied` | The per-collector handler ran successfully. `applied_at` is set. |
-| `skipped` | A reviewer chose not to apply this entry. |
+| `skipped` | A reviewer chose not to apply this entry. Later runs of the same plan stop recording that change on that device until the device reports something else; see [Skip memory](facts-reports.md#skip-memory). |
 | `failed` | The handler raised an exception; `error_message` holds the truncated reason (1000 chars). The savepoint for this entry was rolled back; other entries are unaffected. |
 
 ## Reviewing a report
@@ -119,6 +119,21 @@ Response: `{"applied": 2, "failed": 1}`.
 
 Skip is similar but does not invoke handlers; it just bulk-updates
 `status=skipped`.
+
+Two review-loop habits are worth knowing before you work a queue:
+
+- **Rediff before applying an entry that has been waiting.** The
+  **Rediff selected** action (and the per-row Rediff button) re-reads what
+  NetBox holds for each selected pending entry, without contacting the
+  device, so you act on the current comparison rather than the one the run
+  recorded. An entry NetBox already satisfies is marked applied instead of
+  being applied again. See
+  [Rediff](facts-reports.md#rediff).
+- **A skipped entry stays skipped.** The next run of the same plan does
+  not record a change you have already declined on that device, until the
+  device reports something different; the run summary counts the
+  suppressions. See [Skip memory](facts-reports.md#skip-memory). Un-skip
+  the entry if you want the change back in the queue.
 
 ## Report status transitions
 

@@ -1,4 +1,4 @@
-"""Entry lifecycle logic (apply, skip, retry, un-skip) for FactsReport entries."""
+"""Entry lifecycle logic (apply, skip, retry, un-skip, rediff) for FactsReport entries."""
 
 import ipaddress
 import logging
@@ -25,6 +25,7 @@ from netbox_facts.choices import (
     ReportStatusChoices,
 )
 from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.helpers.current_state import snapshot_entry
 from netbox_facts.helpers.netbox import (
     claim_device_interface,
     create_module,
@@ -208,6 +209,60 @@ def retry_entries(report, entry_pks):
     return apply_entries(report, failed_pks)
 
 
+def rediff_entries(report, entry_pks):
+    """Re-analyze selected pending entries against current NetBox state.
+
+    A pending entry holds the device's report and the NetBox state of the
+    moment it was detected. Between then and the review, NetBox may have
+    moved: somebody set the serial by hand, created the interface,
+    assigned the address. This re-reads only the NetBox side -- no device
+    is contacted, because the device's report is already stored -- and
+    updates the comparison a reviewer is about to act on.
+
+    An entry NetBox already satisfies is recorded as applied: there is
+    nothing left for the apply handler to write, its own apply of such an
+    entry ends in exactly that status, and leaving it pending would keep a
+    no-op in the review queue forever. The entry's action is left alone --
+    it still records what the run found -- and so is its change hash,
+    which identifies what the device reported rather than what NetBox
+    holds.
+
+    Entries whose kind cannot be re-read without the device are left
+    untouched and counted separately. Returns
+    (resolved_count, refreshed_count, unsupported_count).
+    """
+    resolved = 0
+    refreshed = 0
+    unsupported = 0
+    now = timezone.now()
+
+    for entry in report.entries.pending().filter(pk__in=entry_pks):
+        state = snapshot_entry(entry)
+        if state is None:
+            unsupported += 1
+            continue
+
+        entry.current_values = state.values
+        update_fields = ["current_values"]
+        if state.instance is not None:
+            set_entry_object(entry, state.instance)
+            update_fields += ["object_type", "object_id"]
+        if state.resolved:
+            entry.status = EntryStatusChoices.STATUS_APPLIED
+            entry.applied_at = now
+            entry.error_message = ""
+            entry.apply_error = None
+            update_fields += ["status", "applied_at", "error_message", "apply_error"]
+            resolved += 1
+        else:
+            refreshed += 1
+        entry.save(update_fields=update_fields)
+
+    if resolved:
+        _update_report_status(report)
+    return resolved, refreshed, unsupported
+
+
 def unskip_entries(report, entry_pks):
     """Return selected skipped entries to pending, without applying them.
 
@@ -264,8 +319,12 @@ def _update_report_status(report):
     report.save(update_fields=["status", "completed_at"])
 
 
-def _set_entry_object(entry, obj):
-    """Set the GenericFK on an entry from an object instance."""
+def set_entry_object(entry, obj):
+    """Set the GenericFK on an entry from an object instance.
+
+    Public because the rediff path points an entry at the object it found
+    the same way an apply points one at the object it wrote.
+    """
     if obj and hasattr(obj, "pk") and obj.pk:
         entry.object_type = ContentType.objects.get_for_model(obj)
         entry.object_id = obj.pk
@@ -324,7 +383,7 @@ def _apply_arp_entry(entry, now):
                 logger.warning(
                     "Interface %s not found on device %s for ARP entry %s", iface_name, entry.device, entry.pk
                 )
-        _set_entry_object(entry, netbox_mac)
+        set_entry_object(entry, netbox_mac)
     else:
         # IP entry: create/update IP and associate with MAC
         if not ip_str:
@@ -342,7 +401,7 @@ def _apply_arp_entry(entry, now):
         if mac_addr:
             netbox_mac, _ = MACAddress.objects.get_or_create(mac_address=mac_addr)
             netbox_mac.ip_addresses.add(nb_ip)
-        _set_entry_object(entry, nb_ip)
+        set_entry_object(entry, nb_ip)
 
 
 def _apply_ndp_entry(entry, now):
@@ -374,7 +433,7 @@ def _apply_inventory_entry(entry, now):
         Device.objects.filter(pk=entry.device.pk).update(serial=new_serial)
         entry.device.refresh_from_db()
 
-    _set_entry_object(entry, entry.device)
+    set_entry_object(entry, entry.device)
 
 
 def _apply_inventory_item(entry):
@@ -413,7 +472,7 @@ def _apply_inventory_item(entry):
         item.description = description
         item.save(update_fields=["serial", "part_id", "description"])
 
-    _set_entry_object(entry, item)
+    set_entry_object(entry, item)
 
 
 def _apply_stale_inventory_item(entry):
@@ -429,7 +488,7 @@ def _apply_stale_inventory_item(entry):
         item.delete()
     except InventoryItem.DoesNotExist:
         logger.warning("InventoryItem %s not found for stale entry %s", name, entry.pk)
-    _set_entry_object(entry, entry.device)
+    set_entry_object(entry, entry.device)
 
 
 def _apply_module(entry):
@@ -450,7 +509,7 @@ def _apply_module(entry):
             raise ValueError(f"No installed module in bay {bay.name} to update")
         mod = update_or_replace_module(entry.device, bay, mod, mod_type, serial)
 
-    _set_entry_object(entry, mod)
+    set_entry_object(entry, mod)
 
 
 def _apply_stale_module(entry):
@@ -463,13 +522,13 @@ def _apply_stale_module(entry):
         mod = getattr(bay, "installed_module", None)
     except ModuleBay.DoesNotExist:
         logger.warning("ModuleBay %s not found for stale module entry %s", module_bay_id, entry.pk)
-        _set_entry_object(entry, entry.device)
+        set_entry_object(entry, entry.device)
         return
 
     if mod is not None and mod.tags.filter(name=AUTO_D_TAG).exists():
         mod.delete()
 
-    _set_entry_object(entry, entry.device)
+    set_entry_object(entry, entry.device)
 
 
 def _apply_interfaces_entry(entry, now):
@@ -502,7 +561,7 @@ def _apply_interfaces_mac(entry, dv, now):
         # interface, or a logical carrier): creating the interface is
         # the whole change.
         if nb_iface is not None:
-            _set_entry_object(entry, nb_iface)
+            set_entry_object(entry, nb_iface)
         return
 
     netbox_mac, created = get_or_create_mac(mac_addr)
@@ -513,7 +572,7 @@ def _apply_interfaces_mac(entry, dv, now):
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_INTERFACES
     netbox_mac.last_seen = now
     netbox_mac.save()
-    _set_entry_object(entry, netbox_mac)
+    set_entry_object(entry, netbox_mac)
 
 
 def _apply_interfaces_lag(entry, dv):
@@ -524,7 +583,7 @@ def _apply_interfaces_lag(entry, dv):
     ae_iface = get_or_create_interface(entry.device, ae_name)
     nb_iface.lag = ae_iface
     nb_iface.save()
-    _set_entry_object(entry, nb_iface)
+    set_entry_object(entry, nb_iface)
 
 
 def _apply_interfaces_ip(entry, dv, now):
@@ -565,7 +624,7 @@ def _apply_interfaces_ip(entry, dv, now):
     elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
         nb_ip.assigned_object = nb_li
         nb_ip.save()
-    _set_entry_object(entry, nb_ip)
+    set_entry_object(entry, nb_ip)
 
 
 def _apply_stale_interfaces_ip(entry):
@@ -592,7 +651,7 @@ def _apply_stale_interfaces_ip(entry):
 
     nb_ip.assigned_object = None
     nb_ip.save()
-    _set_entry_object(entry, nb_ip)
+    set_entry_object(entry, nb_ip)
 
 
 def _apply_lldp_entry(entry, now):
@@ -623,7 +682,7 @@ def _apply_lldp_entry(entry, now):
     cable.full_clean()
     cable.save()
     cable.tags.add(AUTO_D_TAG)
-    _set_entry_object(entry, cable)
+    set_entry_object(entry, cable)
 
 
 def _apply_ethernet_switching_entry(entry, now):
@@ -652,7 +711,7 @@ def _apply_ethernet_switching_entry(entry, now):
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_L2
     netbox_mac.last_seen = now
     netbox_mac.save()
-    _set_entry_object(entry, netbox_mac)
+    set_entry_object(entry, netbox_mac)
 
 
 def _apply_vrf_entry(entry):
@@ -661,7 +720,7 @@ def _apply_vrf_entry(entry):
     if not name:
         raise ValueError("VRF entry has no name")
     vrf, created = VRF.objects.get_or_create(name=name)
-    _set_entry_object(entry, vrf)
+    set_entry_object(entry, vrf)
 
 
 def _apply_bgp_entry(entry, now):
@@ -701,7 +760,7 @@ def _apply_bgp_entry(entry, now):
     if as_number is not None and get_or_create_asn(as_number) is None:
         logger.warning("%s (BGP entry %s)", NO_RIR_MESSAGE.format(as_number=as_number), entry.pk)
 
-    _set_entry_object(entry, nb_ip)
+    set_entry_object(entry, nb_ip)
 
 
 def _apply_ospf_entry(entry, now):
@@ -718,7 +777,7 @@ def _apply_ospf_entry(entry, now):
             f"OSPF neighbor (Router ID: {dv.get('router_id', '')}) discovered on {entry.device} ({now.date()})"
         ),
     )
-    _set_entry_object(entry, ip_obj)
+    set_entry_object(entry, ip_obj)
 
 
 def _apply_evpn_entry(entry, now):
@@ -733,7 +792,7 @@ def _apply_evpn_entry(entry, now):
     netbox_mac.discovery_method = CollectionTypeChoices.TYPE_EVPN
     netbox_mac.last_seen = now
     netbox_mac.save()
-    _set_entry_object(entry, netbox_mac)
+    set_entry_object(entry, netbox_mac)
 
 
 def _apply_l2_circuits_entry(entry, now):
@@ -747,7 +806,7 @@ def _apply_l2_circuits_entry(entry, now):
             kind=JournalEntryKindChoices.KIND_INFO,
             comments=f"L2 circuit data collected:\n```\n{raw_output[:2000]}\n```",
         )
-    _set_entry_object(entry, entry.device)
+    set_entry_object(entry, entry.device)
 
 
 def _get_local_bgp_router(entry, local_as):
@@ -781,7 +840,7 @@ def _apply_bgp_router_entry(entry):
         raise ValueError("BGPRouter entry has no local_as")
 
     router = _get_local_bgp_router(entry, local_as)
-    _set_entry_object(entry, router)
+    set_entry_object(entry, router)
 
 
 def _apply_bgp_scope_entry(entry):
@@ -798,7 +857,7 @@ def _apply_bgp_scope_entry(entry):
     )
     if created:
         scope.tags.add(AUTO_D_TAG)
-    _set_entry_object(entry, scope)
+    set_entry_object(entry, scope)
 
 
 def _apply_bgp_peer_routing_entry(entry):
@@ -835,7 +894,7 @@ def _apply_bgp_peer_routing_entry(entry):
     )
     if created:
         peer.tags.add(AUTO_D_TAG)
-    _set_entry_object(entry, peer)
+    set_entry_object(entry, peer)
 
 
 APPLY_HANDLERS = {

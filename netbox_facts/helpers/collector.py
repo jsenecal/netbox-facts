@@ -45,6 +45,7 @@ from netbox_facts.choices import (
 from netbox_facts.constants import AUTO_D_TAG
 from netbox_facts.events import enqueue_report_ready
 from netbox_facts.exceptions import CollectionError
+from netbox_facts.helpers.change_hash import compute_change_hash
 from netbox_facts.helpers.napalm import (
     get_network_instances_by_interface,
     parse_network_instances,
@@ -113,6 +114,15 @@ class NapalmCollector:
     # TODO Implement live status updates
     # https://github.com/netbox-community/netbox/compare/develop...JCWasmx86:netbox:progress_in_scripts
 
+    #: How many changes this run did not record because a reviewer had
+    #: already skipped them. Declared on the class so a collector built
+    #: without __init__ (the test helpers do) still counts from zero.
+    _suppressed_changes: int = 0
+
+    #: Per-device skip memory, loaded lazily. None rather than an empty
+    #: dict so the class default cannot be shared between collectors.
+    _skip_memory: dict[int, set[tuple[str, str]]] | None = None
+
     def __init__(self, plan) -> None:
         self.plan: CollectionPlan = plan
         self._collector_type = plan.collector_type
@@ -140,6 +150,8 @@ class NapalmCollector:
         self._skipped_devices: dict[str, int] = {}
         self._device_count = 0
         self._current_driver_name = ""
+        self._suppressed_changes = 0
+        self._skip_memory = {}
 
         # Load the plan's driver override once, if it names one. A plan that
         # names none resolves a driver per device from the device's platform,
@@ -179,6 +191,39 @@ class NapalmCollector:
         subject = " ".join(text for text in (entry_kind_token(kind), *rendered[:1]) if text)
         return " on ".join([subject, *rendered[1:]])
 
+    def _skipped_change_hashes(self, device) -> set[tuple[str, str]]:
+        """Return the (kind, hash) pairs this plan's reviewers have skipped.
+
+        Read once per device and kept for the rest of the run: the memory
+        is a record of decisions made before it started, so nothing this
+        run writes can change it. Entries recorded before the hash field
+        existed carry a blank one and are left out -- a change with no
+        identity can speak for no later change.
+        """
+        from netbox_facts.models.facts_report import FactsReportEntry
+
+        if self._skip_memory is None:
+            self._skip_memory = {}
+        if device.pk not in self._skip_memory:
+            self._skip_memory[device.pk] = set(
+                FactsReportEntry.objects.skipped()
+                .filter(report__collection_plan=self.plan, device=device)
+                .exclude(change_hash="")
+                .values_list("entry_kind", "change_hash")
+            )
+        return self._skip_memory[device.pk]
+
+    def _is_skipped_change(self, device, entry_kind: str, change_hash: str) -> bool:
+        """Return True when a reviewer has already declined this change.
+
+        Only a detect-only run consults the memory. A run that writes to
+        NetBox as it collects is not a review: suppressing its entries
+        would apply a change and keep no record of having done so.
+        """
+        if self._should_apply():
+            return False
+        return (entry_kind, change_hash) in self._skipped_change_hashes(device)
+
     def _record_entry(
         self,
         action: str,
@@ -195,11 +240,22 @@ class NapalmCollector:
         entry_kind names what the entry concerns and is what the applier
         dispatches on, so every caller states it explicitly rather than
         leaving it to be guessed from the display label.
+
+        Each entry is stamped with the content hash of the change it
+        proposes, and a change a reviewer has already skipped is not
+        recorded again: None comes back and the run counts the
+        suppression, so the review queue stops repeating a decision that
+        has already been made.
         """
         if self._report is None:
             return None
 
         from netbox_facts.models.facts_report import FactsReportEntry
+
+        change_hash = compute_change_hash(entry_kind, object_repr, detected_values)
+        if self._is_skipped_change(device, entry_kind, change_hash):
+            self._suppressed_changes += 1
+            return None
 
         ct = None
         obj_id = None
@@ -219,6 +275,7 @@ class NapalmCollector:
             object_repr=object_repr,
             detected_values=detected_values,
             current_values=current_values or {},
+            change_hash=change_hash,
         )
         return entry
 
@@ -2207,6 +2264,10 @@ class NapalmCollector:
                 if reason in self._skipped_devices
             )
             message += f"; {skipped} skipped ({detail})"
+        if self._suppressed_changes:
+            # The skip memory is only trustworthy if a run says it is at
+            # work; a queue that is quiet for no visible reason is not.
+            message += f"; suppressed {self._suppressed_changes} previously skipped changes"
         self._log_info(message)
 
     def execute(self):

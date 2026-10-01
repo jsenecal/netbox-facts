@@ -38,6 +38,12 @@ __all__ = (
 # Keys a collector carries for its own bookkeeping (the object's identity,
 # the raw command output it was parsed from), which repeat what the entry
 # label already says or are too large to belong in a comparison.
+#
+# This is a display decision and deliberately not the set a change hash
+# leaves out (VOLATILE_FIELDS in change_hash): an identity key belongs in
+# the hash, which is what tells one subject's change from another's, while
+# volatile state is worth showing a reviewer even though it must not make a
+# skipped entry resurface.
 SKIP_FIELDS = {
     "name",
     "component_name",

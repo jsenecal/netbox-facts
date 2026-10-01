@@ -67,6 +67,29 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- A **Rediff** action on pending report entries -- per row and in bulk, on the
+  Pending tab and as `POST /api/plugins/facts/factsreports/<id>/rediff/` --
+  re-reads what NetBox holds for each selected entry without contacting the
+  device, so a reviewer acts on the current comparison rather than the one the
+  run recorded. `current_values` and the diff are refreshed, the entry is
+  pointed at the NetBox object it resolves to, and an entry NetBox already
+  satisfies is recorded as applied instead of being applied again: its handler
+  would write nothing it has not already got, or fail on a duplicate it cannot
+  create twice. Device serials, chassis inventory items, modules, interfaces,
+  interface MACs, neighbor MACs, LAG memberships, IP addresses and VRFs are
+  re-analyzed; cables, L2 circuits, BGP objects and OSPF neighbors cannot be
+  re-analyzed without the device and are left untouched and reported as such.
+  (#142)
+- Skip memory: each report entry now carries a `change_hash`, the content
+  identity of the change it proposes (the entry kind, the entry label, and the
+  detected payload minus the keys an apply never acts on). A detect-only run no
+  longer records a change the same plan has a skipped entry for on the same
+  device, and its summary line reports "suppressed N previously skipped
+  changes" so the memory is visible. A payload that actually moves resurfaces
+  normally, link-state and other volatile movement does not, un-skipping an
+  entry forgets the decision, and applied, failed or pending history never
+  suppresses anything. Entries recorded before the field existed carry a blank
+  hash and suppress nothing; no backfill is attempted. (#142)
 - Per-plan credentials are now first-class fields on the Collection Plan edit
   form -- **NAPALM username**, **NAPALM password** and **NAPALM enable
   secret** -- instead of undocumented magic keys inside the NAPALM arguments
