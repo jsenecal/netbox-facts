@@ -7,7 +7,7 @@ from rest_framework.throttling import UserRateThrottle
 
 from .. import filtersets, models
 from ..exceptions import OperationNotSupported
-from ..helpers.applier import apply_entries, retry_entries, skip_entries, unskip_entries
+from ..helpers.applier import apply_entries, rediff_entries, retry_entries, skip_entries, unskip_entries
 from ..models.outcomes import DEVICE_OUTCOME_COUNT_ANNOTATIONS
 from .serializers import (
     CollectionPlanSerializer,
@@ -20,7 +20,7 @@ from .serializers import (
 
 
 class FactsMutationThrottle(UserRateThrottle):
-    """Throttle mutating actions (run, apply, skip, retry, un-skip) to 30 requests/minute."""
+    """Throttle mutating actions (run, apply, skip, retry, un-skip, rediff) to 30 requests/minute."""
 
     rate = "30/minute"
 
@@ -136,6 +136,28 @@ class FactsReportViewSet(NetBoxModelViewSet):
             return error
         count = skip_entries(report, entry_pks)
         return Response({"skipped": count})
+
+    @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
+    def rediff(self, request, pk=None):
+        """Re-analyze selected pending entries: POST with {"entries": [pk, pk, ...]}
+
+        No device is contacted: only the NetBox side of each entry's
+        comparison is read again. Entries NetBox already satisfies are
+        marked applied; entries whose kind cannot be re-analyzed without
+        the device are left untouched and reported as unsupported.
+        """
+        report = self.get_object()
+        entry_pks, error = self._selected_entries(request, report)
+        if error:
+            return error
+        resolved, refreshed, unsupported = rediff_entries(report, entry_pks)
+        return Response(
+            {
+                "resolved": resolved,
+                "refreshed": refreshed,
+                "unsupported": unsupported,
+            }
+        )
 
     @action(detail=True, methods=["post"], throttle_classes=[FactsMutationThrottle])
     def retry(self, request, pk=None):

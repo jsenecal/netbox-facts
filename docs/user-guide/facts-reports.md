@@ -30,7 +30,8 @@ A `FactsReport` is created by every collection run and accumulates one
 | `object_repr` | Human-readable label (e.g. `Interface ge-0/0/0`, `MACAddress 00:11:22:33:44:55`). Display only -- apply never parses it. |
 | `display_title` | Read-only. One-line title composed from the kind, the label and the action (e.g. `Interface xe-0/0/1 changed`). |
 | `detected_values` | JSON. What the device reported. |
-| `current_values` | JSON. What NetBox currently has. Empty for `new` entries. |
+| `current_values` | JSON. What NetBox currently has. Empty for `new` entries. Refreshed by a rediff. |
+| `change_hash` | Read-only. Content identity of the proposed change, stamped at detect time: the entry kind, the label, and the detected payload minus the keys an apply never acts on. Drives [skip memory](#skip-memory). Blank on entries recorded before the field existed. |
 | `error_message` | Populated on apply failure (max 1000 chars). |
 | `apply_error` | Read-only JSON. Structured form of the last apply failure: `{"<field>": ["message", ...], "error_type": "validation"}` for validation errors, `{"__all__": ["message"], "error_type": "error"}` for infrastructure failures. Cleared on a successful apply. |
 | `created`, `applied_at` | Timestamps. |
@@ -100,6 +101,9 @@ the device counts are what make the shortfall visible. No new report status
 is involved: a run that collected nothing wears the same `failed` as a run
 that crashed, and the `netbox_facts.report_ready` event is still raised for
 it, so an event rule can act on exactly that case.
+filter paths, plus `(device, entry_kind, change_hash)` for the skip-memory
+lookup -- which spans every report a plan has produced, so it is indexed
+with the device rather than with the report.
 
 ## Status reconciliation
 
@@ -258,7 +262,7 @@ transitions its entries can make:
 
 | Tab | Controls |
 |---|---|
-| Pending | **Apply Selected**, **Skip Selected** |
+| Pending | **Apply Selected**, **Skip Selected**, **Rediff Selected** |
 | Failed | **Retry Selected** |
 | Skipped | **Un-skip Selected** |
 | Applied | none |
@@ -275,12 +279,52 @@ applying anything; they reappear on the Pending tab for review.
 
 Both are gated on `netbox_facts.apply_factsreport`, like apply and skip.
 
+### Rediff
+
+A pending entry records what the device reported and what NetBox held at
+the moment of detection. Between the run and the review, NetBox moves:
+somebody sets the serial by hand, creates the interface, assigns the
+address. Applying a stale entry then writes a change nobody needs, or
+fails on a dependency that has changed underneath it.
+
+**Rediff Selected** (and the per-row **Rediff** button) re-reads the
+NetBox side of the selected pending entries. No device is contacted --
+the device's own report is already stored -- so a rediff is cheap, needs
+no credentials, and works for devices that are currently unreachable.
+For each entry it:
+
+- refreshes `current_values` from the live NetBox object, so the Changes
+  panel and the Details column show what applying the entry would do
+  *now*;
+- points the entry at the NetBox object it resolves to, when one exists;
+- leaves `detected_values`, `action` and `change_hash` untouched -- those
+  record what the run found, which a rediff does not re-collect.
+
+An entry that NetBox already satisfies is marked **applied**. There is
+nothing left for the apply handler to write: the serial already matches,
+the interface already carries the MAC, the address is already assigned,
+or the stale object is already gone. An apply of such an entry would
+either write nothing and land on `applied` anyway, or fail on a duplicate
+it cannot create twice, so rediff records the outcome directly and the
+entry leaves the queue. The `action` is kept as detected, so the row
+still reads "Interface xe-0/0/1 changed"; `applied_at` records when the
+rediff resolved it.
+
+Some kinds cannot be re-analyzed without the device and are left exactly
+as they are, reported as "cannot be re-analyzed without collecting from
+the device": cables (both ends of a live topology), L2 circuits, BGP
+routers, scopes and peers, and OSPF neighbors. Device serials, chassis
+inventory items, modules, interfaces, interface MACs, neighbor MACs, LAG
+memberships, IP addresses and VRFs are all re-analyzed.
+
+Rediff is gated on `netbox_facts.apply_factsreport`: it writes to entries.
+
 ### Per-row and cross-page selection
 
-Every row carries the shortcuts for its own status -- apply and skip on a
-pending row, retry on a failed one, un-skip on a skipped one -- so a
-single entry can be resolved without ticking a checkbox first. A row
-button acts on that row only, even when other rows are ticked.
+Every row carries the shortcuts for its own status -- apply, skip and
+rediff on a pending row, retry on a failed one, un-skip on a skipped one
+-- so a single entry can be resolved without ticking a checkbox first. A
+row button acts on that row only, even when other rows are ticked.
 
 When a tab spans more than one page, ticking the header checkbox reveals
 a **Select all N matching entries** option. Submitting with it ticked
@@ -289,6 +333,44 @@ report, the tab's status, and the filters currently applied to the tab,
 so the action covers every matching entry rather than just the visible
 page. The transition itself is still gated by status -- a select-all
 retry only touches entries that actually failed.
+
+## Skip memory
+
+A skipped entry used to come back, identical, on every later run of the
+plan -- which trains reviewers to ignore the queue. Each entry now
+carries a `change_hash`: the content identity of the change it proposes,
+computed at detect time from the entry kind, the entry label, and the
+detected payload.
+
+Before recording an entry, a detect-only run asks whether the same plan
+has a **skipped** entry for the same device, kind and hash. If it has,
+the entry is not recorded at all, and the run's summary line says so:
+
+```
+Run summary: 12 of 12 devices collected; suppressed 7 previously skipped changes
+```
+
+The rules that follow from that:
+
+- **Only a skip suppresses.** Applied, failed and pending entries are
+  history, not a decision to stop being told.
+- **Suppression lasts only while the payload holds still.** The hash
+  leaves out what a device reports differently every run without changing
+  what an apply would do -- link state, speed, MTU, neighbor age, raw
+  command output -- so a flapping interface does not resurface a skipped
+  entry, but a new serial, a new LAG parent or a new address does.
+- **Memory is per plan and per device.** Another plan's review decisions,
+  and the same change on another device, are different decisions.
+- **Un-skipping forgets.** The entry leaves the `skipped` status, so it
+  stops suppressing anything; the next run records the change again.
+- **Entries recorded before the field existed never suppress.** Their
+  hash is blank, and a change with no identity can speak for no later
+  change. No backfill is attempted: a hash cannot be reconstructed for a
+  payload that was stored without one.
+- **Runs that apply as they collect are never suppressed.** A plan with
+  `detect_only` off writes to NetBox and records what it wrote;
+  suppressing those entries would apply a change and keep no record of
+  it.
 
 ## Device page integration
 
@@ -353,6 +435,13 @@ permissions.
 - `POST /api/plugins/facts/factsreports/<id>/unskip/` -- return selected
   skipped entries to pending without applying them. Same body; responds
   with `{"unskipped": N}`.
+- `POST /api/plugins/facts/factsreports/<id>/rediff/` -- re-analyze
+  selected pending entries against current NetBox state, contacting no
+  device. Same body; responds with
+  `{"resolved": N, "refreshed": N, "unsupported": N}` -- entries NetBox
+  already satisfies (now `applied`), entries whose comparison was
+  refreshed, and entries whose kind cannot be re-analyzed without the
+  device.
 - `GET /api/plugins/facts/factsreportentries/` -- list/filter entries.
 - `GET /api/plugins/facts/factsreportentries/<id>/` -- single entry.
 - `GET /api/plugins/facts/factsreportdeviceoutcomes/` -- list/filter the
@@ -360,13 +449,13 @@ permissions.
 - `GET /api/plugins/facts/factsreportdeviceoutcomes/<id>/` -- single
   outcome.
 
-The `apply`, `skip`, `retry`, and `unskip` endpoints validate that all
-submitted entry PKs belong to the report (returns `400` if not) and are
-throttled to 30 requests per minute per user. Each one acts only on the
-entries in the status it applies to and ignores the rest, so a mixed
-selection is safe.
+The `apply`, `skip`, `retry`, `unskip`, and `rediff` endpoints validate
+that all submitted entry PKs belong to the report (returns `400` if not)
+and are throttled to 30 requests per minute per user. Each one acts only
+on the entries in the status it applies to and ignores the rest, so a
+mixed selection is safe.
 
-These four endpoints are plain `POST` actions on the `FactsReport`
+These five endpoints are plain `POST` actions on the `FactsReport`
 viewset, so NetBox's token permission class authorizes them the same way
 it authorizes any other write: `POST` requires `netbox_facts.add_factsreport`.
 A token or user with only `view_factsreport` gets `403`. This is the

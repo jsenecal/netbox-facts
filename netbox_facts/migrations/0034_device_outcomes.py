@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     # device FK is pinned to.
     dependencies = [
         ("dcim", "0181_rename_device_role_device_role"),
-        ("netbox_facts", "0032_optional_collectionplan_napalm_driver"),
+        ("netbox_facts", "0033_entry_change_hash"),
     ]
 
     operations = [

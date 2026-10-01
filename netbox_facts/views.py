@@ -785,6 +785,39 @@ class FactsReportSkipView(FactsReportEntryActionView):
         messages.success(request, _("Skipped {count} entries.").format(count=count))
 
 
+@register_model_view(models.FactsReport, "rediff")
+class FactsReportRediffView(FactsReportEntryActionView):
+    """POST-only view to re-analyze selected pending entries.
+
+    Nothing is collected from the device: only the NetBox side of each
+    entry's comparison is read again, so a reviewer sees what applying the
+    entry would do now rather than what it would have done when the run
+    found it.
+    """
+
+    def perform(self, request, report, entry_pks):
+        from .helpers.applier import rediff_entries
+
+        resolved, refreshed, unsupported = rediff_entries(report, entry_pks)
+        if refreshed:
+            messages.success(
+                request,
+                _("Re-analyzed {count} entries against current NetBox state.").format(count=refreshed),
+            )
+        if resolved:
+            messages.success(
+                request,
+                _("{count} entries are already satisfied by NetBox and were marked applied.").format(count=resolved),
+            )
+        if unsupported:
+            messages.warning(
+                request,
+                _("{count} entries cannot be re-analyzed without collecting from the device.").format(
+                    count=unsupported
+                ),
+            )
+
+
 @register_model_view(models.FactsReport, "retry")
 class FactsReportRetryView(FactsReportEntryActionView):
     """POST-only view to retry selected failed entries."""
