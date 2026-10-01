@@ -89,6 +89,24 @@ class CronScheduleValidationTest(TestCase):
                     _build_plan(cron_schedule=expression).full_clean()
                 self.assertIn("cron_schedule", context.exception.error_dict)
 
+    def test_never_firing_expressions_are_rejected(self):
+        """A date that does not exist parses but can never come around.
+
+        February 31st is syntactically valid cron, so only looking for
+        an occurrence catches it.
+        """
+        for expression in ("0 0 31 2 *", "0 0 30 2 *"):
+            with self.subTest(expression=expression):
+                with self.assertRaises(ValidationError):
+                    validate_cron_expression(expression)
+                with self.assertRaises(ValidationError) as context:
+                    _build_plan(cron_schedule=expression).full_clean()
+                self.assertIn("cron_schedule", context.exception.error_dict)
+
+    def test_a_leap_day_expression_is_accepted(self):
+        """February 29th does come around, just rarely."""
+        validate_cron_expression("0 0 29 2 *")
+
     def test_cron_and_interval_are_mutually_exclusive(self):
         with self.assertRaises(ValidationError) as context:
             _build_plan(cron_schedule="0 2 * * *", interval=60).full_clean()
@@ -145,6 +163,17 @@ class NextRunComputationTest(TestCase):
     def test_unusable_stored_cron_leaves_the_plan_not_due(self):
         plan = _build_plan(cron_schedule="not a cron")
         self.assertIsNone(plan.get_next_run(REFERENCE))
+
+    def test_never_firing_stored_cron_leaves_the_plan_not_due(self):
+        """A plan list must not break over a schedule that never fires.
+
+        Validation rejects these, but a fixture load or a queryset
+        update can still store one, and every read path -- list, detail,
+        API -- asks the plan when it next runs.
+        """
+        plan = _build_plan(cron_schedule="0 0 31 2 *")
+        self.assertIsNone(plan.get_next_run(REFERENCE))
+        self.assertIsNone(plan.get_schedule_parameters(REFERENCE))
 
     def test_next_run_property_reads_the_same_schedule(self):
         """The property is the clock-reading wrapper around get_next_run."""
@@ -260,6 +289,16 @@ class ScheduleSignalTest(CollectorTestMixin, TestCase):
 
         plan.cron_schedule = ""
         plan.save()
+
+        self.assertFalse(CollectionJobRunner.get_jobs(plan).exists())
+
+    def test_saving_a_never_firing_cron_schedules_nothing(self):
+        """Saving a plan whose schedule never fires must not raise.
+
+        Validation keeps these out, so reaching the signal means the
+        value was written directly; the save still has to survive it.
+        """
+        plan = self._create_plan(name="Never Firing Plan", cron_schedule="0 0 31 2 *")
 
         self.assertFalse(CollectionJobRunner.get_jobs(plan).exists())
 
