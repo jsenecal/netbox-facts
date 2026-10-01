@@ -114,6 +114,17 @@ class DeviceOutcomeRunMixin(CollectorTestMixin):
         """Give each device its own address, so a stub can refuse one of them."""
         return [(f"10.0.0.{device.pk}", "primary")]
 
+    @classmethod
+    def _ips_missing_for(cls, undialable):
+        """Address every device but one, which has no usable IP at all."""
+
+        def ips(device, target):
+            if device.pk == undialable.pk:
+                raise ValueError("no usable IP")
+            return cls._ip_per_device(device, target)
+
+        return ips
+
     def _arp_plan(self, name):
         return self._create_plan(
             collector_type=CollectionTypeChoices.TYPE_ARP,
@@ -234,12 +245,11 @@ class DeviceOutcomeRecordingTest(DeviceOutcomeRunMixin, TestCase):
         no_ip = self._create_device("out-mixed-no-ip", platform=self.junos_platform)
         no_driver = self._create_device("out-mixed-no-driver")
 
-        def ips(device, _target):
-            if device.pk == no_ip.pk:
-                raise ValueError("no usable IP")
-            return [("10.0.0.1", "primary")]
-
-        report = self._run(plan, [collected, no_ip, no_driver], get_ips=ips)
+        report = self._run(
+            plan,
+            [collected, no_ip, no_driver],
+            get_ips=self._ips_missing_for(no_ip),
+        )
 
         outcomes = self._outcomes(report)
         self.assertEqual(
@@ -260,15 +270,15 @@ class ReportStatusOnDeviceFailureTest(DeviceOutcomeRunMixin, TestCase):
         unreachable = self._create_device("status-unreachable", platform=self.junos_platform)
         no_ip = self._create_device("status-no-ip", platform=self.junos_platform)
 
-        def ips(device, _target):
-            if device.pk == no_ip.pk:
-                raise ValueError("no usable IP")
-            return [("10.0.0.1", "primary")]
-
         def refuse(*args, **kwargs):
             raise ConnectionException("refused")
 
-        report = self._run(plan, [unreachable, no_ip], open_session=refuse, get_ips=ips)
+        report = self._run(
+            plan,
+            [unreachable, no_ip],
+            open_session=refuse,
+            get_ips=self._ips_missing_for(no_ip),
+        )
         report.refresh_from_db()
 
         self.assertEqual(report.status, ReportStatusChoices.STATUS_FAILED)

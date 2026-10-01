@@ -89,6 +89,12 @@ except ImportError:
     HAS_NETBOX_ROUTING = False
 
 
+#: How much of a failure a finalized report keeps. The field itself is
+#: unbounded text; the cap is here so that a traceback-sized exception string
+#: cannot become the report.
+REPORT_ERROR_LENGTH = 2000
+
+
 class DeviceSkipReasons:
     """Why a run passed over a device, and how the run summary names it.
 
@@ -2281,6 +2287,21 @@ class NapalmCollector:
             FactsReportDeviceOutcome.objects.bulk_create(self._device_outcomes)
             self._device_outcomes = []
 
+    def _finalize_report(self, status, error_message=""):
+        """Close the report out on the status the run ended on.
+
+        Both ends of execute() finish a report the same way -- write what
+        the run learned about its devices, recompute the entry counts,
+        stamp the completion -- and differ only in the status they land on
+        and what they have to say about it, so the shape lives here once.
+        """
+        self._record_device_outcomes()
+        self._report.update_summary()
+        self._report.completed_at = timezone.now()
+        self._report.status = status
+        self._report.error_message = error_message[:REPORT_ERROR_LENGTH]
+        self._report.save(update_fields=["completed_at", "status", "error_message"])
+
     def _collect_one_device(self, device, collect):
         """Run one device's pass, returning the seconds it was dialed for.
 
@@ -2383,35 +2404,26 @@ class NapalmCollector:
 
             self._log_run_summary()
         except Exception as exc:
-            # Safety net: mark the report as failed on unhandled exceptions.
-            # The devices already accounted for are still written: a run that
-            # died on its fortieth device should not lose what the first
-            # thirty-nine said.
-            self._record_device_outcomes()
-            self._report.update_summary()
-            self._report.completed_at = timezone.now()
-            self._report.status = ReportStatusChoices.STATUS_FAILED
-            self._report.error_message = str(exc)[:2000]
-            self._report.save(update_fields=["completed_at", "status", "error_message"])
+            # Safety net: fail the report on unhandled exceptions. The devices
+            # already accounted for are still written: a run that died on its
+            # fortieth device should not lose what the first thirty-nine said.
+            self._finalize_report(ReportStatusChoices.STATUS_FAILED, str(exc))
             raise
         else:
-            # Finalize report on success
-            self._record_device_outcomes()
-            self._report.update_summary()
-            self._report.completed_at = timezone.now()
             if self._device_count and not self._collected_count():
                 # Every device the run attempted was skipped or failed, so
                 # the report holds nothing to review. Saying so is the whole
                 # point: a report that sits Pending with no entries reads as
                 # a clean run, and a plan that reaches none of its scope
                 # would stay invisible until someone read the job log.
-                self._report.status = ReportStatusChoices.STATUS_FAILED
-                self._report.error_message = self._nothing_collected_message()[:2000]
+                self._finalize_report(
+                    ReportStatusChoices.STATUS_FAILED,
+                    self._nothing_collected_message(),
+                )
             else:
-                self._report.status = (
+                self._finalize_report(
                     ReportStatusChoices.STATUS_APPLIED if self._should_apply() else ReportStatusChoices.STATUS_PENDING
                 )
-            self._report.save(update_fields=["completed_at", "status", "error_message"])
             # Announce the finished report once, after its counts and final
             # status are persisted, so event rules see what a reviewer would.
             enqueue_report_ready(self._report)
