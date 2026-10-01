@@ -40,21 +40,58 @@ PLUGINS_CONFIG = {
 
 ## Per-plan credentials
 
-Each Collection Plan has a **NAPALM arguments** JSON field that is merged on
-top of `global_napalm_args`. To override the username and password for a
-specific plan, include `username` and `password` keys:
+Each Collection Plan carries its own credentials in a **Credentials**
+section on the edit form:
+
+| Field | Purpose |
+|---|---|
+| **NAPALM username** | Username this plan connects with. |
+| **NAPALM password** | Password this plan connects with. |
+| **NAPALM enable secret** | Enable / privileged-mode secret, passed to the driver as `optional_args["secret"]`. Only some drivers use it. |
+
+A field left blank falls back to the plugin-level settings
+(`napalm_username`, `napalm_password`), so a plan only needs these filled
+in when it must authenticate differently from the rest of the fleet.
+
+The two secret fields never render a stored value. When one is set, the
+field shows `********` as a placeholder and leaving it blank keeps the
+stored value, so saving a plan can never silently wipe its credentials.
+To clear a stored secret, remove its key from the **NAPALM arguments**
+JSON field.
+
+Resolution order -- the same one the collector and the pre-run check
+share:
+
+1. the plan's own credential fields (stored in its `napalm_args`);
+2. `global_napalm_args` from the plugin configuration;
+3. the plugin-level `napalm_username` / `napalm_password` settings.
+
+A plan that resolves no username from any of the three is refused when it
+is run, with "no NAPALM credentials are configured for this plan",
+instead of failing once per device deep in the job log.
+
+### The JSON path (REST API, bulk import, cloning)
+
+The credential fields are a front end for three keys in the plan's
+`napalm_args` JSON, which remains the supported path for the REST API and
+for bulk import:
 
 ```json
 {
     "username": "collector-user",
-    "password": "collector-pass"
+    "password": "collector-pass",
+    "secret": "enable-secret"
 }
 ```
 
-These two keys are extracted by the collector before the remainder is
-passed to NAPALM as `optional_args`, so they will not interfere with driver
-options. See `NapalmCollector.__init__` in
-`netbox_facts/helpers/collector.py` for the resolution order.
+`username` and `password` are consumed as the driver's positional
+credentials and never reach `optional_args`; every other key -- `secret`
+included -- is passed through to the driver as `optional_args`, so
+credentials cannot interfere with driver options. All three values are
+censored as `********` in REST API responses and on the edit form, and
+submitting a censored value back preserves the stored one. See
+`resolve_napalm_credentials()` in `netbox_facts/helpers/napalm.py` for the
+resolution order both the collector and the pre-run check use.
 
 ## Connection target
 

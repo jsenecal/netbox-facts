@@ -42,6 +42,7 @@ from ..choices import (
     ConnectionTargetChoices,
 )
 from ..helpers import NapalmCollector
+from ..helpers.napalm import resolve_napalm_credentials
 from ..helpers.netbox import filtered_list_url
 
 logger = logging.getLogger("netbox_facts")
@@ -472,7 +473,11 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         """
         Enqueue a background job to perform the facts collection.
 
-        Raises OperationNotSupported if the plan is already queued or working.
+        Raises OperationNotSupported if the plan is already queued or
+        working, or if no credential resolves for it. The credential check
+        is worth making here because the alternative is one connection
+        failure per device, logged inside a job the operator has to open to
+        learn that nothing was ever configured.
         """
         from netbox_facts.jobs import CollectionJobRunner
 
@@ -482,6 +487,14 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         ):
             raise OperationNotSupported(
                 f"Cannot enqueue collection job; plan is already {self.get_status_display().lower()}."
+            )
+
+        username, _password = resolve_napalm_credentials(self.get_napalm_args())
+        if not username:
+            raise OperationNotSupported(
+                "Cannot enqueue collection job; no NAPALM credentials are configured for this plan. "
+                "Set a username and password on the plan, or set napalm_username and napalm_password "
+                "in the plugin configuration."
             )
 
         user = self.run_as if request.user.is_superuser and self.run_as is not None else request.user

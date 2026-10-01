@@ -45,6 +45,22 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Per-plan credentials are now first-class fields on the Collection Plan edit
+  form -- **NAPALM username**, **NAPALM password** and **NAPALM enable
+  secret** -- instead of undocumented magic keys inside the NAPALM arguments
+  JSON. The two secret fields never render a stored value: a stored secret
+  shows as a `********` placeholder, leaving the field blank keeps it, and
+  submitting the censored value back preserves it, exactly as the JSON field
+  already did. The fields write to the same `napalm_args` keys, so the JSON
+  path stays supported for the REST API and bulk import, and no migration is
+  involved. (#149)
+- A plan is now checked for credentials before it is enqueued: when no
+  username resolves from the plan, `global_napalm_args`, or the plugin-level
+  `napalm_username` setting, the run is refused with "no NAPALM credentials
+  are configured for this plan" (a warning in the UI, HTTP 409 on
+  `POST .../collectionplans/<id>/run/`) rather than failing once per device
+  inside the job log. The collector and the check share one resolution
+  helper, so they cannot drift. (#149)
 - Entry lifecycle actions: a failed entry can be retried and a skipped entry
   can be un-skipped. Retry returns the selected failed entries to pending,
   clears the recorded failure, and re-applies them; un-skip returns skipped
