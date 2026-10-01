@@ -9,8 +9,8 @@ declares in `netbox_facts/__init__.py`.
 | Setting | Type | Default | Description |
 |---|---|---|---|
 | `top_level_menu` | bool | `True` | Render the plugin as an **Operational Facts** top-level menu. When `False`, entries appear under **Plugins**. |
-| `napalm_username` | str | `""` | Default NAPALM username for device connections. If left empty and not overridden per plan, an empty username is passed to NAPALM and the connection fails per device. |
-| `napalm_password` | str | `""` | Default NAPALM password. If left empty and not overridden per plan, an empty password is passed to NAPALM and the connection fails per device. |
+| `napalm_username` | str | `""` | Default NAPALM username for device connections, used by every plan that does not set its own. A plan with no username here and none of its own is refused when it is run (see [per-plan credentials](#per-plan-credentials)). |
+| `napalm_password` | str | `""` | Default NAPALM password, used by every plan that does not set its own. Left empty, an empty password is passed to NAPALM and each device connection fails on authentication; only a missing username is refused up front. |
 | `napalm_timeout` | int | `60` | Connection timeout passed to the NAPALM driver as `optional_args["timeout"]` when the per-plan `napalm_args` does not already set it. |
 | `global_napalm_args` | dict | `{}` | Extra NAPALM `optional_args` merged into every plan. The plan's own `napalm_args` overrides matching keys. |
 | `valid_interfaces_re` | str | `".*"` | Regex applied to interface names by collectors that walk per-interface tables (ARP, NDP, interfaces, ethernet switching). Interfaces whose name does not match are skipped. |
@@ -53,11 +53,18 @@ A field left blank falls back to the plugin-level settings
 (`napalm_username`, `napalm_password`), so a plan only needs these filled
 in when it must authenticate differently from the rest of the fleet.
 
-The two secret fields never render a stored value. When one is set, the
-field shows `********` as a placeholder and leaving it blank keeps the
-stored value, so saving a plan can never silently wipe its credentials.
-To clear a stored secret, remove its key from the **NAPALM arguments**
-JSON field.
+Blank means something slightly different for the username than for the
+two secrets, because only the username field can show you what it holds:
+
+- **NAPALM username** renders its stored value. Clearing the field drops
+  the plan's own username, and the plan goes back to the plugin-level
+  `napalm_username`.
+- **NAPALM password** and **NAPALM enable secret** never render a stored
+  value. When one is set, the field shows `********` as a placeholder, and
+  leaving it blank keeps the stored value -- a blank field there cannot be
+  told from an untouched one, so saving a plan never silently wipes its
+  password. To clear one, remove its key from the **NAPALM arguments**
+  JSON field.
 
 Resolution order -- the same one the collector and the pre-run check
 share:
@@ -70,11 +77,14 @@ A plan that resolves no username from any of the three is refused when it
 is run, with "no NAPALM credentials are configured for this plan",
 instead of failing once per device deep in the job log.
 
-### The JSON path (REST API, bulk import, cloning)
+### The JSON path (REST API and bulk import)
 
 The credential fields are a front end for three keys in the plan's
 `napalm_args` JSON, which remains the supported path for the REST API and
-for bulk import:
+for bulk import. Cloning is the exception: a cloned plan deliberately
+starts with the original's other driver options and no credentials,
+because NetBox renders cloned attributes into the creation link's
+querystring.
 
 ```json
 {

@@ -97,6 +97,11 @@ warning. See [Configuration](../getting-started/configuration.md).
 | `napalm_driver` | A NAPALM driver name (e.g. `junos`, `ios`, `eos`). Resolved by `get_network_driver()`; the plugin first tries `netbox_facts.napalm.<name>` so internal vendor overrides win, then falls back to upstream. |
 | `napalm_args` | JSON merged on top of the plugin-level `global_napalm_args`. Special keys `username` and `password` are extracted before the rest is passed as `optional_args`. |
 
+The edit form fills the `username`, `password` and `secret` keys from a
+dedicated **Credentials** fieldset rather than from the `napalm_args` JSON
+box, so credentials are never typed into (or echoed from) the raw JSON;
+see [per-plan credentials](../getting-started/configuration.md#per-plan-credentials).
+
 ## Connection target
 
 `connection_target` controls dial order:
