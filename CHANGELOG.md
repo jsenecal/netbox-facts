@@ -10,6 +10,7 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- `scheduled_at` is now honored instead of collected, validated and discarded: a plan with a future `scheduled_at` and no recurrence runs exactly once at that time (previously it got no job at all), and an interval plan with a future `scheduled_at` waits for it instead of starting its first run the moment the plan is saved. A `scheduled_at` already in the past schedules nothing, so editing a plan no longer triggers an unexpected run. A future-dated job also no longer sets the plan's status to `queued`, so the Run button and manual runs stay available while a plan waits for its slot. (#90)
 - The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
 - The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
@@ -45,6 +46,15 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Cron-style scheduling: a collection plan accepts a five-field cron expression
+  (`cron_schedule`, for example `0 2 * * 1-5`) as an alternative to the flat
+  interval, evaluated in NetBox's configured time zone. The expression is
+  validated on save, is mutually exclusive with the interval, and each run
+  enqueues its own successor so a cron schedule survives a failed run. Plans
+  now expose a computed `next_run` on the detail page, in the REST API, and on
+  the plan list, which also gains Enabled, Last run, Next run, Interval and
+  Cron schedule columns, a per-row Run button, and a badge-style Detect Only
+  column. (#146, #90)
 - Entry lifecycle actions: a failed entry can be retried and a skipped entry
   can be un-skipped. Retry returns the selected failed entries to pending,
   clears the recorded failure, and re-applies them; un-skip returns skipped

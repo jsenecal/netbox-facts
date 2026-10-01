@@ -126,14 +126,21 @@ See [Detect-Only Workflow](detect-only.md) for the full apply flow.
 
 ## Scheduling
 
-Scheduling is driven entirely by the `interval` field plus the plan's
-`enabled` flag:
+Scheduling is driven by the `interval` and `cron_schedule` fields, the
+`scheduled_at` start time, and the plan's `enabled` flag:
 
-- `interval` blank: the plan does not auto-schedule. Manual runs only.
-- `interval = N`: every save schedules `CollectionJobRunner.enqueue_once()`
-  to run every N minutes via NetBox's `JobRunner` framework.
-- `enabled = False`: the `post_save` signal cancels any pending scheduled
-  job for the plan.
+- `interval` and `cron_schedule` both blank: the plan does not
+  auto-schedule. Manual runs only, unless `scheduled_at` is set -- which
+  schedules exactly one run at that time.
+- `interval = N`: runs every N minutes via NetBox's `JobRunner`
+  framework, starting at `scheduled_at` when that time is still ahead.
+- `cron_schedule = <expression>`: runs at each firing of a five-field
+  cron expression. Mutually exclusive with `interval`.
+- `enabled = False`: the `post_save` signal cancels any future-dated job
+  for the plan.
+
+The plan's **Next run** is computed from these fields and `last_run`, and
+is shown on the detail page, the plan list, and the REST API.
 
 Implementation: see `handle_collection_job_change()` in
 `netbox_facts/signals.py`.
