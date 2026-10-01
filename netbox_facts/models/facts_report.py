@@ -7,7 +7,7 @@ from django.db import models
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import BaseModel
-from netbox.models.features import EventRulesMixin
+from netbox.models.features import EventRulesMixin, ExportTemplatesMixin
 from utilities.querysets import RestrictedQuerySet
 
 from ..choices import (
@@ -121,7 +121,7 @@ class FactsReport(BaseModel, EventRulesMixin):
         self.save(update_fields=["summary"])
 
 
-class FactsReportEntry(models.Model):
+class FactsReportEntry(ExportTemplatesMixin, models.Model):
     """A single detected fact within a FactsReport."""
 
     report = models.ForeignKey(

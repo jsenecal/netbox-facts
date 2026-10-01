@@ -45,6 +45,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- `FactsReportEntry` now advertises the `export_templates` model feature, so
+  it appears in the object-type picker when creating an Export Template
+  under Operations > Export Templates. The entry export path already
+  rendered ExportTemplates correctly; only the picker was missing the type.
+
 - Entry lifecycle actions: a failed entry can be retried and a skipped entry
   can be un-skipped. Retry returns the selected failed entries to pending,
   clears the recorded failure, and re-applies them; un-skip returns skipped
