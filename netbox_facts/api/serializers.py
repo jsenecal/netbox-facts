@@ -204,6 +204,7 @@ class FactsReportEntrySerializer(serializers.ModelSerializer):
             "display_title",
             "detected_values",
             "current_values",
+            "change_hash",
             "error_message",
             "apply_error",
             "created",

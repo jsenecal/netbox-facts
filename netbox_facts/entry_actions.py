@@ -58,6 +58,14 @@ ENTRY_ACTIONS_BY_STATUS = {
             label=_("Skip"),
             bulk_label=_("Skip Selected"),
         ),
+        EntryAction(
+            name="rediff",
+            url_name="plugins:netbox_facts:factsreport_rediff",
+            icon="mdi-reload",
+            css_class="btn-primary",
+            label=_("Rediff"),
+            bulk_label=_("Rediff Selected"),
+        ),
     ),
     EntryStatusChoices.STATUS_FAILED: (
         EntryAction(
