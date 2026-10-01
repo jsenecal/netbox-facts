@@ -297,6 +297,17 @@ throttled to 30 requests per minute per user. Each one acts only on the
 entries in the status it applies to and ignores the rest, so a mixed
 selection is safe.
 
+These four endpoints are plain `POST` actions on the `FactsReport`
+viewset, so NetBox's token permission class authorizes them the same way
+it authorizes any other write: `POST` requires `netbox_facts.add_factsreport`.
+A token or user with only `view_factsreport` gets `403`. This is the
+standard REST mapping, not the UI's `apply_factsreport` custom permission
+-- the two are independent, so granting one does not grant the other.
+The `CollectionPlan` run endpoint
+(`POST /api/plugins/facts/collectionplans/<id>/run/`) follows the same
+rule against its own model's `add_collectionplan` permission,
+independently of the UI's `run_collector` permission.
+
 The entry endpoint is read-only: entries are produced by a collection run
 and resolved through the report-level lifecycle actions, never created or
 edited directly. It is how an API client discovers the entry PKs to pass
