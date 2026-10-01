@@ -256,7 +256,7 @@ class RediffTestMixin(ApplierTestMixin):
         super().setUp()
         self.report = FactsReport.objects.create(collection_plan=self.plan)
 
-    def make_entry(self, **kwargs):
+    def make_entry(self, report=None, **kwargs):
         """Create one pending entry, defaulting to a device serial change."""
         values = {
             "action": EntryActionChoices.ACTION_CHANGED,
@@ -268,7 +268,7 @@ class RediffTestMixin(ApplierTestMixin):
             "current_values": {"serial_number": "AT_DETECT_TIME"},
         }
         values.update(kwargs)
-        return FactsReportEntry.objects.create(report=self.report, device=self.device, **values)
+        return FactsReportEntry.objects.create(report=report or self.report, device=self.device, **values)
 
 
 class RediffEntriesTest(RediffTestMixin, DjangoTestCase):
@@ -659,16 +659,7 @@ class RediffEntriesTest(RediffTestMixin, DjangoTestCase):
     def test_rediff_ignores_entries_from_another_report(self):
         """Entry PKs are scoped to the report that owns them."""
         other_report = FactsReport.objects.create(collection_plan=self.plan)
-        other_entry = FactsReportEntry.objects.create(
-            report=other_report,
-            device=self.device,
-            action=EntryActionChoices.ACTION_CHANGED,
-            collector_type=CollectionTypeChoices.TYPE_INVENTORY,
-            entry_kind=EntryKindChoices.KIND_DEVICE,
-            object_repr=device_repr(self.device),
-            detected_values=dict(DEVICE_PAYLOAD),
-            current_values={"serial_number": "AT_DETECT_TIME"},
-        )
+        other_entry = self.make_entry(report=other_report)
 
         counts = rediff_entries(self.report, [other_entry.pk])
 

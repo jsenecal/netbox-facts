@@ -59,6 +59,25 @@ def _is_removal(entry):
     return entry.action == EntryActionChoices.ACTION_STALE
 
 
+def _absent(entry):
+    """The state of an entry whose subject NetBox does not hold.
+
+    There is nothing to snapshot and nothing to compare, so a removal is
+    satisfied -- what it would have taken out is already gone -- and every
+    other action is left for a reviewer.
+    """
+    return EntryCurrentState({}, None, _is_removal(entry))
+
+
+def _subject_value(entry, key):
+    """Read one key naming the entry's subject, from whichever side has it.
+
+    A removal carries its subject in the snapshot NetBox gave at detect
+    time; everything else carries it in what the device reported.
+    """
+    return (entry.detected_values or {}).get(key) or (entry.current_values or {}).get(key)
+
+
 def _matches(entry, values, keys):
     """True when NetBox already holds what the device reported, key by key.
 
@@ -107,10 +126,10 @@ def _device_state(entry):
 
 def _inventory_item_state(entry):
     """A chassis item is satisfied by its serial, part and description."""
-    name = (entry.detected_values or {}).get("name") or (entry.current_values or {}).get("name") or ""
+    name = _subject_value(entry, "name")
     item = InventoryItem.objects.filter(device=entry.device, name=name).first() if name else None
     if item is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     values = {
         "name": item.name,
@@ -123,12 +142,11 @@ def _inventory_item_state(entry):
 
 def _module_state(entry):
     """A module is satisfied by the right part, with the right serial, in its bay."""
-    detected = entry.detected_values or {}
-    bay_id = detected.get("module_bay_id") or (entry.current_values or {}).get("module_bay_id")
+    bay_id = _subject_value(entry, "module_bay_id")
     bay = ModuleBay.objects.filter(pk=bay_id).first() if bay_id else None
     installed = getattr(bay, "installed_module", None) if bay is not None else None
     if installed is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     values = {
         "module_bay_id": bay.pk,
@@ -143,6 +161,8 @@ def _lag_state(entry):
     detected = entry.detected_values or {}
     interface = _device_interface(entry, detected.get("interface"))
     if interface is None:
+        # The member is the subject here, not the thing being removed, so
+        # its absence leaves the membership unjudged rather than satisfied.
         return EntryCurrentState({}, None, False)
 
     parent = interface.lag.name if interface.lag else None
@@ -175,7 +195,7 @@ def _interface_state(entry):
     detected = entry.detected_values or {}
     interface = _device_interface(entry, detected.get("interface"))
     if interface is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     values = {"interface": interface.name}
     mac_address = detected.get("mac_address") or ""
@@ -194,7 +214,7 @@ def _interface_mac_state(entry):
     interface = _device_interface(entry, detected.get("interface"))
     mac, claimed = _claimed_mac(interface, mac_address)
     if mac is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     values = {"mac_address": str(mac.mac_address), "interface": interface.name if interface else None}
     return EntryCurrentState(values, mac, claimed and not _is_removal(entry))
@@ -217,7 +237,7 @@ def _mac_address_state(entry):
     detected = entry.detected_values or {}
     mac = _mac_address(detected.get("mac") or detected.get("mac_address"))
     if mac is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     name = detected.get("interface") or ""
     interface = _device_interface(entry, name)
@@ -248,9 +268,9 @@ def _ip_address_state(entry):
     # neighbor collectors under "ip". Keeping whichever key the entry
     # already uses makes a refreshed snapshot read like a detected one.
     key = "ip_address" if "ip_address" in detected or "ip_address" in current else "ip"
-    address = detected.get(key) or current.get(key) or ""
+    address = _subject_value(entry, key)
     try:
-        vrf = resolve_vrf(detected.get("vrf") or current.get("vrf"))
+        vrf = resolve_vrf(_subject_value(entry, "vrf"))
     except (VRF.DoesNotExist, VRF.MultipleObjectsReturned):
         # Without the VRF the address cannot be identified at all, so
         # nothing can be said about it beyond leaving it for review.
@@ -258,7 +278,7 @@ def _ip_address_state(entry):
 
     nb_ip = IPAddress.objects.filter(address=address, vrf=vrf).first() if address else None
     if nb_ip is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
 
     assigned = nb_ip.assigned_object
     values = {
@@ -278,10 +298,10 @@ def _ip_address_state(entry):
 
 def _vrf_state(entry):
     """A VRF entry is satisfied by the VRF existing."""
-    name = (entry.detected_values or {}).get("name") or (entry.current_values or {}).get("name") or ""
+    name = _subject_value(entry, "name")
     vrf = VRF.objects.filter(name=name).first() if name else None
     if vrf is None:
-        return EntryCurrentState({}, None, _is_removal(entry))
+        return _absent(entry)
     return EntryCurrentState({"name": vrf.name}, vrf, not _is_removal(entry))
 
 

@@ -77,20 +77,7 @@ def apply_entries(report, entry_pks):
             try:
                 with transaction.atomic():
                     handler(entry, now)
-                    entry.status = EntryStatusChoices.STATUS_APPLIED
-                    entry.applied_at = now
-                    entry.error_message = ""
-                    entry.apply_error = None
-                    entry.save(
-                        update_fields=[
-                            "status",
-                            "applied_at",
-                            "object_type",
-                            "object_id",
-                            "error_message",
-                            "apply_error",
-                        ]
-                    )
+                    entry.save(update_fields=[*_mark_entry_applied(entry, now), "object_type", "object_id"])
                 applied += 1
             except Exception as exc:
                 _mark_entry_failed(entry, exc)
@@ -141,6 +128,22 @@ def _error_summary(apply_error):
         prefix = "" if field == ERROR_KEY_ALL else f"{field}: "
         parts.extend(f"{prefix}{message}" for message in messages)
     return "; ".join(parts)[:1000]
+
+
+def _mark_entry_applied(entry, now):
+    """Set the fields that describe a resolved entry, and name them.
+
+    What "applied" looks like -- the status, the stamp, and no failure
+    left over -- is decided here for both callers that reach it: the apply
+    that wrote the change, and the rediff that found NetBox already
+    holding it. The field names come back rather than being saved, so a
+    caller can add the fields it set itself and save once.
+    """
+    entry.status = EntryStatusChoices.STATUS_APPLIED
+    entry.applied_at = now
+    entry.error_message = ""
+    entry.apply_error = None
+    return ["status", "applied_at", "error_message", "apply_error"]
 
 
 def _mark_entry_failed(entry, exc):
@@ -248,11 +251,7 @@ def rediff_entries(report, entry_pks):
             set_entry_object(entry, state.instance)
             update_fields += ["object_type", "object_id"]
         if state.resolved:
-            entry.status = EntryStatusChoices.STATUS_APPLIED
-            entry.applied_at = now
-            entry.error_message = ""
-            entry.apply_error = None
-            update_fields += ["status", "applied_at", "error_message", "apply_error"]
+            update_fields += _mark_entry_applied(entry, now)
             resolved += 1
         else:
             refreshed += 1
