@@ -10,6 +10,21 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The Facts Reports and detect-only docs claimed `completed_at` is stamped
+  "whenever the status reaches a non-Pending state"; that is wrong for
+  `Partial`, which does not stamp it. Corrected to describe the real rule:
+  `completed_at` is set when a report leaves the review states (`Pending`,
+  `Partial`) and lands on `Applied`, `Completed`, or `Failed`, and is left
+  untouched otherwise, so a report reopened by an un-skip keeps the
+  completion timestamp it already recorded.
+- The Facts Reports and configuration docs did not say how the REST API
+  authorizes the report-level write actions (`apply`, `skip`, `retry`,
+  `unskip`) and the plan's `run` action. They are plain `POST` actions, so
+  NetBox's token permission class maps them to the standard
+  `add_factsreport` / `add_collectionplan` permissions, not the UI's
+  `apply_factsreport` / `run_collector` custom permissions. Documented so
+  API consumers granted only the custom permissions are not surprised by a
+  403.
 - The "Occurrences" column header on the MAC Address list was misspelled "Occurences". (#162)
 - The Details column for a CHANGED report entry now shows attributes newly reported by the device (detected-only keys) and attributes the device no longer reports (current-only keys), instead of silently dropping them from the diff; both render with an explicit "(not set)" marker on the missing side. (#133)
 - `CollectionPlan.run()` no longer starts a debugpy listener on `0.0.0.0:5678` and blocks the worker whenever a plan's free-form NAPALM arguments contain `debug: true`; the hook now requires `settings.DEBUG` to be True and binds to `127.0.0.1` only, and the `debug` key is stripped from the merged args returned by `get_napalm_args()` unconditionally so it never reaches the NAPALM driver. (#132)
@@ -44,6 +59,11 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 - Applying an ARP/NDP, interfaces IP, or BGP peer entry whose detected VRF no longer resolves now fails the entry instead of silently writing the IP address into the global routing table. (#53)
 
 ### Added
+
+- `FactsReportEntry` now advertises the `export_templates` model feature, so
+  it appears in the object-type picker when creating an Export Template
+  under Operations > Export Templates. The entry export path already
+  rendered ExportTemplates correctly; only the picker was missing the type.
 
 - Entry lifecycle actions: a failed entry can be retried and a skipped entry
   can be un-skipped. Retry returns the selected failed entries to pending,
