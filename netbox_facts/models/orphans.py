@@ -88,11 +88,14 @@ class OrphanCandidate(models.Model):
     def object_repr(self):
         """Name the absent object, falling back to its generic key.
 
-        An object deleted outside the plugin leaves the key dangling, and
-        a row that can no longer say what it tracked is still worth
-        printing by what it points at.
+        A row can outlive what it tracked twice over: an object deleted
+        outside the plugin leaves the key dangling, and a content type
+        whose model has left the installation -- an uninstalled plugin --
+        resolves to no class at all, which the generic key cannot be
+        dereferenced through. Either way a row that can no longer say
+        what it tracked is still worth printing by what it points at.
         """
-        obj = self.object
+        obj = self.object if self.content_type.model_class() is not None else None
         if obj is None:
             return f"{self.content_type} {self.object_id}"
         return f"{self.content_type.name} {obj}"

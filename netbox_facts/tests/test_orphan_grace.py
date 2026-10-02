@@ -113,7 +113,11 @@ class OrphanCandidateHousekeepingTest(CollectorTestMixin, TestCase):
     def test_settling_a_row_whose_model_has_left_the_installation(self):
         """An uninstalled plugin's content type resolves to no class at all."""
         content_type = ContentType.objects.create(app_label="departed_plugin", model="departedmodel")
-        self._candidate(content_type, 1)
+        candidate = self._candidate(content_type, 1)
+
+        # The generic key cannot be dereferenced through a content type
+        # with no model class, so reading the row must not try to.
+        self.assertIn("1", candidate.object_repr)
 
         release_orphan_candidates(content_type.pk, 1)
 
