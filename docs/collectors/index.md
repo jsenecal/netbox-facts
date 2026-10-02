@@ -82,6 +82,37 @@ description can still be edited freely. See `get_discovery_tag()` in
 established (including adopting a pre-existing tag of the same name from
 before this migration existed).
 
+## Stale sweeps and the grace period
+
+Four sweeps reconcile what a device no longer reports:
+
+| Sweep | Objects | What the removal does |
+|---|---|---|
+| `_ip_neighbors()` (ARP, NDP) | Auto-discovered IPs reachable through the device's MACs, filtered to the collector's address family | Records a `stale` entry |
+| `_collect_chassis_inventory()` | Discovered `InventoryItem`s not reported by the chassis | Deletes the item |
+| `_collect_chassis_inventory()` | Auto-discovered `Module`s in bays the chassis did not report | Deletes the module |
+| `_detect_stale_ips()` (interfaces) | Auto-discovered IPs on the interfaces this run inspected | Unassigns the address |
+
+Every one of them hands its absent objects to `_past_grace()` and acts
+only on what comes back. With a grace period configured on the plan (or
+plugin-wide), the first absence writes an `OrphanCandidate` row recording
+when the object went missing, tags the object **Orphaned
+(netbox-facts)**, and holds it back; later runs move the row's
+`last_missing` stamp. Only once `now - first_missing` has reached the
+period is the object returned for the behavior in the table above.
+
+An object the sweep did not report as absent is one it found again, and
+`_past_grace()` forgets it: the row goes and the tag comes off. Driving
+that pass off the rows rather than off the objects seen is what keeps it
+cheap -- a device with nothing orphaned costs one query -- and keeping
+the partition and the forgetting in one place is what stops a sweep from
+deleting a row the same run has just written.
+
+A grace period of `0` -- the shipped default -- short-circuits the gate
+before any row is written, so a plan without one behaves exactly as it did
+before the grace period existed. See
+[Stale grace period](../getting-started/configuration.md#stale-grace-period).
+
 ## Interface filter
 
 The plugin-wide `valid_interfaces_re` setting filters which interfaces a

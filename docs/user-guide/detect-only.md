@@ -31,7 +31,7 @@ When disabled (apply mode):
 | `new` | The fact was detected on the device and no matching object exists in NetBox yet. |
 | `changed` | A matching object exists in NetBox but its values differ from what the device reports. |
 | `confirmed` | The fact matches NetBox exactly. Entries are recorded for visibility; applying them is a no-op for most collectors. |
-| `stale` | The object exists in NetBox (and carries the **Automatically Discovered** tag) but was not seen during this run. Applying it removes or unassigns the object. |
+| `stale` | The object exists in NetBox (and carries the **Automatically Discovered** tag) but was not seen during this run. Applying it removes or unassigns the object. With a [grace period](#stale-grace-period) configured, the entry is only recorded once the object has been missing for the whole period. |
 
 ## Entry status
 
@@ -43,6 +43,36 @@ When disabled (apply mode):
 | `applied` | The per-collector handler ran successfully. `applied_at` is set. |
 | `skipped` | A reviewer chose not to apply this entry. Later runs of the same plan stop recording that change on that device until the device reports something else; see [Skip memory](facts-reports.md#skip-memory). |
 | `failed` | The handler raised an exception; `error_message` holds the truncated reason (1000 chars). The savepoint for this entry was rolled back; other entries are unaffected. |
+
+## Stale grace period
+
+A `stale` entry is a proposal to remove something, and a run can be wrong
+about an absence: a device briefly unreachable mid-run, a transceiver
+reseated between two passes. With a grace period configured -- the
+`stale_grace_period_days` plugin setting, or a plan's own
+`stale_grace_days` -- an absence has to persist before it reaches the
+review queue at all:
+
+- The first run that cannot find the object tags it **Orphaned
+  (netbox-facts)** and records when it went missing. **No `stale` entry
+  is created**, so nothing appears in the queue; the run's summary line
+  reports how many objects it is holding (`N objects in grace`).
+- Later runs that still cannot find it confirm the absence. The clock
+  keeps running from the *first* miss, so a long-gone object is not
+  reprieved by being missed again.
+- Once it has been missing for the whole period, the `stale` entry is
+  recorded as it always was, and review proceeds normally.
+- An object the run finds again loses the tag and its record, and nothing
+  is ever proposed.
+
+Applying the entry settles the absence: the tag comes off and the record
+is dropped. Skipping it does not -- the object stays marked and keeps its
+record, because a skip is a decision about the entry, not a verdict that
+the object is still there. Un-skipping needs nothing special either; the
+entry simply returns to the queue.
+
+With the default grace period of `0` none of this happens: the first
+absence records the `stale` entry, exactly as before.
 
 ## Reviewing a report
 

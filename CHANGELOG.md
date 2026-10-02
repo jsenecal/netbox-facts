@@ -89,6 +89,21 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- Stale handling can now hold a missing object in a grace period instead of
+  removing it on the first run that does not find it. With
+  `stale_grace_period_days` (plugin setting) or `stale_grace_days` (per-plan
+  override) set to a positive number, the first absence records an
+  `OrphanCandidate` row and tags the object **Orphaned (netbox-facts)**
+  without creating a `stale` entry or removing anything; later runs confirm
+  the absence, and only once the object has been missing for the whole period
+  does the sweep do what it always did -- record the `stale` entry in a
+  detect-only run, perform the removal in an applying one. An object the run
+  sees again loses the tag and its row, and applying a `stale` entry settles
+  the absence the same way. All four stale sweeps are gated (ARP/NDP
+  addresses, chassis inventory items, chassis modules, interface addresses),
+  and the run summary reports how many objects a run is holding. The default
+  of `0` disables the grace period entirely, preserving the previous
+  behavior byte for byte. (#156)
 - A collection run now records what it made of every device it attempted, as
   one `FactsReportDeviceOutcome` row per device on the report: the outcome
   (`ok`, `unreachable`, `auth_failed`, `driver_error`, `skipped_no_ip`,

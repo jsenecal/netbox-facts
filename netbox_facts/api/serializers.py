@@ -143,6 +143,7 @@ class CollectionPlanSerializer(NetBoxModelSerializer):
             "status",
             "enabled",
             "detect_only",
+            "stale_grace_days",
             "description",
             "collector_type",
             "comments",

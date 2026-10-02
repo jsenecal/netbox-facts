@@ -38,6 +38,7 @@ from netbox_facts.helpers.netbox import (
     resolve_vrf_or_fail,
     update_or_replace_module,
 )
+from netbox_facts.helpers.orphans import release_orphan_candidates
 from netbox_facts.models.mac import MACAddress
 
 logger = logging.getLogger("netbox_facts")
@@ -75,9 +76,17 @@ def apply_entries(report, entry_pks):
             entry.status = EntryStatusChoices.STATUS_APPLYING
             entry.save(update_fields=["status"])
 
+            # Read before the handler runs: the stale handlers repoint an
+            # entry's generic key at the device once they are done with
+            # the object, and this is the last moment the entry still
+            # names what the run found missing.
+            orphan_ref = _orphan_object_ref(entry)
+
             try:
                 with transaction.atomic():
                     handler(entry, now)
+                    if orphan_ref is not None:
+                        release_orphan_candidates(*orphan_ref)
                     entry.save(update_fields=[*_mark_entry_applied(entry, now), "object_type", "object_id"])
                 applied += 1
             except Exception as exc:
@@ -87,6 +96,22 @@ def apply_entries(report, entry_pks):
 
         _update_report_status(report)
     return applied, failed
+
+
+def _orphan_object_ref(entry):
+    """Return the generic key a stale entry's grace rows are filed under.
+
+    None for anything but a stale entry, and for a stale entry that names
+    no object: only a removal settles an absence, and only a key can find
+    the rows that were tracking it. Applying the entry is the reviewer
+    acting on the absence the grace period was waiting out, so whatever
+    the sweep recorded about it stops being pending.
+    """
+    if entry.action != EntryActionChoices.ACTION_STALE:
+        return None
+    if entry.object_type_id is None or entry.object_id is None:
+        return None
+    return entry.object_type_id, entry.object_id
 
 
 def build_apply_error(exc):
@@ -241,6 +266,7 @@ def rediff_entries(report, entry_pks):
     now = timezone.now()
 
     for entry in report.entries.pending().filter(pk__in=entry_pks):
+        orphan_ref = _orphan_object_ref(entry)
         state = snapshot_entry(entry)
         if state is None:
             unsupported += 1
@@ -253,6 +279,12 @@ def rediff_entries(report, entry_pks):
             update_fields += ["object_type", "object_id"]
         if state.resolved:
             update_fields += _mark_entry_applied(entry, now)
+            # A removal is resolved only by the object being gone, which
+            # settles the absence as surely as applying the entry would
+            # have: whatever the grace period was tracking no longer
+            # exists to be tracked.
+            if orphan_ref is not None:
+                release_orphan_candidates(*orphan_ref)
             resolved += 1
         else:
             refreshed += 1

@@ -18,6 +18,7 @@ declares in `netbox_facts/__init__.py`.
 | `job_timeout` | int | `1800` | Maximum runtime in seconds passed to RQ when enqueuing a `CollectionJobRunner` job. |
 | `report_retention_days` | int | `0` | Age in days after which Facts Reports are deleted by the daily retention job. `0` disables pruning and keeps every report forever. Reports holding pending entries are never deleted, whatever their age. |
 | `scope_warning_threshold` | int | `500` | Number of devices above which saving a Collection Plan warns that its scope is large. The plan is still saved; `0` disables the warning. See [Device scoping](../user-guide/collection-plans.md#device-scoping). |
+| `stale_grace_period_days` | int | `0` | Days an object a run no longer finds is marked **Orphaned (netbox-facts)** before its removal is proposed. `0` keeps the historical behavior: the first run that does not find an object proposes (or performs) its removal. A plan can override this with its own `stale_grace_days`. See [Stale grace period](#stale-grace-period). |
 
 ## Example
 
@@ -168,6 +169,39 @@ These are independent:
   iterates every device in a plan.
 
 If a plan covers many devices, `job_timeout` is the value to raise.
+
+## Stale grace period
+
+A stale sweep believes the run it is part of. One flapping collection -- a
+device briefly unreachable mid-run, a transceiver reseated between two
+passes -- is otherwise enough to unassign an address or delete a module
+that is still there.
+
+With `stale_grace_period_days` set to a positive number, a missing object
+goes through two stages instead of one:
+
+1. The first run that does not find it records when it went missing and
+   tags it **Orphaned (netbox-facts)**. No `stale` entry is recorded and
+   nothing is removed. Every later run that still cannot find it confirms
+   the absence.
+2. Once it has been missing for the whole period, the sweep proceeds
+   exactly as it always did: a detect-only plan records the `stale` entry
+   for review, and an applying plan performs the removal.
+
+An object the run finds again loses the tag and its record, so the clock
+starts from zero the next time it goes missing.
+
+The default is `0`, which disables the grace period entirely: no records
+are written and every sweep behaves exactly as it did before the setting
+existed. Each plan can override the setting with its own
+`stale_grace_days` field -- blank follows the setting, `0` opts that plan
+out of a fleet-wide grace period. See
+[Stale grace period](../user-guide/collection-plans.md#stale-grace-period).
+
+The tag is created by a plugin migration and looked up by its slug
+(`netbox-facts-orphaned`), so it is safe to recolour or re-describe it.
+Filtering a list view on it is the quickest way to see what is on its way
+out before anything is removed.
 
 ## Report retention
 

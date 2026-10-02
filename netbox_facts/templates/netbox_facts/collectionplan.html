@@ -60,6 +60,21 @@
                         <th scope="row">{% trans "Detect Only" %}</th>
                         <td>{% checkmark object.detect_only %}</td>
                     </tr>
+                    <tr>
+                        <th scope="row">{% trans "Stale grace period" %}</th>
+                        <td>
+                            {% with days=object.get_stale_grace_days %}
+                            {% if days %}
+                            {% blocktrans count counter=days %}{{ counter }} day{% plural %}{{ counter }} days{% endblocktrans %}
+                            {% else %}
+                            {% trans "None (missing objects are removed on the first run that does not find them)" %}
+                            {% endif %}
+                            {% endwith %}
+                            {% if object.stale_grace_days is None %}
+                            <span class="text-muted">{% trans "(from plugin configuration)" %}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                 </table>
             </div>
         </div>
