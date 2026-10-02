@@ -45,7 +45,7 @@ from netbox_facts.choices import (
     entry_kind_token,
     normalize_driver_name,
 )
-from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.constants import AUTO_D_TAG_SLUG
 from netbox_facts.events import enqueue_report_ready
 from netbox_facts.exceptions import CollectionError
 from netbox_facts.helpers.change_hash import compute_change_hash
@@ -62,6 +62,7 @@ from netbox_facts.helpers.netbox import (
     duplicate_object_warning,
     get_absolute_url_markdown,
     get_connection_ips,
+    get_discovery_tag,
     get_or_create_ip,
     get_or_create_mac,
     resolve_device_by_name,
@@ -580,7 +581,7 @@ class NapalmCollector:
             device_macs = MACAddress.objects.filter(interfaces__in=self._current_device.vc_interfaces()).distinct()
             known_ips = (
                 IPAddress.objects.filter(mac_addresses__in=device_macs)
-                .filter(tags__name=AUTO_D_TAG, address__family=ip_family)
+                .filter(tags__slug=AUTO_D_TAG_SLUG, address__family=ip_family)
                 .select_related("vrf")
                 .distinct()
             )
@@ -783,7 +784,7 @@ class NapalmCollector:
                         description=description,
                         discovered=True,
                     )
-                    item.tags.add(AUTO_D_TAG)
+                    item.tags.add(get_discovery_tag())
                     created_items[name] = item
                     self._mark_entry_applied(
                         entry, item, object_repr=self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, item)
@@ -854,7 +855,7 @@ class NapalmCollector:
 
         stale_modules = Module.objects.filter(
             device=device,
-            tags__name=AUTO_D_TAG,
+            tags__slug=AUTO_D_TAG_SLUG,
         ).exclude(module_bay_id__in=seen_module_bay_ids)
 
         for stale_mod in stale_modules:
@@ -1051,7 +1052,7 @@ class NapalmCollector:
                 if iface_data.get("mtu"):
                     kwargs["mtu"] = iface_data["mtu"]
             nb_iface = Interface.objects.create(**kwargs)
-            nb_iface.tags.add(AUTO_D_TAG)
+            nb_iface.tags.add(get_discovery_tag())
             self._log_success(f"Auto-created interface `{name}` (type={iface_type}) on {device}.")
             return nb_iface
 
@@ -1395,7 +1396,7 @@ class NapalmCollector:
         stale_ips = IPAddress.objects.filter(
             assigned_object_type=iface_ct,
             assigned_object_id__in=device_iface_ids,
-            tags__name=AUTO_D_TAG,
+            tags__slug=AUTO_D_TAG_SLUG,
         )
         for ip in stale_ips:
             vrf_id = ip.vrf_id
@@ -1433,7 +1434,7 @@ class NapalmCollector:
         elif (
             existing_ip.assigned_object is not None
             and existing_ip.assigned_object != nb_li
-            and existing_ip.tags.filter(name=AUTO_D_TAG).exists()
+            and existing_ip.tags.filter(slug=AUTO_D_TAG_SLUG).exists()
         ):
             action = EntryActionChoices.ACTION_CHANGED
         else:
@@ -1480,7 +1481,7 @@ class NapalmCollector:
                     self._log_warning(duplicate_object_warning("Prefix", net))
                     return
                 if prefix_created:
-                    nb_prefix.tags.add(AUTO_D_TAG)
+                    nb_prefix.tags.add(get_discovery_tag())
             # Create/get IPAddress
             try:
                 nb_ip, created = get_or_create_ip(
@@ -1497,7 +1498,7 @@ class NapalmCollector:
             elif nb_ip.assigned_object is None:
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
-            elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
+            elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(slug=AUTO_D_TAG_SLUG).exists():
                 nb_ip.assigned_object = nb_li
                 nb_ip.save()
             self._mark_entry_applied(
@@ -1602,7 +1603,7 @@ class NapalmCollector:
                         )
                         cable.full_clean()
                         cable.save()
-                        cable.tags.add(AUTO_D_TAG)
+                        cable.tags.add(get_discovery_tag())
 
                         JournalEntry.objects.create(
                             created=self._now,
@@ -2006,7 +2007,7 @@ class NapalmCollector:
                 asn=local_asn,
             )
             if router_created:
-                bgp_router.tags.add(AUTO_D_TAG)
+                bgp_router.tags.add(get_discovery_tag())
         else:
             bgp_router = BGPRouter.objects.filter(
                 assigned_object_type=device_ct,
@@ -2045,7 +2046,7 @@ class NapalmCollector:
                     vrf=nb_vrf,
                 )
                 if scope_created:
-                    bgp_scope.tags.add(AUTO_D_TAG)
+                    bgp_scope.tags.add(get_discovery_tag())
             else:
                 bgp_scope = BGPScope.objects.filter(
                     router=bgp_router,
@@ -2081,7 +2082,7 @@ class NapalmCollector:
                         defaults={"remote_as": nb_asn},
                     )
                     if peer_created:
-                        bgp_peer.tags.add(AUTO_D_TAG)
+                        bgp_peer.tags.add(get_discovery_tag())
                 else:
                     bgp_peer = BGPPeer.objects.filter(
                         scope=bgp_scope,

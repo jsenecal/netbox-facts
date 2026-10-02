@@ -120,6 +120,18 @@ The "both" options are useful when devices are reachable via either path
 depending on network conditions. Each attempt logs the IP and the label
 (`primary` / `oob`) being used.
 
+## Reserved objects
+
+The plugin creates one reserved object it needs to keep working: the
+**Automatically Discovered** tag (slug `automatically-discovered`), which
+marks every object a collector or applier created and backs every stale
+and ownership check they run. A migration creates it on install, and a
+signal blocks renaming its slug or deleting it outright, with a message
+naming the plugin rather than a generic permission error. Its display
+name, color, and description are ordinary fields and can be changed
+freely. See [Collectors Overview](../collectors/index.md#auto-discovered-tag)
+for the full contract.
+
 ## Permissions
 
 The plugin ships standard Django permissions for each model
