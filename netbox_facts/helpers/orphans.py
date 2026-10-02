@@ -75,7 +75,35 @@ def record_absence(plan, device, obj, now):
     return candidate.first_missing
 
 
-def forget_absences(plan, device, model, absent_ids) -> int:
+def _settle(rows, obj=None) -> None:
+    """Take the visibility tag off what a set of grace rows named, and drop them.
+
+    Both ends of the lifecycle settle rows through here -- a sweep that
+    found an object again, and a removal that has been carried out -- so
+    what it takes to resolve a row's object, including the content type
+    whose model has left the installation, is decided once and cannot
+    come to cover one end and not the other.
+
+    A caller already holding the object hands it over rather than having
+    it read back; every row reaching such a call names that one object.
+    The objects are resolved before the rows go, because the rows are
+    the only record of which objects they were.
+    """
+    if obj is not None:
+        resolved = [obj]
+    else:
+        resolved = [
+            found
+            for found in (_resolve_generic_object(row.content_type_id, row.object_id) for row in rows)
+            if found is not None
+        ]
+
+    for found in resolved:
+        clear_orphan_mark(found)
+    rows.delete()
+
+
+def forget_absences(plan, device, model, absent_ids) -> None:
     """Forget a plan's grace rows for objects of one model it saw again.
 
     Driven off the rows rather than off the objects the run saw: a sweep
@@ -85,26 +113,18 @@ def forget_absences(plan, device, model, absent_ids) -> int:
 
     Scoped to the plan and device whose sweep is reporting, because a
     sighting is that sweep's news: another plan's clock on the same object
-    is its own business. Returns how many rows were dropped.
+    is its own business.
     """
-    rows = OrphanCandidate.objects.filter(
-        plan=plan,
-        device=device,
-        content_type=ContentType.objects.get_for_model(model),
-    ).exclude(object_id__in=absent_ids)
-
-    cleared = 0
-    for candidate in rows:
-        obj = candidate.object
-        if obj is not None:
-            clear_orphan_mark(obj)
-        cleared += 1
-
-    rows.delete()
-    return cleared
+    _settle(
+        OrphanCandidate.objects.filter(
+            plan=plan,
+            device=device,
+            content_type=ContentType.objects.get_for_model(model),
+        ).exclude(object_id__in=absent_ids)
+    )
 
 
-def release_orphan_candidates(content_type_id, object_id) -> None:
+def release_orphan_candidates(content_type_id, object_id, obj=None) -> None:
     """Settle an object's absence: drop its grace rows and its visibility tag.
 
     Called where the absence has been acted on -- the object removed, or
@@ -113,12 +133,14 @@ def release_orphan_candidates(content_type_id, object_id) -> None:
     only the acting one: what the rows point at is gone or no longer
     assigned, so no plan's clock on it still means anything, and a generic
     foreign key has no cascade to drop them later.
-    """
-    OrphanCandidate.objects.filter(content_type_id=content_type_id, object_id=object_id).delete()
 
-    obj = _resolve_generic_object(content_type_id, object_id)
-    if obj is not None:
-        clear_orphan_mark(obj)
+    ``obj`` is the instance for a caller that is holding it already -- the
+    run about to remove it -- which saves reading it back.
+    """
+    _settle(
+        OrphanCandidate.objects.filter(content_type_id=content_type_id, object_id=object_id),
+        obj=obj,
+    )
 
 
 def _resolve_generic_object(content_type_id, object_id):
