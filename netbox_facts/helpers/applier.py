@@ -24,11 +24,12 @@ from netbox_facts.choices import (
     EntryStatusChoices,
     ReportStatusChoices,
 )
-from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.constants import AUTO_D_TAG_SLUG
 from netbox_facts.helpers.current_state import snapshot_entry
 from netbox_facts.helpers.netbox import (
     claim_device_interface,
     create_module,
+    get_discovery_tag,
     get_or_create_interface,
     get_or_create_ip,
     get_or_create_mac,
@@ -464,7 +465,7 @@ def _apply_inventory_item(entry):
         },
     )
     if created:
-        item.tags.add(AUTO_D_TAG)
+        item.tags.add(get_discovery_tag())
     elif entry.action == EntryActionChoices.ACTION_CHANGED:
         item.serial = serial
         item.part_id = part_id
@@ -524,7 +525,7 @@ def _apply_stale_module(entry):
         set_entry_object(entry, entry.device)
         return
 
-    if mod is not None and mod.tags.filter(name=AUTO_D_TAG).exists():
+    if mod is not None and mod.tags.filter(slug=AUTO_D_TAG_SLUG).exists():
         mod.delete()
 
     set_entry_object(entry, entry.device)
@@ -608,7 +609,7 @@ def _apply_interfaces_ip(entry, dv, now):
                 },
             )
             if prefix_created:
-                nb_prefix.tags.add(AUTO_D_TAG)
+                nb_prefix.tags.add(get_discovery_tag())
 
     # Create/get IPAddress
     nb_ip, created = get_or_create_ip(
@@ -620,7 +621,7 @@ def _apply_interfaces_ip(entry, dv, now):
     if not created and nb_ip.assigned_object is None:
         nb_ip.assigned_object = nb_li
         nb_ip.save()
-    elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(name=AUTO_D_TAG).exists():
+    elif nb_ip.assigned_object != nb_li and nb_ip.tags.filter(slug=AUTO_D_TAG_SLUG).exists():
         nb_ip.assigned_object = nb_li
         nb_ip.save()
     set_entry_object(entry, nb_ip)
@@ -645,7 +646,7 @@ def _apply_stale_interfaces_ip(entry):
         logger.warning("IP %s not found for stale entry %s", cidr, entry.pk)
         return
 
-    if not nb_ip.tags.filter(name=AUTO_D_TAG).exists():
+    if not nb_ip.tags.filter(slug=AUTO_D_TAG_SLUG).exists():
         return
 
     nb_ip.assigned_object = None
@@ -680,7 +681,7 @@ def _apply_lldp_entry(entry, now):
     )
     cable.full_clean()
     cable.save()
-    cable.tags.add(AUTO_D_TAG)
+    cable.tags.add(get_discovery_tag())
     set_entry_object(entry, cable)
 
 
@@ -828,7 +829,7 @@ def _get_local_bgp_router(entry, local_as):
         asn=asn_obj,
     )
     if created:
-        router.tags.add(AUTO_D_TAG)
+        router.tags.add(get_discovery_tag())
     return router
 
 
@@ -855,7 +856,7 @@ def _apply_bgp_scope_entry(entry):
         vrf=nb_vrf,
     )
     if created:
-        scope.tags.add(AUTO_D_TAG)
+        scope.tags.add(get_discovery_tag())
     set_entry_object(entry, scope)
 
 
@@ -892,7 +893,7 @@ def _apply_bgp_peer_routing_entry(entry):
         defaults={"remote_as": nb_remote_asn},
     )
     if created:
-        peer.tags.add(AUTO_D_TAG)
+        peer.tags.add(get_discovery_tag())
     set_entry_object(entry, peer)
 
 
