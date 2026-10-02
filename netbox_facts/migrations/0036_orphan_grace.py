@@ -1,13 +1,20 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-from netbox_facts.constants import ORPHAN_TAG_NAME, ORPHAN_TAG_SLUG
+# Frozen copy of the tag's identity, deliberately not imported from
+# netbox_facts.constants: a data migration describes a one-time
+# transformation as it stood when written, so it must not change meaning
+# if the constants module is edited later. Same convention as
+# 0035_discovery_tag.py and 0028_entry_kind_and_apply_error.py.
+ORPHAN_TAG_NAME = "Orphaned (netbox-facts)"
+ORPHAN_TAG_SLUG = "netbox-facts-orphaned"
 
-#: The colour the visibility tag is created with. Orange reads as "on its
-#: way out" alongside the colours NetBox gives healthy state, and an
-#: operator is free to change it: nothing looks the tag up by colour.
+# Orange reads as "on its way out" alongside the colours NetBox gives
+# healthy state, and an operator is free to change it: nothing looks the
+# tag up by colour.
 ORPHAN_TAG_COLOR = "ff9800"
 
+# Kept within extras.Tag.description's 200-character max_length.
 ORPHAN_TAG_DESCRIPTION = "Not seen by a netbox-facts collection run; removal pending the configured grace period."
 
 
@@ -43,7 +50,7 @@ class Migration(migrations.Migration):
         ("contenttypes", "0002_remove_content_type_name"),
         ("dcim", "0181_rename_device_role_device_role"),
         ("extras", "0001_squashed"),
-        ("netbox_facts", "0034_device_outcomes"),
+        ("netbox_facts", "0035_discovery_tag"),
     ]
 
     operations = [

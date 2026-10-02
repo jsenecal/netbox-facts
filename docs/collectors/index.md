@@ -65,8 +65,22 @@ apply pending entries from a detect-only report. The dispatch table is
 ## Auto-discovered tag
 
 Objects created by collectors are tagged
-**Automatically Discovered** (constant: `AUTO_D_TAG`). Stale detection
-relies on this tag, so manually-added objects are never considered stale.
+**Automatically Discovered** (constant: `AUTO_D_TAG`, slug
+`automatically-discovered`). Stale detection relies on this tag, so
+manually-added objects are never considered stale.
+
+### Reserved object
+
+This tag's row is created by a migration and every ownership check in
+`helpers/collector.py` and `helpers/applier.py` matches it by slug, not by
+its display name -- so renaming it in the UI does not break anything.
+Deleting the tag, or changing its slug directly through the REST API,
+is blocked by a signal with a message naming the plugin; its color and
+description can still be edited freely. See `get_discovery_tag()` in
+`netbox_facts/helpers/netbox.py` for the lookup and
+`netbox_facts/migrations/0035_discovery_tag.py` for how the row is first
+established (including adopting a pre-existing tag of the same name from
+before this migration existed).
 
 ## Stale sweeps and the grace period
 

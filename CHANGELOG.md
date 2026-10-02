@@ -8,8 +8,30 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Changed
+
+- Ownership checks in `helpers/collector.py` and `helpers/applier.py` now
+  match the **Automatically Discovered** tag by its stable slug
+  (`automatically-discovered`) instead of its display name, so renaming
+  the tag in the UI no longer breaks stale detection or any ownership
+  gate. A migration creates the tag's row (adopting a pre-existing tag of
+  the same name if one exists under a different slug), and a signal
+  blocks renaming its slug or deleting it outright with a message naming
+  the plugin; its display name, color, and description remain freely
+  editable.
+
 ### Fixed
 
+- The MAC address detail page's Interfaces tab badge always showed 0 even
+  when the tab listed rows. NetBox's own `dcim.MACAddress` model already
+  owns the `mac_addresses` reverse name that the plugin's `interfaces` M2M
+  field also asks for on `dcim.Interface`, so a read through the forward
+  manager silently resolved to the wrong relation and came back empty. The
+  badge now counts through the plugin's own `MACAddressInterfaceRelation`
+  through-model, the same way the tab's row listing already did. The MAC
+  list's "Occurrences" column was not affected: its `Count("interfaces")`
+  annotation resolves the field declared on `MACAddress` directly and never
+  needed the colliding reverse name. (#192)
 - Cloning a Collection Plan no longer carries its credentials into the new
   plan's creation link. NetBox renders cloned attributes into the link's
   querystring, so a stored username, password or enable secret ended up in

@@ -13,7 +13,45 @@ from ipam.models import IPAddress
 from ipam.models.ip import Prefix
 from ipam.models.vrfs import VRF
 
-from netbox_facts.constants import AUTO_D_TAG
+from netbox_facts.constants import AUTO_D_TAG, AUTO_D_TAG_DESCRIPTION, AUTO_D_TAG_SLUG
+
+# Caches the discovery tag's pk between calls so most lookups skip
+# get_or_create() entirely. Deliberately a bare pk rather than the Tag
+# instance: a cached instance could outlive the row it points at (the test
+# suite flushes the database between tests, and an operator could delete
+# the row despite the delete-guard signal failing open for some reason), so
+# every call re-fetches by pk and falls through to get_or_create() whenever
+# that fetch misses, which also recreates the tag if it was ever removed.
+_discovery_tag_pk: int | None = None
+
+
+def get_discovery_tag():
+    """Return the "Automatically Discovered" tag, resolved by its stable slug.
+
+    Every ownership gate in helpers/collector.py and helpers/applier.py
+    needs the same row this returns, so looking it up by slug rather than
+    by AUTO_D_TAG (the display name) is what keeps those checks working
+    after an operator renames the tag in the UI. Callers that only need to
+    filter a queryset for the tag can skip this function and filter on
+    tags__slug=AUTO_D_TAG_SLUG directly instead, which does not need the
+    row to already exist.
+    """
+    from extras.models import Tag
+
+    global _discovery_tag_pk
+
+    if _discovery_tag_pk is not None:
+        try:
+            return Tag.objects.get(pk=_discovery_tag_pk, slug=AUTO_D_TAG_SLUG)
+        except Tag.DoesNotExist:
+            pass
+
+    tag, _created = Tag.objects.get_or_create(
+        slug=AUTO_D_TAG_SLUG,
+        defaults={"name": AUTO_D_TAG, "description": AUTO_D_TAG_DESCRIPTION},
+    )
+    _discovery_tag_pk = tag.pk
+    return tag
 
 
 def filtered_list_url(route_name: str, params: dict[str, Any]) -> str:
@@ -203,7 +241,7 @@ def detect_interface_type(name):
 def get_or_create_interface(device, name):
     """Look up an interface on a device, creating it if missing.
 
-    When created, the interface is tagged with AUTO_D_TAG and its type
+    When created, the interface is tagged with the discovery tag and its type
     is inferred from the name via detect_interface_type().
     Sub-interfaces (containing '.') get their parent set to the physical interface.
     """
@@ -219,7 +257,7 @@ def get_or_create_interface(device, name):
             except Interface.DoesNotExist:
                 pass
         nb_iface = Interface.objects.create(**kwargs)
-        nb_iface.tags.add(AUTO_D_TAG)
+        nb_iface.tags.add(get_discovery_tag())
         return nb_iface
 
 
@@ -250,7 +288,7 @@ def duplicate_object_warning(label, value):
 
 
 def get_or_create_mac(mac_addr):
-    """Get or create a MACAddress, tagging with AUTO_D_TAG if created.
+    """Get or create a MACAddress, tagging with the discovery tag if created.
 
     Returns (MACAddress, bool). Lets MultipleObjectsReturned propagate.
     """
@@ -258,7 +296,7 @@ def get_or_create_mac(mac_addr):
 
     netbox_mac, created = MACAddress.objects.get_or_create(mac_address=mac_addr)
     if created:
-        netbox_mac.tags.add(AUTO_D_TAG)
+        netbox_mac.tags.add(get_discovery_tag())
     return netbox_mac, created
 
 
@@ -277,7 +315,7 @@ def claim_device_interface(netbox_mac, nb_iface):
 
 
 def get_or_create_ip(address, vrf=None, **defaults):
-    """Get or create an IPAddress, tagging with AUTO_D_TAG if created.
+    """Get or create an IPAddress, tagging with the discovery tag if created.
 
     Returns (IPAddress, bool). Lets MultipleObjectsReturned propagate.
     """
@@ -287,7 +325,7 @@ def get_or_create_ip(address, vrf=None, **defaults):
         defaults=defaults,
     )
     if created:
-        nb_ip.tags.add(AUTO_D_TAG)
+        nb_ip.tags.add(get_discovery_tag())
     return nb_ip, created
 
 
@@ -317,7 +355,7 @@ def resolve_vrf_or_fail(name):
 
 
 def create_module(device, module_bay, module_type, serial):
-    """Create a Module with adopt/disable-replication flags, tagged with AUTO_D_TAG."""
+    """Create a Module with adopt/disable-replication flags, tagged with the discovery tag."""
     from dcim.models.modules import Module
 
     mod = Module(
@@ -329,7 +367,7 @@ def create_module(device, module_bay, module_type, serial):
     mod._adopt_components = True
     mod._disable_replication = True
     mod.save()
-    mod.tags.add(AUTO_D_TAG)
+    mod.tags.add(get_discovery_tag())
     return mod
 
 
