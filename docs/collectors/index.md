@@ -68,6 +68,35 @@ Objects created by collectors are tagged
 **Automatically Discovered** (constant: `AUTO_D_TAG`). Stale detection
 relies on this tag, so manually-added objects are never considered stale.
 
+## Stale sweeps and the grace period
+
+Four sweeps reconcile what a device no longer reports:
+
+| Sweep | Objects | What the removal does |
+|---|---|---|
+| `_ip_neighbors()` (ARP, NDP) | Auto-discovered IPs reachable through the device's MACs, filtered to the collector's address family | Records a `stale` entry |
+| `_collect_chassis_inventory()` | Discovered `InventoryItem`s not reported by the chassis | Deletes the item |
+| `_collect_chassis_inventory()` | Auto-discovered `Module`s in bays the chassis did not report | Deletes the module |
+| `_detect_stale_ips()` (interfaces) | Auto-discovered IPs on the interfaces this run inspected | Unassigns the address |
+
+Every one of them asks `_hold_stale_in_grace()` before it proposes or
+performs anything. With a grace period configured on the plan (or
+plugin-wide), the first absence writes an `OrphanCandidate` row recording
+when the object went missing, tags the object **Orphaned
+(netbox-facts)**, and stops there; later runs move the row's
+`last_missing` stamp. Only once `now - first_missing` has reached the
+period does the sweep carry on into the behavior in the table above.
+
+An object the sweep finds again is forgotten: `_forget_stale_grace()`
+drops the row and takes the tag off. The sweep hands it the ids it judged
+absent and the pass is driven off the rows rather than off the objects
+seen, so a device with nothing orphaned costs one query.
+
+A grace period of `0` -- the shipped default -- short-circuits the gate
+before any row is written, so a plan without one behaves exactly as it did
+before the grace period existed. See
+[Stale grace period](../getting-started/configuration.md#stale-grace-period).
+
 ## Interface filter
 
 The plugin-wide `valid_interfaces_re` setting filters which interfaces a

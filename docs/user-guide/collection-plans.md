@@ -181,6 +181,30 @@ every applied object has a record; in this mode entries are marked
 
 See [Detect-Only Workflow](detect-only.md) for the full apply flow.
 
+## Stale grace period
+
+| Field | Notes |
+|---|---|
+| `stale_grace_days` | Optional. Days an object this plan no longer finds is marked **Orphaned (netbox-facts)** before its removal is proposed. Blank -- the default -- follows the `stale_grace_period_days` plugin setting. `0` means no grace period for this plan, whatever the setting says: a missing object's removal is proposed on the first run that does not find it. |
+
+The field is on the **Collector** fieldset of the edit form, next to
+**Detect only**, and the plan page shows the period in force along with
+whether it came from the plan or from the plugin configuration.
+
+Both modes honor the period, and they differ only in what happens at the
+end of it: a detect-only plan records the `stale` entry for review, an
+applying plan performs the removal. Either way, the first absence only
+marks the object, so a pending removal is visible on the object itself --
+and in any list view filtered on the tag -- before anything is lost.
+
+Applying a `stale` entry settles the absence: the tag comes off and the
+plan's record of it is dropped. Skipping one does not -- a skip is a
+decision about the entry, not about the object -- so the object stays
+marked and the clock keeps running.
+
+See [Stale grace period](../getting-started/configuration.md#stale-grace-period)
+for the lifecycle in full.
+
 ## Scheduling
 
 Scheduling is driven by the `interval` and `cron_schedule` fields, the
