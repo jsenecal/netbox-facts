@@ -6,6 +6,7 @@ from .mac import (
     MACAddressIPAddressRelation,
     MACVendor,
 )
+from .orphans import OrphanCandidate
 from .outcomes import FactsReportDeviceOutcome
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "FactsReport",
     "FactsReportDeviceOutcome",
     "FactsReportEntry",
+    "OrphanCandidate",
 ]

@@ -35,6 +35,7 @@ class FactsConfig(PluginConfig):
         "job_timeout": 1800,
         "report_retention_days": 0,
         "scope_warning_threshold": 500,
+        "stale_grace_period_days": 0,
     }
 
     def ready(self):

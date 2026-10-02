@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from collections.abc import Generator
+from datetime import timedelta
 from itertools import groupby
 from time import monotonic
 from types import GeneratorType
@@ -69,6 +70,12 @@ from netbox_facts.helpers.netbox import (
     resolve_napalm_network_instances,
     resolve_vrf,
     update_or_replace_module,
+)
+from netbox_facts.helpers.orphans import (
+    forget_absences,
+    mark_orphaned,
+    record_absence,
+    release_orphan_candidates,
 )
 from netbox_facts.models.mac import MACAddress
 from netbox_facts.models.outcomes import (
@@ -149,6 +156,11 @@ class NapalmCollector:
     #: dict so the class default cannot be shared between collectors.
     _skip_memory: dict[int, set[tuple[str, str]]] | None = None
 
+    #: How many missing objects this run marked orphaned instead of
+    #: proposing their removal. Declared on the class for the same reason
+    #: as the suppression count above.
+    _objects_in_grace: int = 0
+
     def __init__(self, plan) -> None:
         self.plan: CollectionPlan = plan
         self._collector_type = plan.collector_type
@@ -181,6 +193,7 @@ class NapalmCollector:
         self._device_skip_detail: str = ""
         self._suppressed_changes = 0
         self._skip_memory = {}
+        self._objects_in_grace = 0
 
         # Load the plan's driver override once, if it names one. A plan that
         # names none resolves a driver per device from the device's platform,
@@ -252,6 +265,58 @@ class NapalmCollector:
         if self._should_apply():
             return False
         return (entry_kind, change_hash) in self._skipped_change_hashes(device)
+
+    def _hold_stale_in_grace(self, device, obj) -> bool:
+        """Return True when a missing object's grace period has not run out.
+
+        Every stale sweep asks this before it proposes or performs a
+        removal. With a grace period configured, the first run that cannot
+        find an object only records the absence and marks the object
+        orphaned, and each later run confirms the absence; only once the
+        object has been missing for the whole period does the sweep carry
+        on into the behavior it has always had. A configured 0 -- the
+        shipped default -- short-circuits here, so a plan with no grace
+        period writes no rows and behaves exactly as it did before.
+
+        The mark is applied on the way past as well as on the way in: an
+        object whose period has run out is still orphaned until the
+        removal is actually applied, which in a detect-only run is a
+        reviewer's decision made some time later.
+        """
+        days = self.plan.get_stale_grace_days()
+        if days <= 0:
+            return False
+
+        first_missing = record_absence(self.plan, device, obj, self._now)
+        mark_orphaned(obj)
+
+        if self._now - first_missing >= timedelta(days=days):
+            return False
+        self._objects_in_grace += 1
+        return True
+
+    def _release_stale_grace(self, obj) -> None:
+        """Settle the absence of an object this run is about to remove.
+
+        Called before the removal rather than after it: taking the
+        visibility tag off needs the object to still be there, and a
+        deleted instance no longer knows its own primary key.
+        """
+        if self.plan.get_stale_grace_days() <= 0:
+            return
+        release_orphan_candidates(ContentType.objects.get_for_model(obj).pk, obj.pk)
+
+    def _forget_stale_grace(self, device, model, absent_ids) -> None:
+        """Clear the grace rows for objects of one model this sweep found again.
+
+        The sweep hands over the ids it judged absent; every other object
+        of that model it holds a row for is one it saw, so the row and the
+        mark go. Skipped entirely when the plan has no grace period, since
+        it can hold no rows.
+        """
+        if self.plan.get_stale_grace_days() <= 0:
+            return
+        forget_absences(self.plan, device, model, absent_ids)
 
     def _record_entry(
         self,
@@ -584,9 +649,14 @@ class NapalmCollector:
                 .select_related("vrf")
                 .distinct()
             )
+            absent_ip_ids = []
             for ip_obj in known_ips:
                 key = (str(ip_obj.address), ip_obj.vrf_id)
                 if key not in seen_ips:
+                    absent_ip_ids.append(ip_obj.pk)
+                    if self._hold_stale_in_grace(self._current_device, ip_obj):
+                        self._log_info(f"IP {ip_obj.address} not seen in current table; marked orphaned.")
+                        continue
                     self._record_entry(
                         action=EntryActionChoices.ACTION_STALE,
                         collector_type=self._collector_type,
@@ -601,6 +671,7 @@ class NapalmCollector:
                         object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, ip_obj),
                     )
                     self._log_info(f"IP {ip_obj.address} not seen in current table — flagged as stale.")
+            self._forget_stale_grace(self._current_device, IPAddress, absent_ip_ids)
 
     def arp(self, driver: NetworkDriver | EnhancedJunOSDriver):
         """Collect ARP table data from a device."""
@@ -821,7 +892,11 @@ class NapalmCollector:
             discovered=True,
         ).exclude(name__in=seen_names)
 
+        absent_item_ids = []
         for stale_item in stale_items:
+            absent_item_ids.append(stale_item.pk)
+            if self._hold_stale_in_grace(device, stale_item):
+                continue
             stale_entry = self._record_entry(
                 action=EntryActionChoices.ACTION_STALE,
                 collector_type=self._collector_type,
@@ -838,8 +913,11 @@ class NapalmCollector:
                 object_repr=self._entry_label(EntryKindChoices.KIND_INVENTORY_ITEM, stale_item.name),
             )
             if self._should_apply():
+                self._release_stale_grace(stale_item)
                 stale_item.delete()
                 self._mark_entry_applied(stale_entry, device)
+
+        self._forget_stale_grace(device, InventoryItem, absent_item_ids)
 
         # Detect stale auto-discovered Modules. When any reported component's
         # bay could not be resolved, the set of seen bays is incomplete and a
@@ -857,7 +935,11 @@ class NapalmCollector:
             tags__name=AUTO_D_TAG,
         ).exclude(module_bay_id__in=seen_module_bay_ids)
 
+        absent_module_ids = []
         for stale_mod in stale_modules:
+            absent_module_ids.append(stale_mod.pk)
+            if self._hold_stale_in_grace(device, stale_mod):
+                continue
             bay_name = stale_mod.module_bay.name
             stale_entry = self._record_entry(
                 action=EntryActionChoices.ACTION_STALE,
@@ -874,8 +956,11 @@ class NapalmCollector:
                 object_repr=self._entry_label(EntryKindChoices.KIND_MODULE, bay_name),
             )
             if self._should_apply():
+                self._release_stale_grace(stale_mod)
                 stale_mod.delete()
                 self._mark_entry_applied(stale_entry, device)
+
+        self._forget_stale_grace(device, Module, absent_module_ids)
 
     def _collect_chassis_module(
         self,
@@ -1384,7 +1469,9 @@ class NapalmCollector:
 
         Only interfaces this run actually inspected are swept: names the
         configured regex excludes, and interfaces whose IPs were skipped
-        (unresolvable VRF), keep their assignments.
+        (unresolvable VRF), keep their assignments. An address the plan's
+        grace period still covers is marked orphaned rather than
+        unassigned.
         """
         iface_ct = ContentType.objects.get_for_model(Interface)
         device_iface_ids = [
@@ -1397,10 +1484,14 @@ class NapalmCollector:
             assigned_object_id__in=device_iface_ids,
             tags__name=AUTO_D_TAG,
         )
+        absent_ip_ids = []
         for ip in stale_ips:
             vrf_id = ip.vrf_id
             key = (str(ip.address), vrf_id)
             if key in self._seen_ips:
+                continue
+            absent_ip_ids.append(ip.pk)
+            if self._hold_stale_in_grace(device, ip):
                 continue
             current_values = {
                 "ip_address": str(ip.address),
@@ -1418,9 +1509,12 @@ class NapalmCollector:
                 object_repr=self._entry_label(EntryKindChoices.KIND_IP_ADDRESS, ip, ip.assigned_object),
             )
             if self._should_apply():
+                self._release_stale_grace(ip)
                 ip.assigned_object = None
                 ip.save()
                 self._mark_entry_applied(entry, ip)
+
+        self._forget_stale_grace(device, IPAddress, absent_ip_ids)
 
     def _record_ip_entry(self, device, nb_li, cidr, net, netbox_vrf):
         """Record and optionally apply a single IP address entry."""
@@ -2318,6 +2412,10 @@ class NapalmCollector:
             # The skip memory is only trustworthy if a run says it is at
             # work; a queue that is quiet for no visible reason is not.
             message += f"; suppressed {self._suppressed_changes} previously skipped changes"
+        if self._objects_in_grace:
+            # Same reasoning as the suppression count: a sweep that found
+            # objects missing and proposed nothing has to say why.
+            message += f"; {self._objects_in_grace} objects in grace"
         self._log_info(message)
 
     def _nothing_collected_message(self):

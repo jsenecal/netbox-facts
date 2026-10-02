@@ -301,6 +301,7 @@ class CollectorForm(NetBoxModelForm):
             "description",
             "enabled",
             "detect_only",
+            "stale_grace_days",
             name=_("Collector"),
         ),
         FieldSet(
@@ -344,6 +345,7 @@ class CollectorForm(NetBoxModelForm):
             "description",
             "enabled",
             "detect_only",
+            "stale_grace_days",
             "regions",
             "site_groups",
             "sites",
@@ -553,6 +555,7 @@ class CollectionPlanImportForm(NetBoxModelImportForm):
             "priority",
             "enabled",
             "detect_only",
+            "stale_grace_days",
             "devices",
             "regions",
             "site_groups",

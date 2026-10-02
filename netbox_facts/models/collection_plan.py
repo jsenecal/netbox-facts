@@ -257,6 +257,17 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         ),
     )
 
+    stale_grace_days = models.PositiveSmallIntegerField(
+        verbose_name=_("stale grace period (days)"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "How many days an object this plan stops finding is marked orphaned before its removal is "
+            "proposed. Leave blank to follow the stale_grace_period_days plugin setting; 0 removes a "
+            "missing object on the first run that does not find it."
+        ),
+    )
+
     connection_target = models.CharField(
         max_length=20,
         choices=ConnectionTargetChoices,
@@ -305,6 +316,7 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         "detect_only",
         "connection_target",
         "allow_unscoped",
+        "stale_grace_days",
     )
 
     class Meta:
@@ -668,6 +680,19 @@ class CollectionPlan(NetBoxModel, EventRulesMixin, JobsMixin):
         napalm_args = self._merge_napalm_args()
         napalm_args.pop("debug", None)
         return napalm_args
+
+    def get_stale_grace_days(self) -> int:
+        """Return how long this plan marks a missing object before removing it.
+
+        The per-plan field is the plan's answer whenever it holds one,
+        including a deliberate 0 that opts a plan out of a fleet-wide
+        grace period; blank falls back to the plugin setting. Zero means
+        no grace at all, which is the shipped default and the behavior
+        every sweep had before the grace period existed.
+        """
+        if self.stale_grace_days is not None:
+            return self.stale_grace_days
+        return get_plugin_config("netbox_facts", "stale_grace_period_days", 0) or 0
 
     def get_napalm_driver(self) -> type[NetworkDriver] | None:
         """Return the driver class this plan forces on every device.
