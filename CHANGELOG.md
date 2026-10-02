@@ -10,6 +10,16 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Fixed
 
+- The MAC address detail page's Interfaces tab badge always showed 0 even
+  when the tab listed rows. NetBox's own `dcim.MACAddress` model already
+  owns the `mac_addresses` reverse name that the plugin's `interfaces` M2M
+  field also asks for on `dcim.Interface`, so a read through the forward
+  manager silently resolved to the wrong relation and came back empty. The
+  badge now counts through the plugin's own `MACAddressInterfaceRelation`
+  through-model, the same way the tab's row listing already did. The MAC
+  list's "Occurrences" column was not affected: its `Count("interfaces")`
+  annotation resolves the field declared on `MACAddress` directly and never
+  needed the colliding reverse name. (#192)
 - Cloning a Collection Plan no longer carries its credentials into the new
   plan's creation link. NetBox renders cloned attributes into the link's
   querystring, so a stored username, password or enable secret ended up in

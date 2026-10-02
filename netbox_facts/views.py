@@ -83,6 +83,20 @@ def _annotate_interface_last_seen(queryset, mac_address):
     return queryset.annotate(last_seen=Subquery(last_seen.values("last_updated")[:1]))
 
 
+def _interface_badge_count(mac):
+    """Count interfaces linked to a MAC without going through the forward manager.
+
+    `MACAddress.interfaces` resolves its reverse name, `mac_addresses`, against
+    `dcim.Interface`, where NetBox's own `dcim.MACAddress` already owns a
+    `mac_addresses` generic relation. Django's field lookup for that name binds
+    to whichever relation registered it first, which is the core one -- so a
+    filtered read through the forward manager (as `.all()` or `.filter()` does
+    internally) silently joins against the wrong table and comes back empty.
+    Counting through the through-model directly sidesteps the name clash.
+    """
+    return models.MACAddressInterfaceRelation.objects.filter(mac_address=mac).count()
+
+
 @register_model_view(models.MACAddress, "interfaces")
 class MACInterfacesView(generic.ObjectChildrenView):
     """View for MACAddress instances, Interfaces."""
@@ -94,7 +108,7 @@ class MACInterfacesView(generic.ObjectChildrenView):
     filterset = InterfaceFilterSet
     tab = ViewTab(
         label=_("Interfaces"),
-        badge=lambda x: x.interfaces.all().count(),
+        badge=_interface_badge_count,
         permission="dcim.view_interface",
         weight=490,
     )
