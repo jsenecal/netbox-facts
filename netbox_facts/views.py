@@ -500,6 +500,10 @@ class FactsReportView(generic.ObjectView):
                 "failed": failed_count,
                 "total": entries.count(),
             },
+            # What the run made of its devices, which the entry counts
+            # cannot show: a report with no entries is either a clean run or
+            # one where nothing answered.
+            "device_counts": instance.device_outcome_counts,
         }
 
 
@@ -558,6 +562,34 @@ class _EntryExportView(generic.ObjectListView):
         """
         filename = filename or f"{filename_from_model(self.queryset.model)}.csv"
         return super().export_table(table, columns, filename, delimiter)
+
+
+@register_model_view(models.FactsReport, "devices")
+class FactsReportDevicesView(generic.ObjectChildrenView):
+    """Devices tab on FactsReport detail: what the run made of each device.
+
+    Gated on viewing the report, like the entry tabs: an outcome row is a
+    row of the report and is visible exactly when the report is.
+    """
+
+    queryset = models.FactsReport.objects.all()
+    child_model = models.FactsReportDeviceOutcome
+    table = tables.FactsReportDeviceOutcomeTable
+    filterset = filtersets.FactsReportDeviceOutcomeFilterSet
+    template_name = "netbox_facts/factsreport_devices.html"
+    actions = ()
+    tab = ViewTab(
+        label=_("Devices"),
+        badge=lambda report: report.device_outcomes.count(),
+        permission=ENTRY_TAB_PERMISSION,
+        weight=500,
+    )
+
+    def get_children(self, request, parent):
+        return parent.device_outcomes.all()
+
+    def get_extra_context(self, request, instance):
+        return {"device_counts": instance.device_outcome_counts}
 
 
 def _status_entries_view(status_value, status_label, weight):

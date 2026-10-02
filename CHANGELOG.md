@@ -67,6 +67,23 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Added
 
+- A collection run now records what it made of every device it attempted, as
+  one `FactsReportDeviceOutcome` row per device on the report: the outcome
+  (`ok`, `unreachable`, `auth_failed`, `driver_error`, `skipped_no_ip`,
+  `skipped_no_driver`, `skipped_incompatible`), the seconds spent dialing the
+  device, how many entries its pass produced, and one line of evidence from
+  the connection failure. Previously a per-device failure reached only the job
+  log, so a report could not say whether it was empty because the network was
+  clean or because nothing answered. The outcomes are the same categories the
+  run-summary log line already tallied, so a row and the log agree by
+  construction. The report page gains collected / failed / skipped device
+  counts, a **Devices** tab lists the rows (badged with the number of devices
+  attempted), and `GET /api/plugins/facts/factsreportdeviceoutcomes/` exposes
+  them read-only, filterable by `report`, `outcome` and `device`. The report
+  serializer gains read-only `device_count`, `device_ok_count`,
+  `device_failed_count` and `device_skipped_count`. An authentication failure
+  is now logged and recorded as itself rather than as a generic connection
+  failure. (#144)
 - A **Rediff** action on pending report entries -- per row and in bulk, on the
   Pending tab and as `POST /api/plugins/facts/factsreports/<id>/rediff/` --
   re-reads what NetBox holds for each selected entry without contacting the
@@ -274,6 +291,15 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ### Changed
 
+- A run that collected from none of the devices it attempted now finishes
+  **Failed**, with the distribution in the report's error message (for
+  example `0 of 12 devices collected: 8 unreachable, 4 no NAPALM driver from
+  platform`), instead of finishing `Pending` like a clean detect-only run. No
+  new report status is involved, and partial failure is unchanged: one device
+  collected still leaves a report worth reviewing, with the shortfall visible
+  in the new device counts. The `netbox_facts.report_ready` event is still
+  raised for such a run, so an event rule can act on exactly that case.
+  (#144)
 - An empty-string `username` or `password` stored in a plan's NAPALM arguments
   no longer shadows the plugin-level credential; it now falls back to
   `napalm_username` / `napalm_password`. Clearing the plan's NAPALM username

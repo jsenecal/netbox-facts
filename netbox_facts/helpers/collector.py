@@ -6,6 +6,7 @@ import ipaddress
 import re
 from collections.abc import Generator
 from itertools import groupby
+from time import monotonic
 from types import GeneratorType
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ from napalm.base import NetworkDriver
 from napalm.base.exceptions import (
     CommandErrorException,
     CommandTimeoutException,
+    ConnectAuthError,
     ConnectionException,
     ModuleImportError,
     NapalmException,
@@ -33,6 +35,7 @@ from netbox.plugins.utils import get_plugin_config
 
 from netbox_facts.choices import (
     CollectionTypeChoices,
+    DeviceOutcomeChoices,
     EntryActionChoices,
     EntryKindChoices,
     EntryStatusChoices,
@@ -68,6 +71,10 @@ from netbox_facts.helpers.netbox import (
     update_or_replace_module,
 )
 from netbox_facts.models.mac import MACAddress
+from netbox_facts.models.outcomes import (
+    OUTCOME_MESSAGE_LENGTH,
+    FactsReportDeviceOutcome,
+)
 from netbox_facts.napalm.junos import EnhancedJunOSDriver
 
 if TYPE_CHECKING:
@@ -83,6 +90,12 @@ except ImportError:
     HAS_NETBOX_ROUTING = False
 
 
+#: How much of a failure a finalized report keeps. The field itself is
+#: unbounded text; the cap is here so that a traceback-sized exception string
+#: cannot become the report.
+REPORT_ERROR_LENGTH = 2000
+
+
 class DeviceSkipReasons:
     """Why a run passed over a device, and how the run summary names it.
 
@@ -90,7 +103,9 @@ class DeviceSkipReasons:
     what tells a reviewer that a plan quietly collected from half its
     scope. LABELS is ordered as the summary lists the reasons: first what
     could not be resolved before dialing, then what the device itself did
-    not answer.
+    not answer. OUTCOMES names the durable form each reason is recorded in
+    on the report, so the line a run logs and the row it stores cannot come
+    to classify the same event differently.
     """
 
     NO_DRIVER = "no_driver"
@@ -98,6 +113,7 @@ class DeviceSkipReasons:
     INCOMPATIBLE_DRIVER = "incompatible_driver"
     NO_IP = "no_ip"
     UNREACHABLE = "unreachable"
+    AUTH_FAILED = "auth_failed"
 
     LABELS = {
         NO_DRIVER: "no NAPALM driver from platform",
@@ -105,6 +121,16 @@ class DeviceSkipReasons:
         INCOMPATIBLE_DRIVER: "driver unsupported by this collector",
         NO_IP: "no usable IP address",
         UNREACHABLE: "unreachable",
+        AUTH_FAILED: "authentication failed",
+    }
+
+    OUTCOMES = {
+        NO_DRIVER: DeviceOutcomeChoices.OUTCOME_SKIPPED_NO_DRIVER,
+        UNKNOWN_DRIVER: DeviceOutcomeChoices.OUTCOME_DRIVER_ERROR,
+        INCOMPATIBLE_DRIVER: DeviceOutcomeChoices.OUTCOME_SKIPPED_INCOMPATIBLE,
+        NO_IP: DeviceOutcomeChoices.OUTCOME_SKIPPED_NO_IP,
+        UNREACHABLE: DeviceOutcomeChoices.OUTCOME_UNREACHABLE,
+        AUTH_FAILED: DeviceOutcomeChoices.OUTCOME_AUTH_FAILED,
     }
 
 
@@ -150,6 +176,9 @@ class NapalmCollector:
         self._skipped_devices: dict[str, int] = {}
         self._device_count = 0
         self._current_driver_name = ""
+        self._device_outcomes: list[FactsReportDeviceOutcome] = []
+        self._device_skip_reason: str | None = None
+        self._device_skip_detail: str = ""
         self._suppressed_changes = 0
         self._skip_memory = {}
 
@@ -2198,9 +2227,17 @@ class NapalmCollector:
         except (NapalmException, django.db.IntegrityError, ValueError, AttributeError) as exc:
             self._log_warning(f"netbox-routing OSPF integration error: {exc}")
 
-    def _skip_device(self, reason):
-        """Record that the run passed over the current device."""
+    def _skip_device(self, reason, detail=""):
+        """Record that the run passed over the current device.
+
+        The reason is both tallied for the run summary and kept as the
+        current device's, which is what its outcome row is built from at
+        the end of its pass. A detail is the one line of evidence the row
+        carries; without one the reason's own label stands in.
+        """
         self._skipped_devices[reason] = self._skipped_devices.get(reason, 0) + 1
+        self._device_skip_reason = reason
+        self._device_skip_detail = detail or DeviceSkipReasons.LABELS[reason]
 
     def _resolve_device_driver(self, device) -> tuple[type[NetworkDriver], str] | None:
         """Return the driver class and name to dial one device with, or None.
@@ -2252,17 +2289,30 @@ class NapalmCollector:
             optional_args=self._napalm_args,
         )
 
+    def _collected_count(self):
+        """Return how many of the attempted devices the run collected from."""
+        return self._device_count - sum(self._skipped_devices.values())
+
+    def _skip_distribution(self):
+        """Return the run's skip tally as (label, count) pairs.
+
+        Ordered as LABELS declares the reasons, so every place that spells
+        the distribution out -- the run summary, a failed report's error
+        message -- lists them the same way.
+        """
+        return [
+            (label, self._skipped_devices[reason])
+            for reason, label in DeviceSkipReasons.LABELS.items()
+            if reason in self._skipped_devices
+        ]
+
     def _log_run_summary(self):
         """Log one line tallying what the run collected and what it skipped."""
         self._log_prefix = ""
         skipped = sum(self._skipped_devices.values())
-        message = f"Run summary: {self._device_count - skipped} of {self._device_count} devices collected"
+        message = f"Run summary: {self._collected_count()} of {self._device_count} devices collected"
         if skipped:
-            detail = ", ".join(
-                f"{label}: {self._skipped_devices[reason]}"
-                for reason, label in DeviceSkipReasons.LABELS.items()
-                if reason in self._skipped_devices
-            )
+            detail = ", ".join(f"{label}: {count}" for label, count in self._skip_distribution())
             message += f"; {skipped} skipped ({detail})"
         if self._suppressed_changes:
             # The skip memory is only trustworthy if a run says it is at
@@ -2270,12 +2320,110 @@ class NapalmCollector:
             message += f"; suppressed {self._suppressed_changes} previously skipped changes"
         self._log_info(message)
 
+    def _nothing_collected_message(self):
+        """Return why a run that reached no device at all reached none."""
+        detail = ", ".join(f"{count} {label}" for label, count in self._skip_distribution())
+        return f"0 of {self._device_count} devices collected: {detail}"
+
+    def _build_device_outcome(self, device, duration, entry_count):
+        """Build the unsaved outcome row for one attempted device.
+
+        The outcome is read off whatever reason the device's pass tallied,
+        so a row states exactly what the log lines and the run summary do;
+        no reason means the device was collected from.
+        """
+        reason = self._device_skip_reason
+        return FactsReportDeviceOutcome(
+            report=self._report,
+            device=device,
+            outcome=DeviceSkipReasons.OUTCOMES[reason] if reason else DeviceOutcomeChoices.OUTCOME_OK,
+            duration=duration,
+            entry_count=entry_count,
+            message=self._device_skip_detail[:OUTCOME_MESSAGE_LENGTH],
+        )
+
+    def _record_device_outcomes(self):
+        """Persist the run's per-device outcomes in one statement."""
+        if self._device_outcomes:
+            FactsReportDeviceOutcome.objects.bulk_create(self._device_outcomes)
+            self._device_outcomes = []
+
+    def _finalize_report(self, status, error_message=""):
+        """Close the report out on the status the run ended on.
+
+        Both ends of execute() finish a report the same way -- write what
+        the run learned about its devices, recompute the entry counts,
+        stamp the completion -- and differ only in the status they land on
+        and what they have to say about it, so the shape lives here once.
+        """
+        self._record_device_outcomes()
+        self._report.update_summary()
+        self._report.completed_at = timezone.now()
+        self._report.status = status
+        self._report.error_message = error_message[:REPORT_ERROR_LENGTH]
+        self._report.save(update_fields=["completed_at", "status", "error_message"])
+
+    def _collect_one_device(self, device, collect):
+        """Run one device's pass, returning the seconds it was dialed for.
+
+        None means the run never got as far as a connection, so there is no
+        dial time to report; by then the reason has been logged and tallied.
+        Everything the device itself answered with, or failed to, happens
+        inside the timed region.
+        """
+        # Resolved before any network access, so a device this plan cannot
+        # collect from costs no connection to discover.
+        resolved = self._resolve_device_driver(device)
+        if resolved is None:
+            return None
+        driver_class, self._current_driver_name = resolved
+
+        try:
+            connection_ips = get_connection_ips(
+                self._current_device,
+                self.plan.connection_target,
+            )
+        except ValueError:
+            self._log_warning("Device has no usable IP address configured. Skipping.")
+            self._skip_device(DeviceSkipReasons.NO_IP)
+            return None
+
+        started = monotonic()
+        connected = False
+        auth_detail = ""
+        connection_detail = ""
+        for ip, label in connection_ips:
+            self._log_info(f"Connecting via {label} IP `{ip}`")
+            try:
+                with self._open_napalm_session(driver_class, ip) as driver:
+                    collect(driver)
+                connected = True
+                break
+            except ConnectAuthError as exc:
+                # A subclass of ConnectionException, caught first so the one
+                # failure a reviewer can act on directly is recorded as
+                # itself rather than as silence on the wire.
+                auth_detail = str(exc.__cause__ or exc)
+                self._log_warning(f"Authentication failed via {label} IP `{ip}`: {auth_detail}")
+            except ConnectionException as exc:
+                connection_detail = str(exc.__cause__ or exc)
+                self._log_warning(f"Connection failed via {label} IP `{ip}`: {connection_detail}")
+
+        if not connected:
+            self._log_failure("All connection attempts failed.")
+            if auth_detail:
+                self._skip_device(DeviceSkipReasons.AUTH_FAILED, auth_detail)
+            else:
+                self._skip_device(DeviceSkipReasons.UNREACHABLE, connection_detail)
+        return round(monotonic() - started, 3)
+
     def execute(self):
         """Execute the collection job."""
         from netbox_facts.models.facts_report import FactsReport
 
         self._skipped_devices = {}
         self._device_count = 0
+        self._device_outcomes = []
 
         # Create a report for this run
         self._report = FactsReport.objects.create(
@@ -2294,61 +2442,49 @@ class NapalmCollector:
                 self._current_device = device
                 self._log_prefix = get_absolute_url_markdown(device, bold=True)
                 self._device_count += 1
+                self._device_skip_reason = None
+                self._device_skip_detail = ""
 
                 self._log_info(
                     f"Starting {self.plan.get_collector_type_display()} collection"  # type: ignore
                 )
 
-                # Resolved before any network access, so a device this plan
-                # cannot collect from costs no connection to discover.
-                resolved = self._resolve_device_driver(device)
-                if resolved is None:
-                    continue
-                driver_class, self._current_driver_name = resolved
-
-                try:
-                    connection_ips = get_connection_ips(
-                        self._current_device,
-                        self.plan.connection_target,
+                # How many entries this device's pass produced is the
+                # difference it made to the report, which is counted here
+                # rather than by the entry recorder: an entry may name a
+                # device other than the one being collected from.
+                entries_before = self._report.entries.count()
+                duration = self._collect_one_device(device, collect)
+                self._device_outcomes.append(
+                    self._build_device_outcome(
+                        device,
+                        duration,
+                        self._report.entries.count() - entries_before,
                     )
-                except ValueError:
-                    self._log_warning("Device has no usable IP address configured. Skipping.")
-                    self._skip_device(DeviceSkipReasons.NO_IP)
-                    continue
-
-                connected = False
-                for ip, label in connection_ips:
-                    self._log_info(f"Connecting via {label} IP `{ip}`")
-                    try:
-                        with self._open_napalm_session(driver_class, ip) as driver:
-                            collect(driver)
-                        connected = True
-                        break
-                    except ConnectionException as exc:
-                        detail = exc.__cause__ or exc
-                        self._log_warning(f"Connection failed via {label} IP `{ip}`: {detail}")
-
-                if not connected:
-                    self._log_failure("All connection attempts failed.")
-                    self._skip_device(DeviceSkipReasons.UNREACHABLE)
+                )
 
             self._log_run_summary()
         except Exception as exc:
-            # Safety net: mark the report as failed on unhandled exceptions
-            self._report.update_summary()
-            self._report.completed_at = timezone.now()
-            self._report.status = ReportStatusChoices.STATUS_FAILED
-            self._report.error_message = str(exc)[:2000]
-            self._report.save(update_fields=["completed_at", "status", "error_message"])
+            # Safety net: fail the report on unhandled exceptions. The devices
+            # already accounted for are still written: a run that died on its
+            # fortieth device should not lose what the first thirty-nine said.
+            self._finalize_report(ReportStatusChoices.STATUS_FAILED, str(exc))
             raise
         else:
-            # Finalize report on success
-            self._report.update_summary()
-            self._report.completed_at = timezone.now()
-            self._report.status = (
-                ReportStatusChoices.STATUS_APPLIED if self._should_apply() else ReportStatusChoices.STATUS_PENDING
-            )
-            self._report.save(update_fields=["completed_at", "status"])
+            if self._device_count and not self._collected_count():
+                # Every device the run attempted was skipped or failed, so
+                # the report holds nothing to review. Saying so is the whole
+                # point: a report that sits Pending with no entries reads as
+                # a clean run, and a plan that reaches none of its scope
+                # would stay invisible until someone read the job log.
+                self._finalize_report(
+                    ReportStatusChoices.STATUS_FAILED,
+                    self._nothing_collected_message(),
+                )
+            else:
+                self._finalize_report(
+                    ReportStatusChoices.STATUS_APPLIED if self._should_apply() else ReportStatusChoices.STATUS_PENDING
+                )
             # Announce the finished report once, after its counts and final
             # status are persisted, so event rules see what a reviewer would.
             enqueue_report_ready(self._report)

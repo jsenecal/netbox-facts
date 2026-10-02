@@ -15,7 +15,14 @@ from netbox.tables.columns import (
 
 from .choices import EntryActionChoices
 from .helpers import entry_display
-from .models import CollectionPlan, FactsReport, FactsReportEntry, MACAddress, MACVendor
+from .models import (
+    CollectionPlan,
+    FactsReport,
+    FactsReportDeviceOutcome,
+    FactsReportEntry,
+    MACAddress,
+    MACVendor,
+)
 
 __all__ = [
     "MACAddressTable",
@@ -23,6 +30,7 @@ __all__ = [
     "MACVendorTable",
     "CollectorTable",
     "FactsReportTable",
+    "FactsReportDeviceOutcomeTable",
     "FactsReportEntryTable",
 ]
 
@@ -209,6 +217,31 @@ class FactsReportTable(NetBoxTable):
 
     def render_id(self, value, record):
         return format_html('<a href="{}">{}</a>', record.get_absolute_url(), value)
+
+
+class FactsReportDeviceOutcomeTable(NetBoxTable):
+    """Table representation of the FactsReportDeviceOutcome model.
+
+    One row per device a run attempted. Outcomes carry no page of their own
+    and nothing can be done to one, so the row links out to the device and
+    offers no actions.
+    """
+
+    device = tables.Column(linkify=True)
+    outcome = ChoiceFieldColumn()
+    duration = tables.Column(verbose_name=_("Duration"))
+    entry_count = tables.Column(verbose_name=_("Entries"))
+    message = tables.Column(verbose_name=_("Detail"))
+    actions = ActionsColumn(actions=())
+
+    class Meta(NetBoxTable.Meta):
+        model = FactsReportDeviceOutcome
+        fields = ("device", "outcome", "duration", "entry_count", "message")
+        default_columns = fields
+
+    def render_duration(self, value):
+        """Show the dial time the way the run measured it: seconds."""
+        return f"{value:.2f}s"
 
 
 # Per-row lifecycle shortcuts. The buttons live inside the bulk form the

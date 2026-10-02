@@ -59,6 +59,37 @@
         </div>
     </div>
     <div class="col col-md-6">
+        {% comment %}
+        Devices leads the stat column: how much of the plan's scope the run
+        actually reached is what gives the entry counts below their meaning.
+        An empty report is a clean network or a run that reached nothing,
+        and only this card tells the two apart.
+        {% endcomment %}
+        <div class="card">
+            <h5 class="card-header">{% trans "Devices" %}</h5>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <a href="{% url 'plugins:netbox_facts:factsreport_devices' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-success">{{ device_counts.device_ok_count }}</h3>
+                            <small class="text-muted">{% trans "Collected" %}</small>
+                        </a>
+                    </div>
+                    <div class="col">
+                        <a href="{% url 'plugins:netbox_facts:factsreport_devices' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-danger">{{ device_counts.device_failed_count }}</h3>
+                            <small class="text-muted">{% trans "Failed" %}</small>
+                        </a>
+                    </div>
+                    <div class="col">
+                        <a href="{% url 'plugins:netbox_facts:factsreport_devices' pk=object.pk %}" class="text-decoration-none">
+                            <h3 class="text-secondary">{{ device_counts.device_skipped_count }}</h3>
+                            <small class="text-muted">{% trans "Skipped" %}</small>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="card">
             <h5 class="card-header">{% trans "Summary" %}</h5>
             <div class="card-body">

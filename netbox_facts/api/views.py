@@ -8,8 +8,10 @@ from rest_framework.throttling import UserRateThrottle
 from .. import filtersets, models
 from ..exceptions import OperationNotSupported
 from ..helpers.applier import apply_entries, rediff_entries, retry_entries, skip_entries, unskip_entries
+from ..models.outcomes import DEVICE_OUTCOME_COUNT_ANNOTATIONS
 from .serializers import (
     CollectionPlanSerializer,
+    FactsReportDeviceOutcomeSerializer,
     FactsReportEntrySerializer,
     FactsReportSerializer,
     MACAddressSerializer,
@@ -73,8 +75,12 @@ class CollectorViewSet(NetBoxModelViewSet):
 class FactsReportViewSet(NetBoxModelViewSet):
     """ViewSet for FactsReport with the entry lifecycle actions."""
 
+    # Two multi-valued joins in one queryset multiply each other's rows, so
+    # every count here is taken over distinct children; without that the
+    # entry count would be the product of the two tables rather than a count.
     queryset = models.FactsReport.objects.annotate(
-        entry_count=Count("entries"),
+        entry_count=Count("entries", distinct=True),
+        **DEVICE_OUTCOME_COUNT_ANNOTATIONS,
     )
     serializer_class = FactsReportSerializer
     filterset_class = filtersets.FactsReportFilterSet
@@ -199,3 +205,19 @@ class FactsReportEntryViewSet(NetBoxReadOnlyModelViewSet):
     )
     serializer_class = FactsReportEntrySerializer
     filterset_class = filtersets.FactsReportEntryFilterSet
+
+
+class FactsReportDeviceOutcomeViewSet(NetBoxReadOnlyModelViewSet):
+    """Read-only ViewSet listing what a collection run made of each device.
+
+    Outcomes are written once, when a run finalizes its report, and are
+    never created or edited by a client; filtering by report and outcome is
+    how "which devices did this run fail to reach" is asked over the API.
+    """
+
+    queryset = models.FactsReportDeviceOutcome.objects.select_related(
+        "report",
+        "device",
+    )
+    serializer_class = FactsReportDeviceOutcomeSerializer
+    filterset_class = filtersets.FactsReportDeviceOutcomeFilterSet
