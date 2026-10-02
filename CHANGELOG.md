@@ -8,6 +8,18 @@ Releases prior to 1.0.x use the legacy `## VERSION (DATE)` heading style.
 
 ## [Unreleased]
 
+### Changed
+
+- Ownership checks in `helpers/collector.py` and `helpers/applier.py` now
+  match the **Automatically Discovered** tag by its stable slug
+  (`automatically-discovered`) instead of its display name, so renaming
+  the tag in the UI no longer breaks stale detection or any ownership
+  gate. A migration creates the tag's row (adopting a pre-existing tag of
+  the same name if one exists under a different slug), and a signal
+  blocks renaming its slug or deleting it outright with a message naming
+  the plugin; its display name, color, and description remain freely
+  editable.
+
 ### Fixed
 
 - Cloning a Collection Plan no longer carries its credentials into the new
