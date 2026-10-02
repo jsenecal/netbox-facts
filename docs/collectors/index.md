@@ -93,18 +93,20 @@ Four sweeps reconcile what a device no longer reports:
 | `_collect_chassis_inventory()` | Auto-discovered `Module`s in bays the chassis did not report | Deletes the module |
 | `_detect_stale_ips()` (interfaces) | Auto-discovered IPs on the interfaces this run inspected | Unassigns the address |
 
-Every one of them asks `_hold_stale_in_grace()` before it proposes or
-performs anything. With a grace period configured on the plan (or
+Every one of them hands its absent objects to `_past_grace()` and acts
+only on what comes back. With a grace period configured on the plan (or
 plugin-wide), the first absence writes an `OrphanCandidate` row recording
 when the object went missing, tags the object **Orphaned
-(netbox-facts)**, and stops there; later runs move the row's
+(netbox-facts)**, and holds it back; later runs move the row's
 `last_missing` stamp. Only once `now - first_missing` has reached the
-period does the sweep carry on into the behavior in the table above.
+period is the object returned for the behavior in the table above.
 
-An object the sweep finds again is forgotten: `_forget_stale_grace()`
-drops the row and takes the tag off. The sweep hands it the ids it judged
-absent and the pass is driven off the rows rather than off the objects
-seen, so a device with nothing orphaned costs one query.
+An object the sweep did not report as absent is one it found again, and
+`_past_grace()` forgets it: the row goes and the tag comes off. Driving
+that pass off the rows rather than off the objects seen is what keeps it
+cheap -- a device with nothing orphaned costs one query -- and keeping
+the partition and the forgetting in one place is what stops a sweep from
+deleting a row the same run has just written.
 
 A grace period of `0` -- the shipped default -- short-circuits the gate
 before any row is written, so a plan without one behaves exactly as it did
